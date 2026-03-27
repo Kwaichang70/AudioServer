@@ -334,7 +334,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
       return { artists: [], albums: [], tracks: [], playlists: [] };
     }
     try {
-      const data = await this.apiRequest(`/search?q=${encodeURIComponent(query)}&type=artist,album,track,playlist&limit=${limit}`);
+      const data = await this.apiRequest(`/search?q=${encodeURIComponent(query)}&type=artist,album,track,playlist&limit=${Math.min(limit, 10)}`);
       return {
         artists: (data.artists?.items || []).filter((a: any) => a?.id).map((a: any) => this.mapArtist(a)),
         albums: (data.albums?.items || []).filter((a: any) => a?.id).map((a: any) => this.mapAlbum(a)),
