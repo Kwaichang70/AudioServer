@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { useAudio } from '../hooks/useAudio.js';
 import { api } from '../api/client.js';
+import { useToast } from '../components/Toast.js';
 
 interface TrackInfo {
   id: string;
@@ -43,6 +44,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const [queueIndex, setQueueIndex] = useState(-1);
   const [selectedDeviceId, setSelectedDeviceId] = useState('browser');
   const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
   const lanAddressRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -63,8 +65,13 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       api.spotifyConnectPlay(spotifyTrackUri)
         .then(() => setIsLoading(false))
         .catch((err) => {
-          console.error('Spotify Connect play failed:', err);
           setIsLoading(false);
+          setCurrentTrack(null);
+          if (String(err).includes('404') || String(err).includes('No active device')) {
+            toast('Open Spotify on your phone or desktop first, then try again', 'error');
+          } else {
+            toast(`Spotify playback failed: ${err.message || err}`, 'error');
+          }
         });
       return;
     }
