@@ -129,38 +129,53 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     }
   }, [queue, queueIndex, startTrack, audio]);
 
+  const isSpotifyTrack = currentTrack?.id.startsWith('spotify:') ?? false;
+
   const devicePause = useCallback(() => {
-    if (selectedDeviceId === 'browser') {
+    setIsLoading(true);
+    if (isSpotifyTrack) {
+      api.spotifyConnectPause().then(() => setIsLoading(false)).catch(() => setIsLoading(false));
+    } else if (selectedDeviceId === 'browser') {
       audio.pause();
+      setIsLoading(false);
     } else {
-      api.devicePause(selectedDeviceId).catch(() => {});
+      api.devicePause(selectedDeviceId).then(() => setIsLoading(false)).catch(() => setIsLoading(false));
     }
-  }, [audio, selectedDeviceId]);
+  }, [audio, selectedDeviceId, isSpotifyTrack]);
 
   const deviceResume = useCallback(() => {
-    if (selectedDeviceId === 'browser') {
+    setIsLoading(true);
+    if (isSpotifyTrack) {
+      api.spotifyConnectResume().then(() => setIsLoading(false)).catch(() => setIsLoading(false));
+    } else if (selectedDeviceId === 'browser') {
       audio.resume();
+      setIsLoading(false);
     } else {
-      api.deviceResume(selectedDeviceId).catch(() => {});
+      api.deviceResume(selectedDeviceId).then(() => setIsLoading(false)).catch(() => setIsLoading(false));
     }
-  }, [audio, selectedDeviceId]);
+  }, [audio, selectedDeviceId, isSpotifyTrack]);
 
   const deviceSetVolume = useCallback((v: number) => {
     audio.setVolume(v);
-    if (selectedDeviceId !== 'browser') {
+    if (isSpotifyTrack) {
+      api.spotifyConnectVolume(Math.round(v * 100)).catch(() => {});
+    } else if (selectedDeviceId !== 'browser') {
       // DLNA/Sonos use 0-100, browser uses 0-1
       api.deviceVolume(selectedDeviceId, Math.round(v * 100)).catch(() => {});
     }
   }, [audio, selectedDeviceId]);
 
   const deviceStop = useCallback(() => {
-    if (selectedDeviceId === 'browser') {
+    if (isSpotifyTrack) {
+      api.spotifyConnectPause().catch(() => {});
+    } else if (selectedDeviceId === 'browser') {
       audio.pause();
     } else {
       api.deviceStop(selectedDeviceId).catch(() => {});
     }
     setCurrentTrack(null);
-  }, [audio, selectedDeviceId]);
+    setIsLoading(false);
+  }, [audio, selectedDeviceId, isSpotifyTrack]);
 
   // Auto-advance to next track when current ends
   audio.setOnEnded(playNext);

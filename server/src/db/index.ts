@@ -90,6 +90,13 @@ export async function initDatabase() {
       played_at INTEGER DEFAULT (unixepoch())
     );
 
+    CREATE TABLE IF NOT EXISTS provider_tokens (
+      provider TEXT PRIMARY KEY,
+      access_token TEXT NOT NULL,
+      refresh_token TEXT NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS playlists (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,

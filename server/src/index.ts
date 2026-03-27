@@ -16,6 +16,7 @@ import { authRouter } from './routes/auth.js';
 import { providersRouter } from './routes/providers.js';
 import { playlistsRouter } from './routes/playlists.js';
 import { initDatabase } from './db/index.js';
+import { providers } from './providers/registry.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -51,6 +52,7 @@ if (config.nodeEnv === 'production') {
 // Start
 async function main() {
   await initDatabase();
+  await providers.initialize();
   httpServer.listen(config.port, () => {
     logger.info(`AudioServer running on http://localhost:${config.port}`);
     logger.info(`Music library paths: ${config.musicLibraryPaths.join(', ')}`);

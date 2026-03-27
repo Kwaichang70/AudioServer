@@ -1,6 +1,7 @@
 import type { AuthenticatedMusicProvider, ProviderAuth } from '@audioserver/shared';
 import type { Artist, Album, Track, SearchResults, Playlist } from '@audioserver/shared';
 import { logger } from '../logger.js';
+import { saveTokens, loadTokens, deleteTokens } from '../services/tokenstore.js';
 
 const SPOTIFY_AUTH_URL = 'https://accounts.spotify.com';
 const SPOTIFY_API_URL = 'https://api.spotify.com/v1';
@@ -49,7 +50,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     logout: async () => {
       this.tokens = null;
       this.auth.isAuthenticated = false;
-      this.isAvailable = false;
+      deleteTokens('spotify');
     },
     refreshToken: async () => {
       await this.refreshAccessToken();
@@ -67,7 +68,24 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
       logger.info('Spotify: No client credentials configured, skipping');
       return;
     }
-    logger.info('Spotify: Provider initialized (awaiting authentication)');
+    // Try to load tokens from DB
+    try {
+      const stored = loadTokens('spotify');
+      if (stored) {
+        this.tokens = stored;
+        this.auth.isAuthenticated = true;
+        logger.info('Spotify: Restored tokens from database');
+        // Refresh if expired
+        if (Date.now() >= stored.expiresAt - 60_000) {
+          await this.refreshAccessToken();
+          logger.info('Spotify: Refreshed expired token');
+        }
+      } else {
+        logger.info('Spotify: Provider initialized (awaiting authentication)');
+      }
+    } catch (err) {
+      logger.warn(`Spotify: Failed to restore tokens: ${err}`);
+    }
   }
 
   async dispose(): Promise<void> {
@@ -119,6 +137,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
       expiresAt: Date.now() + data.expires_in * 1000,
     };
     this.auth.isAuthenticated = true;
+    saveTokens('spotify', this.tokens);
     logger.info('Spotify: Authenticated successfully');
   }
 
@@ -143,6 +162,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     this.tokens.accessToken = data.access_token;
     if (data.refresh_token) this.tokens.refreshToken = data.refresh_token;
     this.tokens.expiresAt = Date.now() + data.expires_in * 1000;
+    saveTokens('spotify', this.tokens);
   }
 
   private async getHeaders(): Promise<Record<string, string>> {
@@ -155,8 +175,13 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
 
   private async apiRequest(path: string): Promise<any> {
     const headers = await this.getHeaders();
-    const res = await fetch(`${SPOTIFY_API_URL}${path}`, { headers });
-    if (!res.ok) throw new Error(`Spotify API error: ${res.status}`);
+    const url = `${SPOTIFY_API_URL}${path}`;
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      const text = await res.text();
+      logger.error(`Spotify API ${res.status}: ${url} → ${text.slice(0, 200)}`);
+      throw new Error(`Spotify API error: ${res.status} ${text.slice(0, 100)}`);
+    }
     return res.json();
   }
 
@@ -304,7 +329,10 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
   }
 
   async search(query: string, limit = 20): Promise<SearchResults> {
-    if (!this.auth.isAuthenticated) return { artists: [], albums: [], tracks: [], playlists: [] };
+    if (!this.auth.isAuthenticated) {
+      logger.debug('Spotify search skipped: not authenticated');
+      return { artists: [], albums: [], tracks: [], playlists: [] };
+    }
     try {
       const data = await this.apiRequest(`/search?q=${encodeURIComponent(query)}&type=artist,album,track,playlist&limit=${limit}`);
       return {
@@ -313,7 +341,10 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
         tracks: (data.tracks?.items || []).map((t: any) => this.mapTrack(t)),
         playlists: (data.playlists?.items || []).map((p: any) => this.mapPlaylist(p)),
       };
-    } catch { return { artists: [], albums: [], tracks: [], playlists: [] }; }
+    } catch (err) {
+      logger.error(`Spotify search failed: ${err}`);
+      return { artists: [], albums: [], tracks: [], playlists: [] };
+    }
   }
 
   async getStreamUrl(_trackId: string): Promise<string | null> {
