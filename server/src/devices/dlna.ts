@@ -22,33 +22,95 @@ export class DlnaController implements DeviceController {
   async discover(): Promise<OutputDevice[]> {
     this.devices.clear();
 
+    // Method 1: SSDP multicast discovery
+    await this.ssdpDiscover();
+
+    // Method 2: Direct HTTP probing of known/configured devices
+    await this.probeKnownDevices();
+
+    return this.getDeviceList();
+  }
+
+  private async ssdpDiscover(): Promise<void> {
     return new Promise((resolve) => {
-      const client = new SsdpClient();
-      this.ssdpClient = client;
-      const timeout = setTimeout(() => {
-        client.stop();
-        resolve(this.getDeviceList());
-      }, 5000);
+      try {
+        const client = new SsdpClient();
+        this.ssdpClient = client;
 
-      client.on('response', async (headers, _statusCode, rinfo) => {
-        if (!headers.LOCATION) return;
-        try {
-          await this.parseDeviceDescription(headers.LOCATION, rinfo.address);
-        } catch (err) {
-          // Not a valid MediaRenderer, skip
-        }
-      });
+        client.on('response', async (headers, _statusCode, rinfo) => {
+          if (!headers.LOCATION) return;
+          try {
+            await this.parseDeviceDescription(String(headers.LOCATION), rinfo.address);
+          } catch {
+            // Not a valid MediaRenderer
+          }
+        });
 
-      // Search for MediaRenderer devices (speakers, streamers, etc.)
-      client.search('urn:schemas-upnp-org:device:MediaRenderer:1');
+        client.search('urn:schemas-upnp-org:device:MediaRenderer:1');
 
-      // Also resolve after timeout
-      setTimeout(() => {
-        client.stop();
-        clearTimeout(timeout);
-        resolve(this.getDeviceList());
-      }, 5000);
+        setTimeout(() => {
+          client.stop();
+          resolve();
+        }, 4000);
+      } catch (err) {
+        logger.warn(`SSDP discovery failed: ${err}`);
+        resolve();
+      }
     });
+  }
+
+  private async probeKnownDevices(): Promise<void> {
+    // Probe common UPnP ports on known/recently-seen devices
+    // Also probe addresses from DLNA_DEVICES env var (comma-separated host:port)
+    const probeTargets: string[] = [];
+
+    const envDevices = process.env.DLNA_DEVICES || '';
+    if (envDevices) {
+      probeTargets.push(...envDevices.split(',').map((s) => s.trim()).filter(Boolean));
+    }
+
+    // If no explicit targets, skip probing (user should set DLNA_DEVICES)
+    if (probeTargets.length === 0) return;
+
+    await Promise.allSettled(
+      probeTargets.map(async (target) => {
+        const [host, port] = target.includes(':') ? target.split(':') : [target, '49152'];
+        try {
+          const descUrl = await this.findDescriptionUrl(host, parseInt(port));
+          if (descUrl) {
+            await this.parseDeviceDescription(descUrl, host);
+          }
+        } catch {
+          // Device not reachable on this port
+        }
+      })
+    );
+  }
+
+  private async findDescriptionUrl(host: string, port: number): Promise<string | null> {
+    // Try common UPnP description paths
+    const paths = [
+      '/xml/device_description.xml', // Sonos
+      '/description.xml',            // Generic UPnP
+      '/rootDesc.xml',               // Some renderers
+      '/DeviceDescription.xml',      // Volumio/MPD
+    ];
+
+    for (const path of paths) {
+      try {
+        const url = `http://${host}:${port}${path}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
+        if (res.ok) {
+          const text = await res.text();
+          if (text.includes('MediaRenderer') || text.includes('AVTransport')) {
+            return url;
+          }
+        }
+      } catch {
+        // Not available on this path
+      }
+    }
+    return null;
   }
 
   private async parseDeviceDescription(location: string, host: string): Promise<void> {
