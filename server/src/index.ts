@@ -1,6 +1,9 @@
 import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { existsSync } from 'fs';
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { initSocketIO } from './socketio.js';
@@ -25,6 +28,19 @@ app.use('/api/library', libraryRouter);
 app.use('/api/devices', devicesRouter);
 app.use('/api/playback', playbackRouter);
 app.use('/api/history', historyRouter);
+
+// In production, serve client static files
+if (config.nodeEnv === 'production') {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const clientDist = resolve(__dirname, '../../client/dist');
+  if (existsSync(clientDist)) {
+    app.use(express.static(clientDist));
+    app.get('*', (_req, res) => {
+      res.sendFile(resolve(clientDist, 'index.html'));
+    });
+    logger.info(`Serving client from ${clientDist}`);
+  }
+}
 
 // Start
 async function main() {
