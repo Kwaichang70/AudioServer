@@ -336,10 +336,10 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     try {
       const data = await this.apiRequest(`/search?q=${encodeURIComponent(query)}&type=artist,album,track,playlist&limit=${limit}`);
       return {
-        artists: (data.artists?.items || []).map((a: any) => this.mapArtist(a)),
-        albums: (data.albums?.items || []).map((a: any) => this.mapAlbum(a)),
-        tracks: (data.tracks?.items || []).map((t: any) => this.mapTrack(t)),
-        playlists: (data.playlists?.items || []).map((p: any) => this.mapPlaylist(p)),
+        artists: (data.artists?.items || []).filter((a: any) => a?.id).map((a: any) => this.mapArtist(a)),
+        albums: (data.albums?.items || []).filter((a: any) => a?.id).map((a: any) => this.mapAlbum(a)),
+        tracks: (data.tracks?.items || []).filter((t: any) => t?.id).map((t: any) => this.mapTrack(t)),
+        playlists: (data.playlists?.items || []).filter((p: any) => p?.id).map((p: any) => this.mapPlaylist(p)),
       };
     } catch (err) {
       logger.error(`Spotify search failed: ${err}`);

@@ -53,8 +53,8 @@ if (config.nodeEnv === 'production') {
 async function main() {
   await initDatabase();
   await providers.initialize();
-  httpServer.listen(config.port, () => {
-    logger.info(`AudioServer running on http://localhost:${config.port}`);
+  httpServer.listen(config.port, '0.0.0.0', () => {
+    logger.info(`AudioServer running on http://0.0.0.0:${config.port}`);
     logger.info(`Music library paths: ${config.musicLibraryPaths.join(', ')}`);
   });
 }

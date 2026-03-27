@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { useAudio } from '../hooks/useAudio.js';
 import { api } from '../api/client.js';
 
@@ -43,6 +43,13 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const [queueIndex, setQueueIndex] = useState(-1);
   const [selectedDeviceId, setSelectedDeviceId] = useState('browser');
   const [isLoading, setIsLoading] = useState(false);
+  const lanAddressRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/health').then(r => r.json()).then(d => {
+      if (d.lanAddress) lanAddressRef.current = d.lanAddress;
+    }).catch(() => {});
+  }, []);
 
   const startTrack = useCallback((track: TrackInfo) => {
     setCurrentTrack(track);
@@ -68,7 +75,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       audio.play(streamUrl);
       setIsLoading(false);
     } else {
-      const absoluteUrl = `${window.location.protocol}//${window.location.host}${streamUrl}`;
+      // External devices need the backend URL on the LAN (not 127.0.0.1 or Vite proxy)
+      const lanIp = lanAddressRef.current || window.location.hostname;
+      const absoluteUrl = `http://${lanIp}:3001${streamUrl}`;
       api.devicePlay(selectedDeviceId, absoluteUrl, {
         title: track.title,
         artist: track.artistName,
