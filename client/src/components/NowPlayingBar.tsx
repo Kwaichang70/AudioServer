@@ -11,7 +11,7 @@ function formatTime(seconds: number): string {
 
 export default function NowPlayingBar() {
   const {
-    currentTrack, isPlaying, currentTime, duration, volume,
+    currentTrack, isPlaying, isLoading, currentTime, duration, volume,
     pause, resume, setVolume, seek, playNext, playPrevious, queue,
     selectedDeviceId, setSelectedDeviceId,
   } = useAudioContext();
@@ -39,7 +39,12 @@ export default function NowPlayingBar() {
           />
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-medium truncate">{currentTrack.title}</p>
+          <p className="text-sm font-medium truncate">
+            {currentTrack.title}
+            {currentTrack.id.startsWith('spotify:') && (
+              <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-green-900/50 text-green-300">spotify</span>
+            )}
+          </p>
           <p className="text-xs text-gray-400 truncate">
             {currentTrack.artistName} &mdash; {currentTrack.albumTitle}
           </p>
@@ -57,10 +62,13 @@ export default function NowPlayingBar() {
             &#9198;
           </button>
           <button
-            onClick={isPlaying ? pause : resume}
-            className="w-9 h-9 rounded-full bg-white text-surface flex items-center justify-center hover:scale-105 transition text-sm"
+            onClick={isLoading ? undefined : isPlaying ? pause : resume}
+            disabled={isLoading}
+            className={`w-9 h-9 rounded-full flex items-center justify-center transition text-sm ${
+              isLoading ? 'bg-gray-500 text-surface animate-pulse' : 'bg-white text-surface hover:scale-105'
+            }`}
           >
-            {isPlaying ? '\u23F8' : '\u25B6'}
+            {isLoading ? '\u23F3' : isPlaying ? '\u23F8' : '\u25B6'}
           </button>
           <button
             onClick={playNext}

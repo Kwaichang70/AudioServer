@@ -158,9 +158,9 @@ export default function SearchPage() {
                 {results.tracks.map((t: any, i: number) => (
                   <div
                     key={`${t.id}-${i}`}
-                    onClick={() => t.source === 'local' ? playTrack(t) : null}
+                    onClick={() => (t.source === 'local' || t.source === 'spotify') ? playTrack(t) : null}
                     className={`flex items-center gap-4 px-3 py-2 rounded hover:bg-surface-light transition ${
-                      t.source === 'local' ? 'cursor-pointer' : 'opacity-70'
+                      (t.source === 'local' || t.source === 'spotify') ? 'cursor-pointer' : 'opacity-70'
                     }`}
                   >
                     <div className="w-8 h-8 rounded bg-surface-dark overflow-hidden shrink-0">

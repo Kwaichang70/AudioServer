@@ -137,6 +137,79 @@ providersRouter.get('/spotify/search', async (req, res) => {
   } catch (err) { res.status(500).json({ error: String(err) }); }
 });
 
+// ─── Spotify Connect ─────────────────────────────────────────────
+
+// List Spotify Connect devices (phones, speakers, etc.)
+providersRouter.get('/spotify/connect/devices', async (_req, res) => {
+  try {
+    const devices = await spotify.getConnectDevices();
+    res.json({ data: devices });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+// Get current Spotify playback state
+providersRouter.get('/spotify/connect/state', async (_req, res) => {
+  try {
+    const state = await spotify.getPlaybackState();
+    res.json({ data: state });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+// Play a track on a Spotify Connect device
+providersRouter.post('/spotify/connect/play', async (req, res) => {
+  const { trackUri, contextUri, deviceId, offset } = req.body;
+  try {
+    if (contextUri) {
+      await spotify.connectPlayContext(contextUri, deviceId, offset);
+    } else if (trackUri) {
+      await spotify.connectPlay(trackUri, deviceId);
+    }
+    res.json({ data: { ok: true } });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+providersRouter.post('/spotify/connect/pause', async (req, res) => {
+  try {
+    await spotify.connectPause(req.body.deviceId);
+    res.json({ data: { ok: true } });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+providersRouter.post('/spotify/connect/resume', async (req, res) => {
+  try {
+    await spotify.connectResume(req.body.deviceId);
+    res.json({ data: { ok: true } });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+providersRouter.post('/spotify/connect/next', async (req, res) => {
+  try {
+    await spotify.connectNext(req.body.deviceId);
+    res.json({ data: { ok: true } });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+providersRouter.post('/spotify/connect/previous', async (req, res) => {
+  try {
+    await spotify.connectPrevious(req.body.deviceId);
+    res.json({ data: { ok: true } });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+providersRouter.post('/spotify/connect/volume', async (req, res) => {
+  try {
+    await spotify.connectSetVolume(req.body.volume, req.body.deviceId);
+    res.json({ data: { ok: true } });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+providersRouter.post('/spotify/connect/transfer', async (req, res) => {
+  try {
+    await spotify.connectTransferPlayback(req.body.deviceId);
+    res.json({ data: { ok: true } });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
 // Spotify user albums
 providersRouter.get('/spotify/albums', async (_req, res) => {
   try {

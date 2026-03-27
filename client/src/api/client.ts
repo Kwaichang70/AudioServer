@@ -71,6 +71,22 @@ export const api = {
   checkFavorite: (type: string, id: string) =>
     fetchApi<any>(`/history/favorites/check?type=${type}&id=${id}`),
 
+  // Spotify Connect
+  spotifyConnectDevices: () => fetchApi<any>('/providers/spotify/connect/devices'),
+  spotifyConnectState: () => fetchApi<any>('/providers/spotify/connect/state'),
+  spotifyConnectPlay: (trackUri: string, deviceId?: string) =>
+    fetchApi<any>('/providers/spotify/connect/play', { method: 'POST', body: JSON.stringify({ trackUri, deviceId }) }),
+  spotifyConnectPause: (deviceId?: string) =>
+    fetchApi<any>('/providers/spotify/connect/pause', { method: 'POST', body: JSON.stringify({ deviceId }) }),
+  spotifyConnectResume: (deviceId?: string) =>
+    fetchApi<any>('/providers/spotify/connect/resume', { method: 'POST', body: JSON.stringify({ deviceId }) }),
+  spotifyConnectNext: (deviceId?: string) =>
+    fetchApi<any>('/providers/spotify/connect/next', { method: 'POST', body: JSON.stringify({ deviceId }) }),
+  spotifyConnectPrevious: (deviceId?: string) =>
+    fetchApi<any>('/providers/spotify/connect/previous', { method: 'POST', body: JSON.stringify({ deviceId }) }),
+  spotifyConnectVolume: (volume: number, deviceId?: string) =>
+    fetchApi<any>('/providers/spotify/connect/volume', { method: 'POST', body: JSON.stringify({ volume, deviceId }) }),
+
   // Playlists
   getPlaylists: () => fetchApi<any>('/playlists'),
   getPlaylist: (id: string) => fetchApi<any>(`/playlists/${id}`),

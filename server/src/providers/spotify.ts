@@ -145,17 +145,107 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     this.tokens.expiresAt = Date.now() + data.expires_in * 1000;
   }
 
-  private async apiRequest(path: string): Promise<any> {
+  private async getHeaders(): Promise<Record<string, string>> {
     if (!this.tokens) throw new Error('Not authenticated');
     if (Date.now() >= this.tokens.expiresAt - 60_000) {
       await this.refreshAccessToken();
     }
+    return { Authorization: `Bearer ${this.tokens.accessToken}` };
+  }
 
-    const res = await fetch(`${SPOTIFY_API_URL}${path}`, {
-      headers: { Authorization: `Bearer ${this.tokens.accessToken}` },
-    });
+  private async apiRequest(path: string): Promise<any> {
+    const headers = await this.getHeaders();
+    const res = await fetch(`${SPOTIFY_API_URL}${path}`, { headers });
     if (!res.ok) throw new Error(`Spotify API error: ${res.status}`);
     return res.json();
+  }
+
+  private async apiPut(path: string, body?: any): Promise<void> {
+    const headers = await this.getHeaders();
+    const res = await fetch(`${SPOTIFY_API_URL}${path}`, {
+      method: 'PUT',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Spotify API error: ${res.status} ${text}`);
+    }
+  }
+
+  private async apiPost(path: string, body?: any): Promise<void> {
+    const headers = await this.getHeaders();
+    const res = await fetch(`${SPOTIFY_API_URL}${path}`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Spotify API error: ${res.status} ${text}`);
+    }
+  }
+
+  // ─── Spotify Connect ─────────────────────────────────────────
+
+  async getConnectDevices(): Promise<any[]> {
+    if (!this.auth.isAuthenticated) return [];
+    const data = await this.apiRequest('/me/player/devices');
+    return data.devices || [];
+  }
+
+  async getPlaybackState(): Promise<any> {
+    if (!this.auth.isAuthenticated) return null;
+    const headers = await this.getHeaders();
+    const res = await fetch(`${SPOTIFY_API_URL}/me/player`, { headers });
+    if (res.status === 204) return null; // No active playback
+    if (!res.ok) return null;
+    return res.json();
+  }
+
+  async connectPlay(trackUri: string, deviceId?: string): Promise<void> {
+    const params = deviceId ? `?device_id=${deviceId}` : '';
+    await this.apiPut(`/me/player/play${params}`, {
+      uris: [trackUri],
+    });
+  }
+
+  async connectPlayContext(contextUri: string, deviceId?: string, offset?: number): Promise<void> {
+    const params = deviceId ? `?device_id=${deviceId}` : '';
+    await this.apiPut(`/me/player/play${params}`, {
+      context_uri: contextUri,
+      offset: offset !== undefined ? { position: offset } : undefined,
+    });
+  }
+
+  async connectPause(deviceId?: string): Promise<void> {
+    const params = deviceId ? `?device_id=${deviceId}` : '';
+    await this.apiPut(`/me/player/pause${params}`);
+  }
+
+  async connectResume(deviceId?: string): Promise<void> {
+    const params = deviceId ? `?device_id=${deviceId}` : '';
+    await this.apiPut(`/me/player/play${params}`);
+  }
+
+  async connectNext(deviceId?: string): Promise<void> {
+    const params = deviceId ? `?device_id=${deviceId}` : '';
+    await this.apiPost(`/me/player/next${params}`);
+  }
+
+  async connectPrevious(deviceId?: string): Promise<void> {
+    const params = deviceId ? `?device_id=${deviceId}` : '';
+    await this.apiPost(`/me/player/previous${params}`);
+  }
+
+  async connectSetVolume(volume: number, deviceId?: string): Promise<void> {
+    const params = new URLSearchParams({ volume_percent: String(Math.round(volume)) });
+    if (deviceId) params.set('device_id', deviceId);
+    await this.apiPut(`/me/player/volume?${params}`);
+  }
+
+  async connectTransferPlayback(deviceId: string): Promise<void> {
+    await this.apiPut('/me/player', { device_ids: [deviceId], play: true });
   }
 
   // ─── MusicProvider Implementation ────────────────────────────

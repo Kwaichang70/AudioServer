@@ -14,6 +14,7 @@ interface TrackInfo {
 interface AudioContextValue {
   currentTrack: TrackInfo | null;
   isPlaying: boolean;
+  isLoading: boolean;
   currentTime: number;
   duration: number;
   volume: number;
@@ -41,27 +42,44 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const [queue, setQueue] = useState<TrackInfo[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
   const [selectedDeviceId, setSelectedDeviceId] = useState('browser');
+  const [isLoading, setIsLoading] = useState(false);
 
   const startTrack = useCallback((track: TrackInfo) => {
     setCurrentTrack(track);
+    setIsLoading(true);
+
+    const isSpotify = track.id.startsWith('spotify:');
+
+    if (isSpotify) {
+      // Play via Spotify Connect
+      const spotifyTrackUri = `spotify:track:${track.id.replace('spotify:', '')}`;
+      api.spotifyConnectPlay(spotifyTrackUri)
+        .then(() => setIsLoading(false))
+        .catch((err) => {
+          console.error('Spotify Connect play failed:', err);
+          setIsLoading(false);
+        });
+      return;
+    }
 
     const streamUrl = api.getStreamUrl(track.id);
 
     if (selectedDeviceId === 'browser') {
-      // Play locally in the browser
       audio.play(streamUrl);
+      setIsLoading(false);
     } else {
-      // Stream to external device — need absolute URL for DLNA/Sonos
       const absoluteUrl = `${window.location.protocol}//${window.location.host}${streamUrl}`;
       api.devicePlay(selectedDeviceId, absoluteUrl, {
         title: track.title,
         artist: track.artistName,
         album: track.albumTitle,
         duration: track.duration,
-      }).catch((err) => {
-        console.error('Device play failed, falling back to browser:', err);
-        audio.play(streamUrl);
-      });
+      }).then(() => setIsLoading(false))
+        .catch((err) => {
+          console.error('Device play failed, falling back to browser:', err);
+          audio.play(streamUrl);
+          setIsLoading(false);
+        });
     }
 
     // Notify server + record in history
@@ -152,6 +170,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       value={{
         currentTrack,
         isPlaying: audio.isPlaying,
+        isLoading,
         currentTime: audio.currentTime,
         duration: audio.duration,
         volume: audio.volume,
