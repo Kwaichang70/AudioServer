@@ -30,7 +30,9 @@ export default function SettingsPage() {
 
   const connectProvider = async (provider: 'spotify' | 'tidal') => {
     try {
-      const redirectUri = `${window.location.origin}/settings/callback/${provider}`;
+      // Spotify requires 127.0.0.1 (not localhost) for loopback redirect URIs
+      const origin = window.location.origin.replace('localhost', '127.0.0.1');
+      const redirectUri = `${origin}/settings/callback/${provider}`;
       const res = await fetch(`/api/providers/${provider}/auth/init`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
