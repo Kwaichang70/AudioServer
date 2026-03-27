@@ -7,17 +7,24 @@ import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 
 let db: ReturnType<typeof drizzle>;
+let rawDb: InstanceType<typeof Database>;
 
 export function getDb() {
   if (!db) throw new Error('Database not initialized');
   return db;
 }
 
+export function getRawDb(): InstanceType<typeof Database> {
+  if (!rawDb) throw new Error('Database not initialized');
+  return rawDb;
+}
+
 export async function initDatabase() {
   const dbPath = config.databasePath;
   mkdirSync(dirname(dbPath), { recursive: true });
 
-  const sqlite = new Database(dbPath);
+  rawDb = new Database(dbPath);
+  const sqlite = rawDb;
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('foreign_keys = ON');
 
@@ -66,6 +73,13 @@ export async function initDatabase() {
       source TEXT NOT NULL DEFAULT 'local',
       created_at INTEGER DEFAULT (unixepoch()),
       updated_at INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      created_at INTEGER DEFAULT (unixepoch())
     );
 
     CREATE TABLE IF NOT EXISTS play_history (

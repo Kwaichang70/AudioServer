@@ -12,6 +12,8 @@ import { libraryRouter } from './routes/library.js';
 import { devicesRouter } from './routes/devices.js';
 import { playbackRouter } from './routes/playback.js';
 import { historyRouter } from './routes/history.js';
+import { authRouter } from './routes/auth.js';
+import { providersRouter } from './routes/providers.js';
 import { initDatabase } from './db/index.js';
 
 const app = express();
@@ -23,11 +25,13 @@ app.use(cors());
 app.use(express.json());
 
 // Routes
+app.use('/api/auth', authRouter);
 app.use('/api/health', healthRouter);
 app.use('/api/library', libraryRouter);
 app.use('/api/devices', devicesRouter);
 app.use('/api/playback', playbackRouter);
 app.use('/api/history', historyRouter);
+app.use('/api/providers', providersRouter);
 
 // In production, serve client static files
 if (config.nodeEnv === 'production') {

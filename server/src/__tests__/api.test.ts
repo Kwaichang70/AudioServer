@@ -44,7 +44,7 @@ describe('Health API', () => {
 });
 
 describe('Devices API', () => {
-  it('returns list of devices', async () => {
+  it('returns list of devices', { timeout: 15000 }, async () => {
     const res = await fetch(`${baseUrl}/api/devices`);
     const data = await res.json();
     expect(res.status).toBe(200);
@@ -52,7 +52,7 @@ describe('Devices API', () => {
     expect(data.data.length).toBeGreaterThan(0);
   });
 
-  it('each device has required fields', async () => {
+  it('each device has required fields', { timeout: 15000 }, async () => {
     const res = await fetch(`${baseUrl}/api/devices`);
     const { data } = await res.json();
     for (const device of data) {
@@ -63,7 +63,7 @@ describe('Devices API', () => {
     }
   });
 
-  it('browser device is always online', async () => {
+  it('browser device is always online', { timeout: 15000 }, async () => {
     const res = await fetch(`${baseUrl}/api/devices`);
     const { data } = await res.json();
     const browser = data.find((d: any) => d.id === 'browser');

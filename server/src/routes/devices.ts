@@ -1,45 +1,70 @@
 import { Router } from 'express';
-import type { OutputDevice } from '@audioserver/shared';
+import { deviceManager } from '../devices/manager.js';
 
 export const devicesRouter = Router();
 
-// For now, return a mock browser device. Real DLNA/Sonos discovery comes later.
-const mockDevices: OutputDevice[] = [
-  {
-    id: 'browser',
-    name: 'This Browser',
-    type: 'browser',
-    isOnline: true,
-  },
-  {
-    id: 'cocktail-mock',
-    name: 'Cocktail Audio (mock)',
-    type: 'dlna',
-    host: '192.168.1.100',
-    isOnline: false,
-  },
-  {
-    id: 'volumio-mock',
-    name: 'Volumio (mock)',
-    type: 'volumio',
-    host: '192.168.1.101',
-    isOnline: false,
-  },
-  {
-    id: 'sonos-mock',
-    name: 'Sonos Living Room (mock)',
-    type: 'sonos',
-    host: '192.168.1.102',
-    isOnline: false,
-  },
-];
-
-devicesRouter.get('/', (_req, res) => {
-  res.json({ data: mockDevices });
+devicesRouter.get('/', async (_req, res) => {
+  const devices = await deviceManager.getDevices();
+  res.json({ data: devices });
 });
 
-devicesRouter.get('/:id', (req, res) => {
-  const device = mockDevices.find((d) => d.id === req.params.id);
-  if (!device) return res.status(404).json({ error: 'Device not found' });
-  res.json({ data: device });
+devicesRouter.get('/discover', async (_req, res) => {
+  const devices = await deviceManager.getDevices(true);
+  res.json({ data: devices });
+});
+
+devicesRouter.get('/:id/status', async (req, res) => {
+  try {
+    const status = await deviceManager.getPlaybackState(req.params.id);
+    res.json({ data: status });
+  } catch (err) {
+    res.status(404).json({ error: String(err) });
+  }
+});
+
+devicesRouter.post('/:id/play', async (req, res) => {
+  try {
+    const { streamUrl, metadata } = req.body;
+    await deviceManager.play(req.params.id, streamUrl, metadata);
+    res.json({ data: { ok: true } });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+devicesRouter.post('/:id/pause', async (req, res) => {
+  try {
+    await deviceManager.pause(req.params.id);
+    res.json({ data: { ok: true } });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+devicesRouter.post('/:id/resume', async (req, res) => {
+  try {
+    await deviceManager.resume(req.params.id);
+    res.json({ data: { ok: true } });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+devicesRouter.post('/:id/stop', async (req, res) => {
+  try {
+    await deviceManager.stop(req.params.id);
+    res.json({ data: { ok: true } });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+devicesRouter.post('/:id/volume', async (req, res) => {
+  try {
+    const { volume } = req.body;
+    await deviceManager.setVolume(req.params.id, volume);
+    res.json({ data: { ok: true } });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
