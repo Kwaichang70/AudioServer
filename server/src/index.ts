@@ -1,9 +1,9 @@
 import express from 'express';
 import cors from 'cors';
 import { createServer } from 'http';
-import { Server as SocketServer } from 'socket.io';
 import { config } from './config.js';
 import { logger } from './logger.js';
+import { initSocketIO } from './socketio.js';
 import { healthRouter } from './routes/health.js';
 import { libraryRouter } from './routes/library.js';
 import { devicesRouter } from './routes/devices.js';
@@ -12,9 +12,7 @@ import { initDatabase } from './db/index.js';
 
 const app = express();
 const httpServer = createServer(app);
-const io = new SocketServer(httpServer, {
-  cors: { origin: '*' },
-});
+initSocketIO(httpServer);
 
 // Middleware
 app.use(cors());
@@ -25,17 +23,6 @@ app.use('/api/health', healthRouter);
 app.use('/api/library', libraryRouter);
 app.use('/api/devices', devicesRouter);
 app.use('/api/playback', playbackRouter);
-
-// WebSocket for realtime playback updates
-io.on('connection', (socket) => {
-  logger.info(`Client connected: ${socket.id}`);
-  socket.on('disconnect', () => {
-    logger.info(`Client disconnected: ${socket.id}`);
-  });
-});
-
-// Export io for use in other modules
-export { io };
 
 // Start
 async function main() {

@@ -30,8 +30,8 @@ export async function initDatabase() {
       name TEXT NOT NULL,
       image_url TEXT,
       source TEXT NOT NULL DEFAULT 'local',
-      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      created_at INTEGER DEFAULT (unixepoch()),
+      updated_at INTEGER DEFAULT (unixepoch())
     );
 
     CREATE TABLE IF NOT EXISTS albums (
@@ -44,8 +44,8 @@ export async function initDatabase() {
       genre TEXT,
       track_count INTEGER DEFAULT 0,
       source TEXT NOT NULL DEFAULT 'local',
-      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      created_at INTEGER DEFAULT (unixepoch()),
+      updated_at INTEGER DEFAULT (unixepoch())
     );
 
     CREATE TABLE IF NOT EXISTS tracks (
@@ -64,8 +64,8 @@ export async function initDatabase() {
       file_path TEXT,
       cover_url TEXT,
       source TEXT NOT NULL DEFAULT 'local',
-      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      created_at INTEGER DEFAULT (unixepoch()),
+      updated_at INTEGER DEFAULT (unixepoch())
     );
 
     CREATE INDEX IF NOT EXISTS idx_albums_artist ON albums(artist_id);

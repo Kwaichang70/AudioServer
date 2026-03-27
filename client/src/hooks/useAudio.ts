@@ -9,6 +9,7 @@ interface AudioState {
 
 export function useAudio() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const onEndedRef = useRef<(() => void) | null>(null);
   const [state, setState] = useState<AudioState>({
     isPlaying: false,
     currentTime: 0,
@@ -18,7 +19,7 @@ export function useAudio() {
 
   useEffect(() => {
     const audio = new Audio();
-    audio.volume = state.volume;
+    audio.volume = 0.7;
     audioRef.current = audio;
 
     audio.addEventListener('timeupdate', () => {
@@ -26,6 +27,7 @@ export function useAudio() {
     });
     audio.addEventListener('ended', () => {
       setState((s) => ({ ...s, isPlaying: false }));
+      onEndedRef.current?.();
     });
 
     return () => {
@@ -61,5 +63,9 @@ export function useAudio() {
     if (audioRef.current) audioRef.current.currentTime = time;
   }, []);
 
-  return { ...state, play, pause, resume, setVolume, seek };
+  const setOnEnded = useCallback((cb: (() => void) | null) => {
+    onEndedRef.current = cb;
+  }, []);
+
+  return { ...state, play, pause, resume, setVolume, seek, setOnEnded };
 }

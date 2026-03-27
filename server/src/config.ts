@@ -1,7 +1,10 @@
 import dotenv from 'dotenv';
 import { resolve } from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
-dotenv.config({ path: resolve(import.meta.dirname, '../../.env') });
+const __dirname = dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: resolve(__dirname, '../../.env') });
 
 export const config = {
   port: parseInt(process.env.PORT || '3001', 10),

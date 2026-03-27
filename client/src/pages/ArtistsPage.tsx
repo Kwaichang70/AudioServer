@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 
 interface Artist {
@@ -25,18 +26,21 @@ export default function ArtistsPage() {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">Artists</h2>
+      <h2 className="text-2xl font-bold mb-6">
+        Artists <span className="text-sm font-normal text-gray-500">({artists.length})</span>
+      </h2>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
         {artists.map((artist) => (
-          <div
+          <Link
             key={artist.id}
-            className="bg-surface-light rounded-lg p-4 text-center hover:bg-surface transition"
+            to={`/artists/${artist.id}`}
+            className="bg-surface-light rounded-lg p-4 text-center hover:bg-surface transition group"
           >
             <div className="w-20 h-20 mx-auto mb-3 rounded-full bg-surface-dark flex items-center justify-center text-2xl text-gray-600">
-              ♫
+              &#9835;
             </div>
-            <p className="text-sm font-medium truncate">{artist.name}</p>
-          </div>
+            <p className="text-sm font-medium truncate group-hover:text-accent transition">{artist.name}</p>
+          </Link>
         ))}
       </div>
     </div>

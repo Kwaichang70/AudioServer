@@ -2,12 +2,13 @@ import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { artists, albums, tracks } from '../db/schema.js';
 import { eq, like, or } from 'drizzle-orm';
-import { scanLibrary } from '../services/scanner.js';
+import { scanLibrary, getScanStatus } from '../services/scanner.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { createReadStream, existsSync } from 'fs';
 import { extname } from 'path';
 import type { ApiResponse } from '@audioserver/shared';
+import { getCoverForAlbum, getCoverForTrack } from '../services/coverart.js';
 
 export const libraryRouter = Router();
 
@@ -58,6 +59,24 @@ libraryRouter.get('/albums/:id/tracks', (req, res) => {
     .orderBy(tracks.discNumber, tracks.trackNumber)
     .all();
   res.json({ data: result, meta: { total: result.length } });
+});
+
+// ─── Cover Art ───────────────────────────────────────────────────
+
+libraryRouter.get('/albums/:id/cover', async (req, res) => {
+  const cover = await getCoverForAlbum(req.params.id);
+  if (!cover) return res.status(404).json({ error: 'No cover art found' });
+  res.setHeader('Content-Type', cover.mime);
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send(cover.data);
+});
+
+libraryRouter.get('/tracks/:id/cover', async (req, res) => {
+  const cover = await getCoverForTrack(req.params.id);
+  if (!cover) return res.status(404).json({ error: 'No cover art found' });
+  res.setHeader('Content-Type', cover.mime);
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send(cover.data);
 });
 
 // ─── Tracks ──────────────────────────────────────────────────────
@@ -118,13 +137,18 @@ libraryRouter.get('/search', (req, res) => {
 
 // ─── Scan ────────────────────────────────────────────────────────
 
-libraryRouter.post('/scan', async (_req, res) => {
-  try {
-    logger.info('Library scan requested');
-    const result = await scanLibrary(config.musicLibraryPaths);
-    res.json({ data: result });
-  } catch (err) {
-    logger.error(`Scan failed: ${err}`);
-    res.status(500).json({ error: 'Scan failed', message: String(err) });
+libraryRouter.post('/scan', (_req, res) => {
+  const status = getScanStatus();
+  if (status.isScanning) {
+    res.json({ data: status, message: 'Scan already in progress' });
+    return;
   }
+  // Start scan in background, respond immediately
+  logger.info('Library scan requested');
+  scanLibrary(config.musicLibraryPaths);
+  res.json({ data: getScanStatus(), message: 'Scan started' });
+});
+
+libraryRouter.get('/scan/status', (_req, res) => {
+  res.json({ data: getScanStatus() });
 });

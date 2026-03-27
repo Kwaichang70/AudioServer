@@ -22,12 +22,17 @@ export const api = {
   getAlbumTracks: (id: string) => fetchApi<any>(`/library/albums/${id}/tracks`),
   search: (q: string) => fetchApi<any>(`/library/search?q=${encodeURIComponent(q)}`),
   scanLibrary: () => fetchApi<any>('/library/scan', { method: 'POST' }),
+  getScanStatus: () => fetchApi<any>('/library/scan/status'),
 
   // Devices
   getDevices: () => fetchApi<any>('/devices'),
 
   // Playback
   getNowPlaying: () => fetchApi<any>('/playback/now-playing'),
+  getQueue: () => fetchApi<any>('/playback/queue'),
+  addToQueue: (track: any) =>
+    fetchApi<any>('/playback/queue/add', { method: 'POST', body: JSON.stringify({ track }) }),
+  clearQueue: () => fetchApi<any>('/playback/queue/clear', { method: 'POST' }),
   play: (track: any, deviceId?: string) =>
     fetchApi<any>('/playback/play', { method: 'POST', body: JSON.stringify({ track, deviceId }) }),
   pause: () => fetchApi<any>('/playback/pause', { method: 'POST' }),
@@ -35,6 +40,8 @@ export const api = {
   setVolume: (volume: number) =>
     fetchApi<any>('/playback/volume', { method: 'POST', body: JSON.stringify({ volume }) }),
 
-  // Stream URL
-  getStreamUrl: (trackId: string) => `/api/library/tracks/${trackId}/stream`,
+  // URLs (not fetched, used directly)
+  getStreamUrl: (trackId: string) => `${API_BASE}/library/tracks/${trackId}/stream`,
+  getAlbumCoverUrl: (albumId: string) => `${API_BASE}/library/albums/${albumId}/cover`,
+  getTrackCoverUrl: (trackId: string) => `${API_BASE}/library/tracks/${trackId}/cover`,
 };
