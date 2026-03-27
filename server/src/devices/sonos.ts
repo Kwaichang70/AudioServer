@@ -1,5 +1,7 @@
-import { Client as SsdpClient } from 'node-ssdp';
-import { parseStringPromise } from 'xml2js';
+import ssdp from 'node-ssdp';
+const { Client: SsdpClient } = ssdp;
+import xml2js from 'xml2js';
+const { parseStringPromise } = xml2js;
 import { logger } from '../logger.js';
 import type { DeviceController, OutputDevice, DevicePlaybackStatus, TrackMetadata } from '@audioserver/shared';
 
