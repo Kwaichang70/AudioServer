@@ -43,8 +43,27 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
   const startTrack = useCallback((track: TrackInfo) => {
     setCurrentTrack(track);
-    audio.play(api.getStreamUrl(track.id));
-    // Notify server of what's playing + record in history
+
+    const streamUrl = api.getStreamUrl(track.id);
+
+    if (selectedDeviceId === 'browser') {
+      // Play locally in the browser
+      audio.play(streamUrl);
+    } else {
+      // Stream to external device — need absolute URL for DLNA/Sonos
+      const absoluteUrl = `${window.location.protocol}//${window.location.host}${streamUrl}`;
+      api.devicePlay(selectedDeviceId, absoluteUrl, {
+        title: track.title,
+        artist: track.artistName,
+        album: track.albumTitle,
+        duration: track.duration,
+      }).catch((err) => {
+        console.error('Device play failed, falling back to browser:', err);
+        audio.play(streamUrl);
+      });
+    }
+
+    // Notify server + record in history
     api.play(track, selectedDeviceId).catch(() => {});
     api.recordPlay(track.id, track.albumId || '', '').catch(() => {});
   }, [audio, selectedDeviceId]);
@@ -91,6 +110,22 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     }
   }, [queue, queueIndex, startTrack, audio]);
 
+  const devicePause = useCallback(() => {
+    if (selectedDeviceId === 'browser') {
+      audio.pause();
+    } else {
+      api.devicePause(selectedDeviceId).catch(() => {});
+    }
+  }, [audio, selectedDeviceId]);
+
+  const deviceResume = useCallback(() => {
+    if (selectedDeviceId === 'browser') {
+      audio.resume();
+    } else {
+      api.deviceResume(selectedDeviceId).catch(() => {});
+    }
+  }, [audio, selectedDeviceId]);
+
   // Auto-advance to next track when current ends
   audio.setOnEnded(playNext);
 
@@ -110,8 +145,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         clearQueue,
         playNext,
         playPrevious,
-        pause: audio.pause,
-        resume: audio.resume,
+        pause: devicePause,
+        resume: deviceResume,
         setVolume: audio.setVolume,
         seek: audio.seek,
         setSelectedDeviceId,

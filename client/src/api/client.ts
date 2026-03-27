@@ -1,8 +1,12 @@
 const API_BASE = '/api';
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = localStorage.getItem('audioserver_token');
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     ...options,
   });
   if (!res.ok) {
@@ -26,6 +30,22 @@ export const api = {
 
   // Devices
   getDevices: () => fetchApi<any>('/devices'),
+  discoverDevices: () => fetchApi<any>('/devices/discover'),
+  getDeviceStatus: (id: string) => fetchApi<any>(`/devices/${id}/status`),
+  devicePlay: (id: string, streamUrl: string, metadata?: any) =>
+    fetchApi<any>(`/devices/${id}/play`, { method: 'POST', body: JSON.stringify({ streamUrl, metadata }) }),
+  devicePause: (id: string) => fetchApi<any>(`/devices/${id}/pause`, { method: 'POST' }),
+  deviceResume: (id: string) => fetchApi<any>(`/devices/${id}/resume`, { method: 'POST' }),
+  deviceStop: (id: string) => fetchApi<any>(`/devices/${id}/stop`, { method: 'POST' }),
+  deviceVolume: (id: string, volume: number) =>
+    fetchApi<any>(`/devices/${id}/volume`, { method: 'POST', body: JSON.stringify({ volume }) }),
+
+  // Auth
+  register: (username: string, password: string) =>
+    fetchApi<any>('/auth/register', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  login: (username: string, password: string) =>
+    fetchApi<any>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  getMe: () => fetchApi<any>('/auth/me'),
 
   // Playback
   getNowPlaying: () => fetchApi<any>('/playback/now-playing'),

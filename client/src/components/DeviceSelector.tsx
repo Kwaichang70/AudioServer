@@ -24,13 +24,22 @@ interface Props {
 export default function DeviceSelector({ selectedDeviceId, onSelect }: Props) {
   const [devices, setDevices] = useState<Device[]>([]);
   const [open, setOpen] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
+  const loadDevices = (discover = false) => {
+    const fn = discover ? api.discoverDevices : api.getDevices;
+    if (discover) setScanning(true);
+    fn().then((res) => {
+      setDevices(res.data);
+      setScanning(false);
+    }).catch(() => setScanning(false));
+  };
+
   useEffect(() => {
-    api.getDevices().then((res) => setDevices(res.data));
+    loadDevices();
   }, []);
 
-  // Close on click outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
@@ -40,6 +49,8 @@ export default function DeviceSelector({ selectedDeviceId, onSelect }: Props) {
   }, []);
 
   const selected = devices.find((d) => d.id === selectedDeviceId);
+  const onlineDevices = devices.filter((d) => d.isOnline);
+  const offlineDevices = devices.filter((d) => !d.isOnline);
 
   return (
     <div className="relative" ref={ref}>
@@ -53,32 +64,58 @@ export default function DeviceSelector({ selectedDeviceId, onSelect }: Props) {
       </button>
 
       {open && (
-        <div className="absolute bottom-full right-0 mb-2 w-64 bg-surface border border-white/10 rounded-lg shadow-xl py-1 z-50">
-          <p className="px-3 py-1.5 text-xs text-gray-500 uppercase tracking-wider">Output Devices</p>
-          {devices.map((device) => (
+        <div className="absolute bottom-full right-0 mb-2 w-72 bg-surface border border-white/10 rounded-lg shadow-xl z-50">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
+            <p className="text-xs text-gray-500 uppercase tracking-wider">Output Devices</p>
             <button
-              key={device.id}
-              onClick={() => { onSelect(device.id); setOpen(false); }}
-              disabled={!device.isOnline}
-              className={`w-full text-left px-3 py-2 flex items-center gap-3 transition
-                ${device.id === selectedDeviceId ? 'bg-accent/20 text-accent' : 'hover:bg-surface-light'}
-                ${!device.isOnline ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
-              `}
+              onClick={() => loadDevices(true)}
+              disabled={scanning}
+              className="text-xs text-accent hover:text-accent-hover transition disabled:opacity-50"
             >
-              <span className="text-lg">{deviceTypeIcons[device.type] || '\u{1F50A}'}</span>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium truncate">{device.name}</p>
-                <p className="text-xs text-gray-500">
-                  {device.type.toUpperCase()}
-                  {device.host && ` \u00B7 ${device.host}`}
-                  {!device.isOnline && ' \u00B7 Offline'}
-                </p>
-              </div>
-              {device.id === selectedDeviceId && (
-                <span className="text-accent text-xs">&#10003;</span>
-              )}
+              {scanning ? 'Scanning...' : 'Refresh'}
             </button>
-          ))}
+          </div>
+
+          <div className="py-1 max-h-64 overflow-y-auto">
+            {onlineDevices.map((device) => (
+              <button
+                key={device.id}
+                onClick={() => { onSelect(device.id); setOpen(false); }}
+                className={`w-full text-left px-3 py-2 flex items-center gap-3 transition cursor-pointer
+                  ${device.id === selectedDeviceId ? 'bg-accent/20 text-accent' : 'hover:bg-surface-light'}
+                `}
+              >
+                <span className="text-lg">{deviceTypeIcons[device.type] || '\u{1F50A}'}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium truncate">{device.name}</p>
+                  <p className="text-xs text-gray-500">
+                    {device.type.toUpperCase()}
+                    {device.host && ` \u00B7 ${device.host}`}
+                  </p>
+                </div>
+                {device.id === selectedDeviceId && (
+                  <span className="text-accent text-sm">&#10003;</span>
+                )}
+              </button>
+            ))}
+
+            {offlineDevices.length > 0 && (
+              <>
+                <div className="px-3 py-1 mt-1">
+                  <p className="text-xs text-gray-600">Offline</p>
+                </div>
+                {offlineDevices.map((device) => (
+                  <div key={device.id} className="px-3 py-2 flex items-center gap-3 opacity-40">
+                    <span className="text-lg">{deviceTypeIcons[device.type] || '\u{1F50A}'}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm truncate">{device.name}</p>
+                      <p className="text-xs text-gray-600">{device.type.toUpperCase()} \u00B7 Offline</p>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
