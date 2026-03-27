@@ -9,6 +9,8 @@ import AlbumsPage from './pages/AlbumsPage.js';
 import SearchPage from './pages/SearchPage.js';
 import PlaylistsPage from './pages/PlaylistsPage.js';
 import PlaylistPage from './pages/PlaylistPage.js';
+import SettingsPage from './pages/SettingsPage.js';
+import OAuthCallbackPage from './pages/OAuthCallbackPage.js';
 import LoginPage from './pages/LoginPage.js';
 import { api } from './api/client.js';
 
@@ -70,7 +72,9 @@ export default function App() {
         <Route path="/playlists" element={<PlaylistsPage />} />
         <Route path="/playlists/:id" element={<PlaylistPage />} />
         <Route path="/search" element={<SearchPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
       </Route>
+      <Route path="/settings/callback/:provider" element={<OAuthCallbackPage />} />
     </Routes>
   );
 }

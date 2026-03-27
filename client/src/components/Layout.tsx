@@ -9,6 +9,7 @@ const navItems = [
   { to: '/artists', label: 'Artists' },
   { to: '/playlists', label: 'Playlists' },
   { to: '/search', label: 'Search' },
+  { to: '/settings', label: 'Settings' },
 ];
 
 export default function Layout() {

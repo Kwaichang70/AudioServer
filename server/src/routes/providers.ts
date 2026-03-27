@@ -1,12 +1,45 @@
 import { Router } from 'express';
-import { TidalProvider } from '../providers/tidal.js';
-import { SpotifyProvider } from '../providers/spotify.js';
+import { providers } from '../providers/registry.js';
 import { logger } from '../logger.js';
 
 export const providersRouter = Router();
 
-const tidal = new TidalProvider();
-const spotify = new SpotifyProvider();
+const { tidal, spotify } = providers;
+
+// ─── Unified search across all active providers ──────────────────
+
+providersRouter.get('/search', async (req, res) => {
+  const q = req.query.q as string;
+  if (!q) {
+    res.json({ data: { artists: [], albums: [], tracks: [], playlists: [] } });
+    return;
+  }
+  try {
+    const results = await providers.searchAll(q);
+    res.json({ data: results });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ─── All providers status ────────────────────────────────────────
+
+providersRouter.get('/status', (_req, res) => {
+  res.json({
+    data: {
+      tidal: {
+        available: tidal.isAvailable,
+        authenticated: tidal.auth.isAuthenticated,
+        configured: !!(process.env.TIDAL_CLIENT_ID && process.env.TIDAL_CLIENT_SECRET),
+      },
+      spotify: {
+        available: spotify.isAvailable,
+        authenticated: spotify.auth.isAuthenticated,
+        configured: !!(process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET),
+      },
+    },
+  });
+});
 
 // ─── Tidal ───────────────────────────────────────────────────────
 
@@ -20,28 +53,19 @@ providersRouter.get('/tidal/status', (_req, res) => {
   });
 });
 
-// Step 1: Get the Tidal login URL
 providersRouter.post('/tidal/auth/init', (req, res) => {
   if (!tidal.isAvailable) {
     res.status(400).json({ error: 'Tidal not configured. Set TIDAL_CLIENT_ID and TIDAL_CLIENT_SECRET.' });
     return;
   }
   const { redirectUri } = req.body;
-  if (!redirectUri) {
-    res.status(400).json({ error: 'redirectUri required' });
-    return;
-  }
-  const authUrl = tidal.getAuthUrl(redirectUri);
-  res.json({ data: { authUrl } });
+  if (!redirectUri) { res.status(400).json({ error: 'redirectUri required' }); return; }
+  res.json({ data: { authUrl: tidal.getAuthUrl(redirectUri) } });
 });
 
-// Step 2: Exchange the authorization code for tokens
 providersRouter.post('/tidal/auth/callback', async (req, res) => {
   const { code, redirectUri } = req.body;
-  if (!code || !redirectUri) {
-    res.status(400).json({ error: 'code and redirectUri required' });
-    return;
-  }
+  if (!code || !redirectUri) { res.status(400).json({ error: 'code and redirectUri required' }); return; }
   try {
     await tidal.auth.login({ code, redirectUri });
     logger.info('Tidal: OAuth flow completed');
@@ -57,19 +81,12 @@ providersRouter.post('/tidal/auth/logout', async (_req, res) => {
   res.json({ data: { authenticated: false } });
 });
 
-// Tidal search (requires auth)
 providersRouter.get('/tidal/search', async (req, res) => {
   const q = req.query.q as string;
-  if (!q) {
-    res.json({ data: { artists: [], albums: [], tracks: [], playlists: [] } });
-    return;
-  }
+  if (!q) { res.json({ data: { artists: [], albums: [], tracks: [], playlists: [] } }); return; }
   try {
-    const results = await tidal.search(q);
-    res.json({ data: results });
-  } catch (err) {
-    res.status(500).json({ error: String(err) });
-  }
+    res.json({ data: await tidal.search(q) });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
 });
 
 // ─── Spotify ─────────────────────────────────────────────────────
@@ -90,20 +107,13 @@ providersRouter.post('/spotify/auth/init', (req, res) => {
     return;
   }
   const { redirectUri } = req.body;
-  if (!redirectUri) {
-    res.status(400).json({ error: 'redirectUri required' });
-    return;
-  }
-  const authUrl = spotify.getAuthUrl(redirectUri);
-  res.json({ data: { authUrl } });
+  if (!redirectUri) { res.status(400).json({ error: 'redirectUri required' }); return; }
+  res.json({ data: { authUrl: spotify.getAuthUrl(redirectUri) } });
 });
 
 providersRouter.post('/spotify/auth/callback', async (req, res) => {
   const { code, redirectUri } = req.body;
-  if (!code || !redirectUri) {
-    res.status(400).json({ error: 'code and redirectUri required' });
-    return;
-  }
+  if (!code || !redirectUri) { res.status(400).json({ error: 'code and redirectUri required' }); return; }
   try {
     await spotify.auth.login({ code, redirectUri });
     logger.info('Spotify: OAuth flow completed');
@@ -121,25 +131,24 @@ providersRouter.post('/spotify/auth/logout', async (_req, res) => {
 
 providersRouter.get('/spotify/search', async (req, res) => {
   const q = req.query.q as string;
-  if (!q) {
-    res.json({ data: { artists: [], albums: [], tracks: [], playlists: [] } });
-    return;
-  }
+  if (!q) { res.json({ data: { artists: [], albums: [], tracks: [], playlists: [] } }); return; }
   try {
-    const results = await spotify.search(q);
-    res.json({ data: results });
-  } catch (err) {
-    res.status(500).json({ error: String(err) });
-  }
+    res.json({ data: await spotify.search(q) });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
 });
 
-// ─── All providers status ────────────────────────────────────────
+// Spotify user albums
+providersRouter.get('/spotify/albums', async (_req, res) => {
+  try {
+    const result = await spotify.getAlbums();
+    res.json({ data: result.items, meta: { total: result.total } });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
 
-providersRouter.get('/status', (_req, res) => {
-  res.json({
-    data: {
-      tidal: { available: tidal.isAvailable, authenticated: tidal.auth.isAuthenticated },
-      spotify: { available: spotify.isAvailable, authenticated: spotify.auth.isAuthenticated },
-    },
-  });
+// Spotify user playlists
+providersRouter.get('/spotify/playlists', async (_req, res) => {
+  try {
+    const playlists = await spotify.getPlaylists();
+    res.json({ data: playlists });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
 });
