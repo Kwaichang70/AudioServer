@@ -8,6 +8,7 @@ import { healthRouter } from './routes/health.js';
 import { libraryRouter } from './routes/library.js';
 import { devicesRouter } from './routes/devices.js';
 import { playbackRouter } from './routes/playback.js';
+import { historyRouter } from './routes/history.js';
 import { initDatabase } from './db/index.js';
 
 const app = express();
@@ -23,6 +24,7 @@ app.use('/api/health', healthRouter);
 app.use('/api/library', libraryRouter);
 app.use('/api/devices', devicesRouter);
 app.use('/api/playback', playbackRouter);
+app.use('/api/history', historyRouter);
 
 // Start
 async function main() {

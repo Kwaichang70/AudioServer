@@ -12,6 +12,16 @@ import { getCoverForAlbum, getCoverForTrack } from '../services/coverart.js';
 
 export const libraryRouter = Router();
 
+// ─── Stats ───────────────────────────────────────────────────────
+
+libraryRouter.get('/stats', (_req, res) => {
+  const db = getDb();
+  const artistCount = db.select().from(artists).all().length;
+  const albumCount = db.select().from(albums).all().length;
+  const trackCount = db.select().from(tracks).all().length;
+  res.json({ data: { artists: artistCount, albums: albumCount, tracks: trackCount } });
+});
+
 // ─── Artists ─────────────────────────────────────────────────────
 
 libraryRouter.get('/artists', (_req, res) => {

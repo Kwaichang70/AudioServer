@@ -3,6 +3,7 @@ import NowPlayingBar from './NowPlayingBar.js';
 import { AudioProvider } from '../context/AudioContext.js';
 
 const navItems = [
+  { to: '/', label: 'Home' },
   { to: '/albums', label: 'Albums' },
   { to: '/artists', label: 'Artists' },
   { to: '/search', label: 'Search' },

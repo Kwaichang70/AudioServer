@@ -68,12 +68,30 @@ export async function initDatabase() {
       updated_at INTEGER DEFAULT (unixepoch())
     );
 
+    CREATE TABLE IF NOT EXISTS play_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      track_id TEXT NOT NULL REFERENCES tracks(id),
+      album_id TEXT NOT NULL,
+      artist_id TEXT NOT NULL,
+      played_at INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS favorites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      item_type TEXT NOT NULL,
+      item_id TEXT NOT NULL,
+      created_at INTEGER DEFAULT (unixepoch()),
+      UNIQUE(item_type, item_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_albums_artist ON albums(artist_id);
     CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_id);
     CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist_id);
     CREATE INDEX IF NOT EXISTS idx_artists_name ON artists(name COLLATE NOCASE);
     CREATE INDEX IF NOT EXISTS idx_albums_title ON albums(title COLLATE NOCASE);
     CREATE INDEX IF NOT EXISTS idx_tracks_title ON tracks(title COLLATE NOCASE);
+    CREATE INDEX IF NOT EXISTS idx_play_history_played ON play_history(played_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_favorites_type ON favorites(item_type, item_id);
   `);
 
   logger.info(`Database initialized at ${dbPath}`);

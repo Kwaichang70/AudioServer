@@ -18,6 +18,7 @@ interface AudioContextValue {
   duration: number;
   volume: number;
   queue: TrackInfo[];
+  selectedDeviceId: string;
   playTrack: (track: TrackInfo) => void;
   playAlbum: (tracks: TrackInfo[]) => void;
   addToQueue: (track: TrackInfo) => void;
@@ -28,6 +29,7 @@ interface AudioContextValue {
   resume: () => void;
   setVolume: (v: number) => void;
   seek: (time: number) => void;
+  setSelectedDeviceId: (id: string) => void;
 }
 
 const AudioCtx = createContext<AudioContextValue | null>(null);
@@ -37,15 +39,18 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const [currentTrack, setCurrentTrack] = useState<TrackInfo | null>(null);
   const [queue, setQueue] = useState<TrackInfo[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
+  const [selectedDeviceId, setSelectedDeviceId] = useState('browser');
 
   const startTrack = useCallback((track: TrackInfo) => {
     setCurrentTrack(track);
     audio.play(api.getStreamUrl(track.id));
-  }, [audio]);
+    // Notify server of what's playing + record in history
+    api.play(track, selectedDeviceId).catch(() => {});
+    api.recordPlay(track.id, track.albumId || '', '').catch(() => {});
+  }, [audio, selectedDeviceId]);
 
   const playTrack = useCallback((track: TrackInfo) => {
     startTrack(track);
-    // Don't modify queue when playing a single track
   }, [startTrack]);
 
   const playAlbum = useCallback((tracks: TrackInfo[]) => {
@@ -75,7 +80,6 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
   const playPrevious = useCallback(() => {
     if (queue.length === 0) return;
-    // If more than 3 seconds in, restart current track
     if (audio.currentTime > 3) {
       audio.seek(0);
       return;
@@ -99,6 +103,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         duration: audio.duration,
         volume: audio.volume,
         queue,
+        selectedDeviceId,
         playTrack,
         playAlbum,
         addToQueue,
@@ -109,6 +114,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         resume: audio.resume,
         setVolume: audio.setVolume,
         seek: audio.seek,
+        setSelectedDeviceId,
       }}
     >
       {children}

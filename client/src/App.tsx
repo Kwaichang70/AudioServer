@@ -1,5 +1,6 @@
 import { Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout.js';
+import HomePage from './pages/HomePage.js';
 import ArtistsPage from './pages/ArtistsPage.js';
 import ArtistPage from './pages/ArtistPage.js';
 import AlbumPage from './pages/AlbumPage.js';
@@ -10,7 +11,7 @@ export default function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route path="/" element={<AlbumsPage />} />
+        <Route path="/" element={<HomePage />} />
         <Route path="/artists" element={<ArtistsPage />} />
         <Route path="/artists/:id" element={<ArtistPage />} />
         <Route path="/albums" element={<AlbumsPage />} />

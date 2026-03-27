@@ -1,5 +1,6 @@
 import { useAudioContext } from '../context/AudioContext.js';
 import { api } from '../api/client.js';
+import DeviceSelector from './DeviceSelector.js';
 
 function formatTime(seconds: number): string {
   if (!seconds || isNaN(seconds)) return '0:00';
@@ -12,6 +13,7 @@ export default function NowPlayingBar() {
   const {
     currentTrack, isPlaying, currentTime, duration, volume,
     pause, resume, setVolume, seek, playNext, playPrevious, queue,
+    selectedDeviceId, setSelectedDeviceId,
   } = useAudioContext();
 
   if (!currentTrack) {
@@ -86,8 +88,8 @@ export default function NowPlayingBar() {
         </div>
       </div>
 
-      {/* Volume + Queue info */}
-      <div className="flex items-center gap-3 w-44">
+      {/* Volume + Device + Queue */}
+      <div className="flex items-center gap-3 w-56">
         {queue.length > 0 && (
           <span className="text-xs text-gray-500">{queue.length} in queue</span>
         )}
@@ -103,6 +105,10 @@ export default function NowPlayingBar() {
             className="flex-1 h-1 accent-accent"
           />
         </div>
+        <DeviceSelector
+          selectedDeviceId={selectedDeviceId}
+          onSelect={setSelectedDeviceId}
+        />
       </div>
     </div>
   );

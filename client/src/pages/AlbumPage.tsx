@@ -45,13 +45,21 @@ export default function AlbumPage() {
   const { id } = useParams<{ id: string }>();
   const [album, setAlbum] = useState<Album | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [favorited, setFavorited] = useState(false);
   const { playTrack, playAlbum, currentTrack, isPlaying } = useAudioContext();
 
   useEffect(() => {
     if (!id) return;
     api.getAlbum(id).then((res) => setAlbum(res.data));
     api.getAlbumTracks(id).then((res) => setTracks(res.data));
+    api.checkFavorite('album', id).then((res) => setFavorited(res.data.favorited)).catch(() => {});
   }, [id]);
+
+  const toggleFavorite = async () => {
+    if (!id) return;
+    const res = await api.toggleFavorite('album', id);
+    setFavorited(res.data.favorited);
+  };
 
   if (!album) return <p className="text-gray-400">Loading...</p>;
 
@@ -83,12 +91,23 @@ export default function AlbumPage() {
           <p className="text-sm text-gray-500 mt-1">
             {tracks.length} tracks &middot; {totalMin} min
           </p>
-          <button
-            onClick={() => playAlbum(tracks)}
-            className="mt-4 px-6 py-2 bg-accent rounded-full hover:bg-accent-hover transition text-sm font-medium w-fit"
-          >
-            Play Album
-          </button>
+          <div className="flex items-center gap-3 mt-4">
+            <button
+              onClick={() => playAlbum(tracks)}
+              className="px-6 py-2 bg-accent rounded-full hover:bg-accent-hover transition text-sm font-medium"
+            >
+              Play Album
+            </button>
+            <button
+              onClick={toggleFavorite}
+              className={`w-9 h-9 rounded-full border flex items-center justify-center transition text-lg ${
+                favorited ? 'border-accent text-accent' : 'border-white/20 text-gray-500 hover:border-accent hover:text-accent'
+              }`}
+              title={favorited ? 'Remove from favorites' : 'Add to favorites'}
+            >
+              {favorited ? '\u2665' : '\u2661'}
+            </button>
+          </div>
         </div>
       </div>
 

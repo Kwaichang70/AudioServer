@@ -40,6 +40,20 @@ export const api = {
   setVolume: (volume: number) =>
     fetchApi<any>('/playback/volume', { method: 'POST', body: JSON.stringify({ volume }) }),
 
+  // History & Favorites
+  recordPlay: (trackId: string, albumId: string, artistId: string) =>
+    fetchApi<any>('/history/played', { method: 'POST', body: JSON.stringify({ trackId, albumId, artistId }) }),
+  getRecentAlbums: () => fetchApi<any>('/history/recent'),
+  getTopArtists: () => fetchApi<any>('/history/top-artists'),
+  toggleFavorite: (itemType: string, itemId: string) =>
+    fetchApi<any>('/history/favorites', { method: 'POST', body: JSON.stringify({ itemType, itemId }) }),
+  getFavorites: (type: string) => fetchApi<any>(`/history/favorites?type=${type}`),
+  checkFavorite: (type: string, id: string) =>
+    fetchApi<any>(`/history/favorites/check?type=${type}&id=${id}`),
+
+  // Library stats
+  getStats: () => fetchApi<any>('/library/stats'),
+
   // URLs (not fetched, used directly)
   getStreamUrl: (trackId: string) => `${API_BASE}/library/tracks/${trackId}/stream`,
   getAlbumCoverUrl: (albumId: string) => `${API_BASE}/library/albums/${albumId}/cover`,

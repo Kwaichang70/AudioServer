@@ -42,3 +42,18 @@ export const tracks = sqliteTable('tracks', {
   createdAt: integer('created_at', { mode: 'timestamp' }),
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
 });
+
+export const playHistory = sqliteTable('play_history', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  trackId: text('track_id').notNull().references(() => tracks.id),
+  albumId: text('album_id').notNull(),
+  artistId: text('artist_id').notNull(),
+  playedAt: integer('played_at', { mode: 'timestamp' }),
+});
+
+export const favorites = sqliteTable('favorites', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  itemType: text('item_type').notNull(), // 'track', 'album', 'artist'
+  itemId: text('item_id').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+});
