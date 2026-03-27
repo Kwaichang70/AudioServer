@@ -71,6 +71,20 @@ export const api = {
   checkFavorite: (type: string, id: string) =>
     fetchApi<any>(`/history/favorites/check?type=${type}&id=${id}`),
 
+  // Playlists
+  getPlaylists: () => fetchApi<any>('/playlists'),
+  getPlaylist: (id: string) => fetchApi<any>(`/playlists/${id}`),
+  createPlaylist: (name: string, description?: string) =>
+    fetchApi<any>('/playlists', { method: 'POST', body: JSON.stringify({ name, description }) }),
+  updatePlaylist: (id: string, data: { name?: string; description?: string }) =>
+    fetchApi<any>(`/playlists/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deletePlaylist: (id: string) => fetchApi<any>(`/playlists/${id}`, { method: 'DELETE' }),
+  getPlaylistTracks: (id: string) => fetchApi<any>(`/playlists/${id}/tracks`),
+  addToPlaylist: (playlistId: string, trackId: string) =>
+    fetchApi<any>(`/playlists/${playlistId}/tracks`, { method: 'POST', body: JSON.stringify({ trackId }) }),
+  removeFromPlaylist: (playlistId: string, trackId: string) =>
+    fetchApi<any>(`/playlists/${playlistId}/tracks/${trackId}`, { method: 'DELETE' }),
+
   // Library stats
   getStats: () => fetchApi<any>('/library/stats'),
 

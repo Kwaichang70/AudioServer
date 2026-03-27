@@ -27,6 +27,7 @@ interface AudioContextValue {
   playPrevious: () => void;
   pause: () => void;
   resume: () => void;
+  stop: () => void;
   setVolume: (v: number) => void;
   seek: (time: number) => void;
   setSelectedDeviceId: (id: string) => void;
@@ -126,6 +127,23 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     }
   }, [audio, selectedDeviceId]);
 
+  const deviceSetVolume = useCallback((v: number) => {
+    audio.setVolume(v);
+    if (selectedDeviceId !== 'browser') {
+      // DLNA/Sonos use 0-100, browser uses 0-1
+      api.deviceVolume(selectedDeviceId, Math.round(v * 100)).catch(() => {});
+    }
+  }, [audio, selectedDeviceId]);
+
+  const deviceStop = useCallback(() => {
+    if (selectedDeviceId === 'browser') {
+      audio.pause();
+    } else {
+      api.deviceStop(selectedDeviceId).catch(() => {});
+    }
+    setCurrentTrack(null);
+  }, [audio, selectedDeviceId]);
+
   // Auto-advance to next track when current ends
   audio.setOnEnded(playNext);
 
@@ -147,7 +165,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         playPrevious,
         pause: devicePause,
         resume: deviceResume,
-        setVolume: audio.setVolume,
+        stop: deviceStop,
+        setVolume: deviceSetVolume,
         seek: audio.seek,
         setSelectedDeviceId,
       }}

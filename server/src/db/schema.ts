@@ -43,6 +43,23 @@ export const tracks = sqliteTable('tracks', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
 });
 
+export const playlists = sqliteTable('playlists', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description'),
+  trackCount: integer('track_count').default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }),
+});
+
+export const playlistTracks = sqliteTable('playlist_tracks', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  playlistId: text('playlist_id').notNull().references(() => playlists.id),
+  trackId: text('track_id').notNull().references(() => tracks.id),
+  position: integer('position').notNull(),
+  addedAt: integer('added_at', { mode: 'timestamp' }),
+});
+
 export const playHistory = sqliteTable('play_history', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   trackId: text('track_id').notNull().references(() => tracks.id),

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
+import AddToPlaylist from '../components/AddToPlaylist.js';
 
 interface Track {
   id: string;
@@ -119,6 +120,7 @@ export default function AlbumPage() {
             <th className="pb-2">Title</th>
             <th className="pb-2 hidden md:table-cell">Quality</th>
             <th className="pb-2 w-20 text-right">Duration</th>
+            <th className="pb-2 w-8"></th>
           </tr>
         </thead>
         <tbody>
@@ -147,6 +149,7 @@ export default function AlbumPage() {
                 </td>
                 <td className="py-2.5 text-xs text-gray-500 hidden md:table-cell">{formatQuality(track)}</td>
                 <td className="py-2.5 text-sm text-gray-400 text-right">{formatDuration(track.duration)}</td>
+                <td className="py-2.5"><AddToPlaylist trackId={track.id} /></td>
               </tr>
             );
           })}

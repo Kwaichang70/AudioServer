@@ -7,6 +7,8 @@ import ArtistPage from './pages/ArtistPage.js';
 import AlbumPage from './pages/AlbumPage.js';
 import AlbumsPage from './pages/AlbumsPage.js';
 import SearchPage from './pages/SearchPage.js';
+import PlaylistsPage from './pages/PlaylistsPage.js';
+import PlaylistPage from './pages/PlaylistPage.js';
 import LoginPage from './pages/LoginPage.js';
 import { api } from './api/client.js';
 
@@ -65,6 +67,8 @@ export default function App() {
         <Route path="/artists/:id" element={<ArtistPage />} />
         <Route path="/albums" element={<AlbumsPage />} />
         <Route path="/albums/:id" element={<AlbumPage />} />
+        <Route path="/playlists" element={<PlaylistsPage />} />
+        <Route path="/playlists/:id" element={<PlaylistPage />} />
         <Route path="/search" element={<SearchPage />} />
       </Route>
     </Routes>
