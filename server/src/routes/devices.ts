@@ -1,5 +1,9 @@
 import { Router } from 'express';
 import { deviceManager } from '../devices/manager.js';
+import { getDb } from '../db/index.js';
+import { tracks } from '../db/schema.js';
+import { eq } from 'drizzle-orm';
+import { logger } from '../logger.js';
 
 export const devicesRouter = Router();
 
@@ -24,10 +28,31 @@ devicesRouter.get('/:id/status', async (req, res) => {
 
 devicesRouter.post('/:id/play', async (req, res) => {
   try {
-    const { streamUrl, metadata } = req.body;
+    let { streamUrl, metadata, trackId } = req.body;
+
+    // If trackId provided, enrich metadata with format info from DB
+    if (trackId && !metadata?.mimeType) {
+      const db = getDb();
+      const track = db.select().from(tracks).where(eq(tracks.id, trackId)).get();
+      if (track) {
+        const mimeTypes: Record<string, string> = {
+          flac: 'audio/flac', mp3: 'audio/mpeg', m4a: 'audio/mp4',
+          aac: 'audio/aac', ogg: 'audio/ogg', wav: 'audio/wav', opus: 'audio/opus',
+        };
+        metadata = {
+          ...metadata,
+          title: metadata?.title || track.title,
+          artist: metadata?.artist || track.artistName,
+          album: metadata?.album || track.albumTitle,
+          mimeType: mimeTypes[track.format || ''] || 'audio/mpeg',
+        };
+      }
+    }
+
     await deviceManager.play(req.params.id, streamUrl, metadata);
     res.json({ data: { ok: true } });
   } catch (err) {
+    logger.error(`Device play error: ${err}`);
     res.status(500).json({ error: String(err) });
   }
 });

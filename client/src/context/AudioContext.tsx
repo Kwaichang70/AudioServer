@@ -90,7 +90,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         artist: track.artistName,
         album: track.albumTitle,
         duration: track.duration,
-      }).then(() => setIsLoading(false))
+      }, track.id).then(() => setIsLoading(false))
         .catch((err) => {
           console.error('Device play failed, falling back to browser:', err);
           audio.play(streamUrl);

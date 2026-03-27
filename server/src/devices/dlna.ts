@@ -193,11 +193,19 @@ export class DlnaController implements DeviceController {
   async play(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void> {
     const device = this.getDevice(deviceId);
 
-    // First set the URI
+    // Stop current playback first (required by Sonos before changing URI)
+    try {
+      await this.sendAction(device.controlUrl, 'Stop', { InstanceID: '0' });
+    } catch {
+      // Ignore stop errors (device might already be stopped)
+    }
+
+    // Set the new URI with proper DIDL-Lite metadata
+    const didl = this.buildDidlMetadata(streamUrl, metadata);
     await this.sendAction(device.controlUrl, 'SetAVTransportURI', {
       InstanceID: '0',
       CurrentURI: streamUrl,
-      CurrentURIMetaData: metadata ? this.buildDidlMetadata(streamUrl, metadata) : '',
+      CurrentURIMetaData: didl,
     });
 
     // Then play
@@ -205,6 +213,8 @@ export class DlnaController implements DeviceController {
       InstanceID: '0',
       Speed: '1',
     });
+
+    logger.info(`DLNA play: ${metadata?.title || 'track'} → ${device.name}`);
   }
 
   async pause(deviceId: string): Promise<void> {
@@ -341,15 +351,13 @@ export class DlnaController implements DeviceController {
     return res.text();
   }
 
-  private buildDidlMetadata(uri: string, meta: TrackMetadata): string {
-    return `&lt;DIDL-Lite xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot;&gt;
-&lt;item&gt;
-&lt;dc:title&gt;${this.escapeXml(meta.title)}&lt;/dc:title&gt;
-&lt;upnp:artist&gt;${this.escapeXml(meta.artist)}&lt;/upnp:artist&gt;
-&lt;upnp:album&gt;${this.escapeXml(meta.album)}&lt;/upnp:album&gt;
-&lt;res&gt;${this.escapeXml(uri)}&lt;/res&gt;
-&lt;/item&gt;
-&lt;/DIDL-Lite&gt;`;
+  private buildDidlMetadata(uri: string, meta?: TrackMetadata): string {
+    const title = meta?.title || 'Unknown';
+    const artist = meta?.artist || 'Unknown';
+    const album = meta?.album || 'Unknown';
+    const mime = (meta as any)?.mimeType || 'audio/mpeg';
+
+    return `&lt;DIDL-Lite xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot; xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot;&gt;&lt;item id=&quot;1&quot; parentID=&quot;0&quot; restricted=&quot;true&quot;&gt;&lt;dc:title&gt;${this.escapeXml(title)}&lt;/dc:title&gt;&lt;dc:creator&gt;${this.escapeXml(artist)}&lt;/dc:creator&gt;&lt;upnp:artist&gt;${this.escapeXml(artist)}&lt;/upnp:artist&gt;&lt;upnp:album&gt;${this.escapeXml(album)}&lt;/upnp:album&gt;&lt;upnp:class&gt;object.item.audioItem.musicTrack&lt;/upnp:class&gt;&lt;res protocolInfo=&quot;http-get:*:${mime}:*&quot;&gt;${this.escapeXml(uri)}&lt;/res&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;`;
   }
 
   private escapeXml(s: string): string {
