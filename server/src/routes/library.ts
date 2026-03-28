@@ -5,7 +5,7 @@ import { eq, like, or } from 'drizzle-orm';
 import { scanLibrary, getScanStatus } from '../services/scanner.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
-import { createReadStream, existsSync } from 'fs';
+import { createReadStream, existsSync, statSync } from 'fs';
 import { extname } from 'path';
 import type { ApiResponse } from '@audioserver/shared';
 import { getCoverForAlbum, getCoverForTrack } from '../services/coverart.js';
@@ -116,8 +116,12 @@ libraryRouter.get('/tracks/:id/stream', (req, res) => {
     '.wav': 'audio/wav',
   };
 
+  const fileStat = statSync(track.filePath);
   res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
+  res.setHeader('Content-Length', fileStat.size);
   res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('transferMode.dlna.org', 'Streaming');
+  res.setHeader('contentFeatures.dlna.org', 'DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000');
   createReadStream(track.filePath).pipe(res);
 });
 

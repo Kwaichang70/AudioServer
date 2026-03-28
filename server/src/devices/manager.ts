@@ -1,6 +1,7 @@
 import type { DeviceController, OutputDevice, DevicePlaybackStatus, TrackMetadata } from '@audioserver/shared';
 import { DlnaController } from './dlna.js';
 import { SonosController } from './sonos.js';
+import { VolumioController } from './volumio.js';
 import { logger } from '../logger.js';
 
 /**
@@ -14,6 +15,7 @@ export class DeviceManager {
   private readonly CACHE_TTL = 30_000; // 30 seconds
 
   constructor() {
+    this.controllers.push(new VolumioController());
     this.controllers.push(new DlnaController());
     this.controllers.push(new SonosController());
   }
