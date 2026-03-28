@@ -24,12 +24,11 @@ export default function SearchPage() {
   const [loading, setLoading] = useState(false);
   const [searchMode, setSearchMode] = useState<'all' | 'local'>('all');
   const { playTrack } = useAudioContext();
-
-  const handleSearch = async () => {
+  const doSearch = async (mode: 'all' | 'local') => {
     if (!query.trim()) return;
     setLoading(true);
     try {
-      if (searchMode === 'all') {
+      if (mode === 'all') {
         // Unified search: local + Spotify + Tidal
         const [localRes, providerRes] = await Promise.allSettled([
           api.search(query),
@@ -74,13 +73,13 @@ export default function SearchPage() {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+          onKeyDown={(e) => e.key === 'Enter' && doSearch(searchMode)}
           placeholder="Search artists, albums, tracks..."
           className="flex-1 px-4 py-2 bg-surface-light border border-white/10 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent"
           autoFocus
         />
         <button
-          onClick={handleSearch}
+          onClick={() => doSearch(searchMode)}
           disabled={loading}
           className="px-6 py-2 bg-accent rounded hover:bg-accent-hover transition disabled:opacity-50"
         >
@@ -91,7 +90,7 @@ export default function SearchPage() {
       {/* Source toggle */}
       <div className="flex gap-2 mb-6">
         <button
-          onClick={() => setSearchMode('all')}
+          onClick={() => { setSearchMode('all'); doSearch('all'); }}
           className={`px-3 py-1 text-xs rounded transition ${
             searchMode === 'all' ? 'bg-accent text-white' : 'bg-surface-light text-gray-400 hover:text-white'
           }`}
@@ -99,7 +98,7 @@ export default function SearchPage() {
           All Sources
         </button>
         <button
-          onClick={() => setSearchMode('local')}
+          onClick={() => { setSearchMode('local'); doSearch('local'); }}
           className={`px-3 py-1 text-xs rounded transition ${
             searchMode === 'local' ? 'bg-accent text-white' : 'bg-surface-light text-gray-400 hover:text-white'
           }`}
@@ -117,7 +116,7 @@ export default function SearchPage() {
                 {results.artists.map((a: any, i: number) => (
                   <Link
                     key={`${a.source}-${a.id}-${i}`}
-                    to={a.source === 'local' ? `/artists/${a.id}` : '#'}
+                    to={a.source === 'local' ? `/artists/${a.id}` : `/search?q=${encodeURIComponent(a.name)}`}
                     className="flex items-center gap-2 px-4 py-2 bg-surface-light rounded-full text-sm hover:bg-surface hover:text-accent transition"
                   >
                     {a.imageUrl && <img src={a.imageUrl} alt="" className="w-6 h-6 rounded-full object-cover" />}
