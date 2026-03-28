@@ -39,12 +39,17 @@ devicesRouter.post('/:id/play', async (req, res) => {
           flac: 'audio/flac', mp3: 'audio/mpeg', m4a: 'audio/mp4',
           aac: 'audio/aac', ogg: 'audio/ogg', wav: 'audio/wav', opus: 'audio/opus',
         };
+        // Build cover URL from the stream URL base
+        const baseUrl = streamUrl.replace(/\/api\/library\/tracks\/.*/, '');
+        const coverUrl = `${baseUrl}/api/library/albums/${track.albumId}/cover`;
+
         metadata = {
           ...metadata,
           title: metadata?.title || track.title,
           artist: metadata?.artist || track.artistName,
           album: metadata?.album || track.albumTitle,
           mimeType: mimeTypes[track.format || ''] || 'audio/mpeg',
+          coverUrl,
         };
       }
     }

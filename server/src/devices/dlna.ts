@@ -368,8 +368,10 @@ export class DlnaController implements DeviceController {
     const artist = meta?.artist || 'Unknown';
     const album = meta?.album || 'Unknown';
     const mime = (meta as any)?.mimeType || 'audio/mpeg';
+    const coverUrl = (meta as any)?.coverUrl || '';
+    const coverTag = coverUrl ? `&lt;upnp:albumArtURI&gt;${this.escapeXml(coverUrl)}&lt;/upnp:albumArtURI&gt;` : '';
 
-    return `&lt;DIDL-Lite xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot; xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot;&gt;&lt;item id=&quot;1&quot; parentID=&quot;0&quot; restricted=&quot;true&quot;&gt;&lt;dc:title&gt;${this.escapeXml(title)}&lt;/dc:title&gt;&lt;dc:creator&gt;${this.escapeXml(artist)}&lt;/dc:creator&gt;&lt;upnp:artist&gt;${this.escapeXml(artist)}&lt;/upnp:artist&gt;&lt;upnp:album&gt;${this.escapeXml(album)}&lt;/upnp:album&gt;&lt;upnp:class&gt;object.item.audioItem.musicTrack&lt;/upnp:class&gt;&lt;res protocolInfo=&quot;http-get:*:${mime}:*&quot;&gt;${this.escapeXml(uri)}&lt;/res&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;`;
+    return `&lt;DIDL-Lite xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot; xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot;&gt;&lt;item id=&quot;1&quot; parentID=&quot;0&quot; restricted=&quot;true&quot;&gt;&lt;dc:title&gt;${this.escapeXml(title)}&lt;/dc:title&gt;&lt;dc:creator&gt;${this.escapeXml(artist)}&lt;/dc:creator&gt;&lt;upnp:artist&gt;${this.escapeXml(artist)}&lt;/upnp:artist&gt;&lt;upnp:album&gt;${this.escapeXml(album)}&lt;/upnp:album&gt;${coverTag}&lt;upnp:class&gt;object.item.audioItem.musicTrack&lt;/upnp:class&gt;&lt;res protocolInfo=&quot;http-get:*:${mime}:*&quot;&gt;${this.escapeXml(uri)}&lt;/res&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;`;
   }
 
   private escapeXml(s: string): string {
