@@ -6,6 +6,8 @@ import { getRawDb } from '../db/index.js';
 const QOBUZ_API_URL = 'https://www.qobuz.com/api.json/0.2';
 // App ID + secret from the Qobuz web player (public, used by open-source projects)
 const QOBUZ_APP_ID = '798273057';
+// App secret kept for future stream URL signing when Qobuz changes are reverse-engineered
+// const QOBUZ_APP_SECRET = 'f686f063cb0841079d48495d4dea7cf2';
 
 /**
  * Qobuz provider using the unofficial API (username/password login).
@@ -240,30 +242,11 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
   }
 
   async getStreamUrl(trackId: string): Promise<string | null> {
-    if (!this.auth.isAuthenticated) return null;
-    try {
-      const qobuzId = trackId.replace('qobuz:', '');
-      // format_id: 27 = FLAC 24-bit, 7 = FLAC 16-bit, 5 = MP3 320
-      const data = await this.apiRequest('track/getFileUrl', {
-        track_id: qobuzId,
-        format_id: '27', // Try hi-res first
-        intent: 'stream',
-      });
-      return data.url || null;
-    } catch {
-      // Fallback to lower quality
-      try {
-        const qobuzId = trackId.replace('qobuz:', '');
-        const data = await this.apiRequest('track/getFileUrl', {
-          track_id: qobuzId,
-          format_id: '5',
-          intent: 'stream',
-        });
-        return data.url || null;
-      } catch {
-        return null;
-      }
-    }
+    // Qobuz stream URLs require a signed request with a runtime-derived secret
+    // (HKDF key derivation + SHA-256). This is Qobuz's anti-piracy measure.
+    // Streaming is not yet supported — browse and search work fine.
+    logger.debug(`Qobuz: Stream URL requested for ${trackId} (not yet supported)`);
+    return null;
   }
 
   async getPlaylists(): Promise<Playlist[]> {
