@@ -165,7 +165,14 @@ providersRouter.post('/spotify/connect/play', async (req, res) => {
       await spotify.connectPlay(trackUri, deviceId);
     }
     res.json({ data: { ok: true } });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    const msg = String(err);
+    if (msg.includes('NO_ACTIVE_DEVICE') || msg.includes('No active device')) {
+      res.status(404).json({ error: 'No active Spotify device. Open Spotify on your phone or desktop first.' });
+    } else {
+      res.status(500).json({ error: msg });
+    }
+  }
 });
 
 providersRouter.post('/spotify/connect/pause', async (req, res) => {
