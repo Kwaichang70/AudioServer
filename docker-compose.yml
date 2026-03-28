@@ -1,8 +1,7 @@
 services:
   audioserver:
     build: .
-    ports:
-      - "3001:3001"
+    # No ports: needed with network_mode: host (container uses host network directly)
     environment:
       - NODE_ENV=production
       - PORT=3001
