@@ -97,11 +97,15 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     console.log(`[AudioServer] Playing "${track.title}" on device: ${deviceId}, spotify: ${isSpotify}`);
 
     if (isSpotify) {
+      // Spotify tracks always play via Spotify Connect (DRM restriction)
+      if (deviceId !== 'browser') {
+        toastRef.current('Spotify tracks play via Spotify Connect, not on ' + deviceId.split('-')[0], 'info');
+      }
       const spotifyTrackUri = `spotify:track:${track.id.replace('spotify:', '')}`;
       api.spotifyConnectPlay(spotifyTrackUri)
         .then(() => {
           setIsLoading(false);
-          toastRef.current(`Playing on Spotify Connect`, 'success');
+          toastRef.current('Playing via Spotify Connect', 'success');
         })
         .catch((err) => {
           setIsLoading(false);

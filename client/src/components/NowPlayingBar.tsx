@@ -48,6 +48,9 @@ export default function NowPlayingBar() {
           </p>
           <p className="text-xs text-gray-400 truncate">
             {currentTrack.artistName} &mdash; {currentTrack.albumTitle}
+            {currentTrack.id.startsWith('spotify:') && (
+              <span className="ml-1 text-green-400"> &middot; via Spotify Connect</span>
+            )}
           </p>
         </div>
       </div>
