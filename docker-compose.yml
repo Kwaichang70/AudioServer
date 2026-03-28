@@ -9,9 +9,17 @@ services:
       - DATABASE_PATH=/data/audioserver.db
       - MUSIC_LIBRARY_PATHS=/music
       - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
+      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
+      - QOBUZ_USERNAME=${QOBUZ_USERNAME:-}
+      - QOBUZ_PASSWORD=${QOBUZ_PASSWORD:-}
+      - DLNA_DEVICES=${DLNA_DEVICES:-}
+      - VOLUMIO_DEVICES=${VOLUMIO_DEVICES:-}
     volumes:
       - audioserver-data:/data
-      - ${MUSIC_PATH:-/mnt/music}:/music:ro
+      # On Synology: /volume1/music is the typical path for a "music" shared folder
+      - ${MUSIC_PATH:-/volume1/music}:/music:ro
+    network_mode: host  # Required for DLNA/SSDP multicast discovery
     restart: unless-stopped
 
 volumes:
