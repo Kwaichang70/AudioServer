@@ -4,8 +4,8 @@ import { logger } from '../logger.js';
 import { getRawDb } from '../db/index.js';
 
 const QOBUZ_API_URL = 'https://www.qobuz.com/api.json/0.2';
-// App ID from the Qobuz web player (public, used by many open-source projects)
-const QOBUZ_APP_ID = '285473059';
+// App ID + secret from the Qobuz web player (public, used by open-source projects)
+const QOBUZ_APP_ID = '798273057';
 
 /**
  * Qobuz provider using the unofficial API (username/password login).
