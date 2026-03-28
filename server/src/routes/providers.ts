@@ -4,7 +4,7 @@ import { logger } from '../logger.js';
 
 export const providersRouter = Router();
 
-const { tidal, spotify } = providers;
+const { tidal, spotify, qobuz } = providers;
 
 // ─── Unified search across all active providers ──────────────────
 
@@ -36,6 +36,11 @@ providersRouter.get('/status', (_req, res) => {
         available: spotify.isAvailable,
         authenticated: spotify.auth.isAuthenticated,
         configured: !!(process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET),
+      },
+      qobuz: {
+        available: qobuz.isAvailable,
+        authenticated: qobuz.auth.isAuthenticated,
+        configured: !!(process.env.QOBUZ_CLIENT_ID && process.env.QOBUZ_CLIENT_SECRET),
       },
     },
   });
@@ -134,6 +139,54 @@ providersRouter.get('/spotify/search', async (req, res) => {
   if (!q) { res.json({ data: { artists: [], albums: [], tracks: [], playlists: [] } }); return; }
   try {
     res.json({ data: await spotify.search(q) });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+// ─── Qobuz ───────────────────────────────────────────────────────
+
+providersRouter.get('/qobuz/status', (_req, res) => {
+  res.json({
+    data: {
+      available: qobuz.isAvailable,
+      authenticated: qobuz.auth.isAuthenticated,
+      configured: !!(process.env.QOBUZ_CLIENT_ID && process.env.QOBUZ_CLIENT_SECRET),
+    },
+  });
+});
+
+providersRouter.post('/qobuz/auth/init', (req, res) => {
+  if (!qobuz.isAvailable) {
+    res.status(400).json({ error: 'Qobuz not configured. Set QOBUZ_CLIENT_ID and QOBUZ_CLIENT_SECRET.' });
+    return;
+  }
+  const { redirectUri } = req.body;
+  if (!redirectUri) { res.status(400).json({ error: 'redirectUri required' }); return; }
+  res.json({ data: { authUrl: qobuz.getAuthUrl(redirectUri) } });
+});
+
+providersRouter.post('/qobuz/auth/callback', async (req, res) => {
+  const { code, redirectUri } = req.body;
+  if (!code || !redirectUri) { res.status(400).json({ error: 'code and redirectUri required' }); return; }
+  try {
+    await qobuz.auth.login({ code, redirectUri });
+    logger.info('Qobuz: OAuth flow completed');
+    res.json({ data: { authenticated: true } });
+  } catch (err) {
+    logger.error(`Qobuz auth callback failed: ${err}`);
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+providersRouter.post('/qobuz/auth/logout', async (_req, res) => {
+  await qobuz.auth.logout();
+  res.json({ data: { authenticated: false } });
+});
+
+providersRouter.get('/qobuz/search', async (req, res) => {
+  const q = req.query.q as string;
+  if (!q) { res.json({ data: { artists: [], albums: [], tracks: [], playlists: [] } }); return; }
+  try {
+    res.json({ data: await qobuz.search(q) });
   } catch (err) { res.status(500).json({ error: String(err) }); }
 });
 

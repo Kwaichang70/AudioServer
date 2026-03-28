@@ -14,6 +14,7 @@ import { playbackRouter } from './routes/playback.js';
 import { historyRouter } from './routes/history.js';
 import { authRouter } from './routes/auth.js';
 import { providersRouter } from './routes/providers.js';
+import { librespotRouter } from './routes/librespot.js';
 import { playlistsRouter } from './routes/playlists.js';
 import { initDatabase } from './db/index.js';
 import { providers } from './providers/registry.js';
@@ -35,6 +36,7 @@ app.use('/api/playback', playbackRouter);
 app.use('/api/history', historyRouter);
 app.use('/api/providers', providersRouter);
 app.use('/api/playlists', playlistsRouter);
+app.use('/api/librespot', librespotRouter);
 
 // In production, serve client static files
 if (config.nodeEnv === 'production') {

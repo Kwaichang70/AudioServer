@@ -11,6 +11,7 @@ interface ProviderStatus {
 interface AllStatus {
   tidal: ProviderStatus;
   spotify: ProviderStatus;
+  qobuz: ProviderStatus;
 }
 
 export default function SettingsPage() {
@@ -28,7 +29,7 @@ export default function SettingsPage() {
 
   useEffect(() => { loadStatus(); }, []);
 
-  const connectProvider = async (provider: 'spotify' | 'tidal') => {
+  const connectProvider = async (provider: 'spotify' | 'tidal' | 'qobuz') => {
     try {
       // Spotify requires 127.0.0.1 (not localhost) for loopback redirect URIs
       const origin = window.location.origin.replace('localhost', '127.0.0.1');
@@ -49,7 +50,7 @@ export default function SettingsPage() {
     }
   };
 
-  const disconnectProvider = async (provider: 'spotify' | 'tidal') => {
+  const disconnectProvider = async (provider: 'spotify' | 'tidal' | 'qobuz') => {
     await fetch(`/api/providers/${provider}/auth/logout`, { method: 'POST' });
     toast(`${provider} disconnected`, 'info');
     loadStatus();
@@ -122,18 +123,44 @@ export default function SettingsPage() {
             envVars={['TIDAL_CLIENT_ID', 'TIDAL_CLIENT_SECRET']}
           />
 
-          {/* Qobuz placeholder */}
-          <div className="bg-surface-light rounded-lg p-4 opacity-50">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">&#127927;</span>
-                <div>
-                  <p className="text-sm font-medium">Qobuz</p>
-                  <p className="text-xs text-gray-500">Coming soon</p>
-                </div>
-              </div>
-            </div>
-          </div>
+          {/* Qobuz */}
+          <ProviderCard
+            name="Qobuz"
+            icon="&#127927;"
+            status={status?.qobuz}
+            onConnect={() => connectProvider('qobuz')}
+            onDisconnect={() => disconnectProvider('qobuz')}
+            envVars={['QOBUZ_CLIENT_ID', 'QOBUZ_CLIENT_SECRET']}
+          />
+        </div>
+      </section>
+
+      {/* Librespot */}
+      <section className="mb-10">
+        <h3 className="text-lg font-semibold mb-4 text-gray-300">Librespot (Spotify to any device)</h3>
+        <div className="bg-surface-light rounded-lg p-4 space-y-3">
+          <p className="text-xs text-gray-500">
+            Librespot acts as a Spotify Connect receiver on this server, decoding audio and
+            streaming it to any DLNA/Volumio device. Requires librespot + ffmpeg installed.
+          </p>
+          <p className="text-xs text-gray-500">
+            Install: <code className="text-gray-400">cargo install librespot</code> and <code className="text-gray-400">ffmpeg</code>
+          </p>
+          <button
+            onClick={async () => {
+              const res = await fetch('/api/librespot/status').then(r => r.json());
+              const d = res.data;
+              toast(
+                d.librespotInstalled
+                  ? `Librespot: ${d.isRunning ? 'running' : 'stopped'}, ffmpeg: ${d.ffmpegInstalled ? 'yes' : 'no'}`
+                  : 'Librespot not installed',
+                d.librespotInstalled ? 'info' : 'error'
+              );
+            }}
+            className="px-3 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-accent transition"
+          >
+            Check Status
+          </button>
         </div>
       </section>
 

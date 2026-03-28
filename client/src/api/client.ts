@@ -87,6 +87,14 @@ export const api = {
   spotifyConnectVolume: (volume: number, deviceId?: string) =>
     fetchApi<any>('/providers/spotify/connect/volume', { method: 'POST', body: JSON.stringify({ volume, deviceId }) }),
 
+  // Librespot
+  librespotStatus: () => fetchApi<any>('/librespot/status'),
+  librespotStart: (username: string, password: string) =>
+    fetchApi<any>('/librespot/start', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  librespotStop: () => fetchApi<any>('/librespot/stop', { method: 'POST' }),
+  librespotPlayToDevice: (trackUri: string, deviceId: string) =>
+    fetchApi<any>('/librespot/play-to-device', { method: 'POST', body: JSON.stringify({ trackUri, deviceId }) }),
+
   // Playlists
   getPlaylists: () => fetchApi<any>('/playlists'),
   getPlaylist: (id: string) => fetchApi<any>(`/playlists/${id}`),

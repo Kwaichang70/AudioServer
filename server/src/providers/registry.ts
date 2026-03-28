@@ -2,15 +2,17 @@ import type { MusicProvider } from '@audioserver/shared';
 import { LocalProvider } from './local.js';
 import { TidalProvider } from './tidal.js';
 import { SpotifyProvider } from './spotify.js';
+import { QobuzProvider } from './qobuz.js';
 import { logger } from '../logger.js';
 
 class ProviderRegistry {
   readonly local = new LocalProvider();
   readonly tidal = new TidalProvider();
   readonly spotify = new SpotifyProvider();
+  readonly qobuz = new QobuzProvider();
 
   getAllProviders(): MusicProvider[] {
-    return [this.local, this.tidal, this.spotify];
+    return [this.local, this.tidal, this.spotify, this.qobuz];
   }
 
   getActiveProviders(): MusicProvider[] {

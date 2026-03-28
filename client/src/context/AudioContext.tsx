@@ -57,6 +57,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const toastRef = useRef(toast);
   toastRef.current = toast;
   const lanAddressRef = useRef<string | null>(null);
+  const playNextRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     fetch('/api/health').then(r => r.json()).then(d => {
@@ -75,12 +76,20 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     // Don't poll for Spotify (no position info via our API)
     if (currentTrack.id.startsWith('spotify:')) return;
 
+    let wasPlaying = false;
     const poll = setInterval(() => {
       api.getDeviceStatus(selectedDeviceId).then((res) => {
         const s = res.data;
         setDevicePosition(s.position || 0);
         setDeviceDuration(s.duration || 0);
-        setDeviceIsPlaying(s.state === 'playing');
+        const isPlaying = s.state === 'playing';
+        setDeviceIsPlaying(isPlaying);
+
+        // Auto-advance: device was playing but now stopped → next track
+        if (wasPlaying && !isPlaying && s.position === 0) {
+          playNextRef.current?.();
+        }
+        wasPlaying = isPlaying;
       }).catch(() => {});
     }, 2000);
 
@@ -101,32 +110,55 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
       const playSpotify = async () => {
         try {
-          // Get Spotify Connect devices to find the best target
-          const devRes = await api.spotifyConnectDevices();
-          const connectDevices = devRes.data || [];
-          let targetId: string | undefined;
+          // Strategy 1: If external device selected, try librespot (streams to any device)
+          if (deviceId !== 'browser') {
+            try {
+              const lsStatus = await api.librespotStatus();
+              if (lsStatus.data.isRunning) {
+                // Librespot is running — route through it
+                // First tell Spotify to play on the "AudioServer" librespot device
+                const devRes = await api.spotifyConnectDevices();
+                const audioServerDevice = (devRes.data || []).find((d: any) =>
+                  d.name === 'AudioServer'
+                );
+                if (audioServerDevice) {
+                  await api.spotifyConnectPlay(spotifyTrackUri, audioServerDevice.id);
+                  // Then route the librespot stream to the target device
+                  await api.librespotPlayToDevice(spotifyTrackUri, deviceId);
+                  setIsLoading(false);
+                  toastRef.current('Streaming Spotify via AudioServer to device', 'success');
+                  return;
+                }
+              }
+            } catch {
+              // Librespot not available, fall through to Spotify Connect
+            }
 
-          // If a non-browser device is selected, try to match it with a Spotify Connect device
-          if (deviceId !== 'browser' && connectDevices.length > 0) {
+            // Strategy 2: Try matching with Spotify Connect device (e.g. Cocktail Audio)
+            const devRes = await api.spotifyConnectDevices();
+            const connectDevices = devRes.data || [];
             const match = connectDevices.find((d: any) =>
               d.name.toLowerCase().includes('cocktail') ||
               d.name.toLowerCase().includes('x35')
             );
-            if (match) targetId = match.id;
+            if (match) {
+              await api.spotifyConnectPlay(spotifyTrackUri, match.id);
+              setIsLoading(false);
+              toastRef.current(`Playing via Spotify Connect on ${match.name}`, 'success');
+              return;
+            }
           }
 
-          await api.spotifyConnectPlay(spotifyTrackUri, targetId);
+          // Strategy 3: Default — play on whatever active Spotify device
+          await api.spotifyConnectPlay(spotifyTrackUri);
           setIsLoading(false);
-          const target = targetId
-            ? connectDevices.find((d: any) => d.id === targetId)?.name || 'device'
-            : 'Spotify';
-          toastRef.current(`Playing via Spotify Connect on ${target}`, 'success');
+          toastRef.current('Playing via Spotify Connect', 'success');
         } catch (err) {
           setIsLoading(false);
           setCurrentTrack(null);
           const msg = String(err);
           if (msg.includes('404') || msg.includes('No active device') || msg.includes('NO_ACTIVE_DEVICE')) {
-            toastRef.current('Open Spotify on a device first, then try again', 'error');
+            toastRef.current('Open Spotify on a device first, or start Librespot in Settings', 'error');
           } else {
             toastRef.current(`Spotify: ${(err as Error).message || msg}`, 'error');
           }
@@ -200,6 +232,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       startTrack(queue[nextIndex]);
     }
   }, [queue, queueIndex, startTrack]);
+  playNextRef.current = playNext;
 
   const playPrevious = useCallback(() => {
     if (queue.length === 0) return;
