@@ -39,9 +39,20 @@ export default function SearchPage() {
         const local = localRes.status === 'fulfilled' ? localRes.value.data : { artists: [], albums: [], tracks: [] };
         const providers = providerRes.status === 'fulfilled' ? providerRes.value.data : { artists: [], albums: [], tracks: [], playlists: [] };
 
+        // De-duplicate: if a local artist/album exists, skip the Spotify version
+        const localArtistNames = new Set(local.artists.map((a: any) => a.name.toLowerCase()));
+        const localAlbumKeys = new Set(local.albums.map((a: any) => `${a.artistName}-${a.title}`.toLowerCase()));
+
+        const filteredSpotifyArtists = providers.artists.filter(
+          (a: any) => !localArtistNames.has(a.name.toLowerCase())
+        );
+        const filteredSpotifyAlbums = providers.albums.filter(
+          (a: any) => !localAlbumKeys.has(`${a.artistName}-${a.title}`.toLowerCase())
+        );
+
         setResults({
-          artists: [...local.artists, ...providers.artists],
-          albums: [...local.albums, ...providers.albums],
+          artists: [...local.artists, ...filteredSpotifyArtists],
+          albums: [...local.albums, ...filteredSpotifyAlbums],
           tracks: [...local.tracks, ...providers.tracks],
           playlists: providers.playlists || [],
         });
