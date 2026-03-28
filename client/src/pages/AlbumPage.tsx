@@ -25,6 +25,8 @@ interface Album {
   year?: number;
   genre?: string;
   trackCount?: number;
+  coverUrl?: string;
+  source?: string;
 }
 
 function formatDuration(seconds?: number): string {
@@ -49,12 +51,25 @@ export default function AlbumPage() {
   const [favorited, setFavorited] = useState(false);
   const { playTrack, playAlbum, currentTrack, isPlaying } = useAudioContext();
 
+  const isSpotifyAlbum = id?.startsWith('spotify:') ?? false;
+
   useEffect(() => {
     if (!id) return;
-    api.getAlbum(id).then((res) => setAlbum(res.data));
-    api.getAlbumTracks(id).then((res) => setTracks(res.data));
-    api.checkFavorite('album', id).then((res) => setFavorited(res.data.favorited)).catch(() => {});
-  }, [id]);
+
+    if (isSpotifyAlbum) {
+      // Load from Spotify API
+      const spotifyId = id.replace('spotify:', '');
+      fetch(`/api/providers/spotify/albums/${spotifyId}`).then(r => r.json())
+        .then((res) => setAlbum(res.data)).catch(() => {});
+      fetch(`/api/providers/spotify/albums/${spotifyId}/tracks`).then(r => r.json())
+        .then((res) => setTracks(res.data)).catch(() => {});
+    } else {
+      // Load from local library
+      api.getAlbum(id).then((res) => setAlbum(res.data));
+      api.getAlbumTracks(id).then((res) => setTracks(res.data));
+      api.checkFavorite('album', id).then((res) => setFavorited(res.data.favorited)).catch(() => {});
+    }
+  }, [id, isSpotifyAlbum]);
 
   const toggleFavorite = async () => {
     if (!id) return;
@@ -73,7 +88,7 @@ export default function AlbumPage() {
       <div className="flex gap-6 mb-8">
         <div className="w-56 h-56 bg-surface-light rounded-lg overflow-hidden shrink-0 shadow-lg">
           <img
-            src={api.getAlbumCoverUrl(album.id)}
+            src={album.coverUrl || api.getAlbumCoverUrl(album.id)}
             alt={album.title}
             className="w-full h-full object-cover"
             onError={(e) => {

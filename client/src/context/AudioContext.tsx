@@ -44,6 +44,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const [queueIndex, setQueueIndex] = useState(-1);
   const [selectedDeviceId, setSelectedDeviceId] = useState('browser');
   const [isLoading, setIsLoading] = useState(false);
+  const [devicePosition, setDevicePosition] = useState(0);
+  const [deviceDuration, setDeviceDuration] = useState(0);
+  const [deviceIsPlaying, setDeviceIsPlaying] = useState(false);
   const { toast } = useToast();
 
   // Use refs so callbacks always see the latest values
@@ -60,6 +63,29 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       if (d.lanAddress) lanAddressRef.current = d.lanAddress;
     }).catch(() => {});
   }, []);
+
+  // Poll device playback position when playing on external device
+  useEffect(() => {
+    if (!currentTrack || selectedDeviceId === 'browser') {
+      setDevicePosition(0);
+      setDeviceDuration(0);
+      setDeviceIsPlaying(false);
+      return;
+    }
+    // Don't poll for Spotify (no position info via our API)
+    if (currentTrack.id.startsWith('spotify:')) return;
+
+    const poll = setInterval(() => {
+      api.getDeviceStatus(selectedDeviceId).then((res) => {
+        const s = res.data;
+        setDevicePosition(s.position || 0);
+        setDeviceDuration(s.duration || 0);
+        setDeviceIsPlaying(s.state === 'playing');
+      }).catch(() => {});
+    }, 2000);
+
+    return () => clearInterval(poll);
+  }, [currentTrack, selectedDeviceId]);
 
   const startTrack = useCallback((track: TrackInfo) => {
     setCurrentTrack(track);
@@ -233,10 +259,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     <AudioCtx.Provider
       value={{
         currentTrack,
-        isPlaying: audio.isPlaying,
+        isPlaying: selectedDeviceId === 'browser' ? audio.isPlaying : deviceIsPlaying,
         isLoading,
-        currentTime: audio.currentTime,
-        duration: audio.duration,
+        currentTime: selectedDeviceId === 'browser' ? audio.currentTime : devicePosition,
+        duration: selectedDeviceId === 'browser' ? audio.duration : deviceDuration,
         volume: audio.volume,
         queue,
         selectedDeviceId,

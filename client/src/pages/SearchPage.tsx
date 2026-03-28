@@ -103,9 +103,9 @@ export default function SearchPage() {
             <section>
               <h3 className="text-lg font-semibold mb-3 text-gray-300">Artists ({results.artists.length})</h3>
               <div className="flex gap-3 flex-wrap">
-                {results.artists.map((a: any) => (
+                {results.artists.map((a: any, i: number) => (
                   <Link
-                    key={a.id}
+                    key={`${a.source}-${a.id}-${i}`}
                     to={a.source === 'local' ? `/artists/${a.id}` : '#'}
                     className="flex items-center gap-2 px-4 py-2 bg-surface-light rounded-full text-sm hover:bg-surface hover:text-accent transition"
                   >
@@ -122,10 +122,10 @@ export default function SearchPage() {
             <section>
               <h3 className="text-lg font-semibold mb-3 text-gray-300">Albums ({results.albums.length})</h3>
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-                {results.albums.map((a: any) => (
+                {results.albums.map((a: any, i: number) => (
                   <Link
-                    key={a.id}
-                    to={a.source === 'local' ? `/albums/${a.id}` : '#'}
+                    key={`${a.source}-${a.id}-${i}`}
+                    to={`/albums/${a.id}`}
                     className="bg-surface-light rounded-lg p-3 hover:bg-surface transition group"
                   >
                     <div className="aspect-square bg-surface-dark rounded mb-2 overflow-hidden">
@@ -156,6 +156,7 @@ export default function SearchPage() {
               <h3 className="text-lg font-semibold mb-3 text-gray-300">Tracks ({results.tracks.length})</h3>
               <div className="space-y-0.5">
                 {results.tracks.map((t: any, i: number) => (
+                  // Use index to ensure unique keys across local + spotify results
                   <div
                     key={`${t.id}-${i}`}
                     onClick={() => (t.source === 'local' || t.source === 'spotify') ? playTrack(t) : null}

@@ -210,6 +210,21 @@ providersRouter.post('/spotify/connect/transfer', async (req, res) => {
   } catch (err) { res.status(500).json({ error: String(err) }); }
 });
 
+// Spotify album detail + tracks
+providersRouter.get('/spotify/albums/:id', async (req, res) => {
+  try {
+    const album = await spotify.getAlbum(req.params.id);
+    res.json({ data: album });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+providersRouter.get('/spotify/albums/:id/tracks', async (req, res) => {
+  try {
+    const tracks = await spotify.getAlbumTracks(req.params.id);
+    res.json({ data: tracks, meta: { total: tracks.length } });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
 // Spotify user albums
 providersRouter.get('/spotify/albums', async (_req, res) => {
   try {
