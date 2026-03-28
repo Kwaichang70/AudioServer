@@ -90,6 +90,7 @@ export class DlnaController implements DeviceController {
   private async findDescriptionUrl(host: string, port: number): Promise<string | null> {
     // Try common UPnP description paths
     const paths = [
+      '/',                            // Cocktail Audio, some renderers
       '/xml/device_description.xml', // Sonos
       '/description.xml',            // Generic UPnP
       '/rootDesc.xml',               // Some renderers
@@ -193,20 +194,31 @@ export class DlnaController implements DeviceController {
   async play(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void> {
     const device = this.getDevice(deviceId);
 
-    // Stop current playback first (required by Sonos before changing URI)
+    // Stop current playback first
     try {
       await this.sendAction(device.controlUrl, 'Stop', { InstanceID: '0' });
     } catch {
-      // Ignore stop errors (device might already be stopped)
+      // Ignore stop errors
     }
+
+    // Give device time to release the old stream
+    await new Promise((r) => setTimeout(r, 500));
 
     // Set the new URI with proper DIDL-Lite metadata
     const didl = this.buildDidlMetadata(streamUrl, metadata);
-    await this.sendAction(device.controlUrl, 'SetAVTransportURI', {
+    const setResult = await this.sendAction(device.controlUrl, 'SetAVTransportURI', {
       InstanceID: '0',
       CurrentURI: streamUrl,
       CurrentURIMetaData: didl,
     });
+
+    if (setResult.includes('Fault')) {
+      logger.error(`DLNA SetURI failed for ${device.name}: ${setResult}`);
+      throw new Error('Failed to set stream URI on device');
+    }
+
+    // Give device time to buffer
+    await new Promise((r) => setTimeout(r, 300));
 
     // Then play
     await this.sendAction(device.controlUrl, 'Play', {
