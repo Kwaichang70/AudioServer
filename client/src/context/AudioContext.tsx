@@ -45,6 +45,14 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const [selectedDeviceId, setSelectedDeviceId] = useState('browser');
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+
+  // Use refs so callbacks always see the latest values
+  const selectedDeviceRef = useRef(selectedDeviceId);
+  selectedDeviceRef.current = selectedDeviceId;
+  const currentTrackRef = useRef(currentTrack);
+  currentTrackRef.current = currentTrack;
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
   const lanAddressRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -57,20 +65,26 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     setCurrentTrack(track);
     setIsLoading(true);
 
+    const deviceId = selectedDeviceRef.current;
     const isSpotify = track.id.startsWith('spotify:');
 
+    console.log(`[AudioServer] Playing "${track.title}" on device: ${deviceId}, spotify: ${isSpotify}`);
+
     if (isSpotify) {
-      // Play via Spotify Connect
       const spotifyTrackUri = `spotify:track:${track.id.replace('spotify:', '')}`;
       api.spotifyConnectPlay(spotifyTrackUri)
-        .then(() => setIsLoading(false))
+        .then(() => {
+          setIsLoading(false);
+          toastRef.current(`Playing on Spotify Connect`, 'success');
+        })
         .catch((err) => {
           setIsLoading(false);
           setCurrentTrack(null);
-          if (String(err).includes('404') || String(err).includes('No active device')) {
-            toast('Open Spotify on your phone or desktop first, then try again', 'error');
+          const msg = String(err);
+          if (msg.includes('404') || msg.includes('No active device') || msg.includes('NO_ACTIVE_DEVICE')) {
+            toastRef.current('Open Spotify on your phone or desktop first, then try again', 'error');
           } else {
-            toast(`Spotify playback failed: ${err.message || err}`, 'error');
+            toastRef.current(`Spotify: ${err.message || msg}`, 'error');
           }
         });
       return;
@@ -78,30 +92,38 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
     const streamUrl = api.getStreamUrl(track.id);
 
-    if (selectedDeviceId === 'browser') {
+    if (deviceId === 'browser') {
       audio.play(streamUrl);
       setIsLoading(false);
     } else {
-      // External devices need the backend URL on the LAN (not 127.0.0.1 or Vite proxy)
+      // External device: build LAN URL and send via backend
       const lanIp = lanAddressRef.current || window.location.hostname;
       const absoluteUrl = `http://${lanIp}:3001${streamUrl}`;
-      api.devicePlay(selectedDeviceId, absoluteUrl, {
+      console.log(`[AudioServer] Sending to device ${deviceId}: ${absoluteUrl}`);
+
+      api.devicePlay(deviceId, absoluteUrl, {
         title: track.title,
         artist: track.artistName,
         album: track.albumTitle,
         duration: track.duration,
-      }, track.id).then(() => setIsLoading(false))
+      }, track.id)
+        .then(() => {
+          setIsLoading(false);
+          toastRef.current(`Playing on external device`, 'success');
+        })
         .catch((err) => {
-          console.error('Device play failed, falling back to browser:', err);
+          console.error('Device play failed:', err);
+          toastRef.current(`Device error: ${err.message || err}`, 'error');
+          // Fallback to browser
           audio.play(streamUrl);
           setIsLoading(false);
         });
     }
 
-    // Notify server + record in history
-    api.play(track, selectedDeviceId).catch(() => {});
+    // Record in history
+    api.play(track, deviceId).catch(() => {});
     api.recordPlay(track.id, track.albumId || '', '').catch(() => {});
-  }, [audio, selectedDeviceId]);
+  }, [audio]);
 
   const playTrack = useCallback((track: TrackInfo) => {
     startTrack(track);
@@ -145,53 +167,64 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     }
   }, [queue, queueIndex, startTrack, audio]);
 
-  const isSpotifyTrack = currentTrack?.id.startsWith('spotify:') ?? false;
+  const isSpotifyTrack = currentTrackRef.current?.id.startsWith('spotify:') ?? false;
 
   const devicePause = useCallback(() => {
     setIsLoading(true);
-    if (isSpotifyTrack) {
+    const deviceId = selectedDeviceRef.current;
+    const isSpotify = currentTrackRef.current?.id.startsWith('spotify:');
+
+    if (isSpotify) {
       api.spotifyConnectPause().then(() => setIsLoading(false)).catch(() => setIsLoading(false));
-    } else if (selectedDeviceId === 'browser') {
+    } else if (deviceId === 'browser') {
       audio.pause();
       setIsLoading(false);
     } else {
-      api.devicePause(selectedDeviceId).then(() => setIsLoading(false)).catch(() => setIsLoading(false));
+      api.devicePause(deviceId).then(() => setIsLoading(false)).catch(() => setIsLoading(false));
     }
-  }, [audio, selectedDeviceId, isSpotifyTrack]);
+  }, [audio]);
 
   const deviceResume = useCallback(() => {
     setIsLoading(true);
-    if (isSpotifyTrack) {
+    const deviceId = selectedDeviceRef.current;
+    const isSpotify = currentTrackRef.current?.id.startsWith('spotify:');
+
+    if (isSpotify) {
       api.spotifyConnectResume().then(() => setIsLoading(false)).catch(() => setIsLoading(false));
-    } else if (selectedDeviceId === 'browser') {
+    } else if (deviceId === 'browser') {
       audio.resume();
       setIsLoading(false);
     } else {
-      api.deviceResume(selectedDeviceId).then(() => setIsLoading(false)).catch(() => setIsLoading(false));
+      api.deviceResume(deviceId).then(() => setIsLoading(false)).catch(() => setIsLoading(false));
     }
-  }, [audio, selectedDeviceId, isSpotifyTrack]);
+  }, [audio]);
 
   const deviceSetVolume = useCallback((v: number) => {
     audio.setVolume(v);
-    if (isSpotifyTrack) {
+    const deviceId = selectedDeviceRef.current;
+    const isSpotify = currentTrackRef.current?.id.startsWith('spotify:');
+
+    if (isSpotify) {
       api.spotifyConnectVolume(Math.round(v * 100)).catch(() => {});
-    } else if (selectedDeviceId !== 'browser') {
-      // DLNA/Sonos use 0-100, browser uses 0-1
-      api.deviceVolume(selectedDeviceId, Math.round(v * 100)).catch(() => {});
+    } else if (deviceId !== 'browser') {
+      api.deviceVolume(deviceId, Math.round(v * 100)).catch(() => {});
     }
-  }, [audio, selectedDeviceId]);
+  }, [audio]);
 
   const deviceStop = useCallback(() => {
-    if (isSpotifyTrack) {
+    const deviceId = selectedDeviceRef.current;
+    const isSpotify = currentTrackRef.current?.id.startsWith('spotify:');
+
+    if (isSpotify) {
       api.spotifyConnectPause().catch(() => {});
-    } else if (selectedDeviceId === 'browser') {
+    } else if (deviceId === 'browser') {
       audio.pause();
     } else {
-      api.deviceStop(selectedDeviceId).catch(() => {});
+      api.deviceStop(deviceId).catch(() => {});
     }
     setCurrentTrack(null);
     setIsLoading(false);
-  }, [audio, selectedDeviceId, isSpotifyTrack]);
+  }, [audio]);
 
   // Auto-advance to next track when current ends
   audio.setOnEnded(playNext);
