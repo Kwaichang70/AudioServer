@@ -142,44 +142,47 @@ providersRouter.get('/spotify/search', async (req, res) => {
   } catch (err) { res.status(500).json({ error: String(err) }); }
 });
 
-// ─── Qobuz ───────────────────────────────────────────────────────
+// ─── Qobuz (username/password login, no OAuth) ──────────────────
 
 providersRouter.get('/qobuz/status', (_req, res) => {
   res.json({
     data: {
-      available: qobuz.isAvailable,
+      available: qobuz.isAvailable || true, // Always show as available (no API keys needed)
       authenticated: qobuz.auth.isAuthenticated,
-      configured: !!(process.env.QOBUZ_CLIENT_ID && process.env.QOBUZ_CLIENT_SECRET),
+      configured: true, // No env vars needed — uses username/password
     },
   });
 });
 
-providersRouter.post('/qobuz/auth/init', (req, res) => {
-  if (!qobuz.isAvailable) {
-    res.status(400).json({ error: 'Qobuz not configured. Set QOBUZ_CLIENT_ID and QOBUZ_CLIENT_SECRET.' });
+// Login with username + password
+providersRouter.post('/qobuz/auth/login', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    res.status(400).json({ error: 'Username and password required' });
     return;
   }
-  const { redirectUri } = req.body;
-  if (!redirectUri) { res.status(400).json({ error: 'redirectUri required' }); return; }
-  res.json({ data: { authUrl: qobuz.getAuthUrl(redirectUri) } });
-});
-
-providersRouter.post('/qobuz/auth/callback', async (req, res) => {
-  const { code, redirectUri } = req.body;
-  if (!code || !redirectUri) { res.status(400).json({ error: 'code and redirectUri required' }); return; }
   try {
-    await qobuz.auth.login({ code, redirectUri });
-    logger.info('Qobuz: OAuth flow completed');
+    await qobuz.auth.login({ username, password });
+    logger.info('Qobuz: Login successful');
     res.json({ data: { authenticated: true } });
   } catch (err) {
-    logger.error(`Qobuz auth callback failed: ${err}`);
-    res.status(500).json({ error: String(err) });
+    logger.error(`Qobuz login failed: ${err}`);
+    res.status(401).json({ error: String(err) });
   }
 });
 
 providersRouter.post('/qobuz/auth/logout', async (_req, res) => {
   await qobuz.auth.logout();
   res.json({ data: { authenticated: false } });
+});
+
+// Stream URL for a track (returns direct Qobuz CDN URL)
+providersRouter.get('/qobuz/tracks/:id/stream', async (req, res) => {
+  try {
+    const url = await qobuz.getStreamUrl(req.params.id);
+    if (!url) { res.status(404).json({ error: 'Stream URL not available' }); return; }
+    res.json({ data: { url } });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
 });
 
 providersRouter.get('/qobuz/search', async (req, res) => {

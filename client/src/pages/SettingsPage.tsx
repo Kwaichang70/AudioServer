@@ -123,15 +123,8 @@ export default function SettingsPage() {
             envVars={['TIDAL_CLIENT_ID', 'TIDAL_CLIENT_SECRET']}
           />
 
-          {/* Qobuz */}
-          <ProviderCard
-            name="Qobuz"
-            icon="&#127927;"
-            status={status?.qobuz}
-            onConnect={() => connectProvider('qobuz')}
-            onDisconnect={() => disconnectProvider('qobuz')}
-            envVars={['QOBUZ_CLIENT_ID', 'QOBUZ_CLIENT_SECRET']}
-          />
+          {/* Qobuz (username/password) */}
+          <QobuzCard status={status?.qobuz} onStatusChange={loadStatus} />
         </div>
       </section>
 
@@ -176,6 +169,97 @@ export default function SettingsPage() {
           </p>
         </div>
       </section>
+    </div>
+  );
+}
+
+function QobuzCard({ status, onStatusChange }: { status?: ProviderStatus; onStatusChange: () => void }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const { toast } = useToast();
+  const authenticated = status?.authenticated ?? false;
+
+  const handleLogin = async () => {
+    if (!username || !password) return;
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/providers/qobuz/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (data.data?.authenticated) {
+        toast('Qobuz connected', 'success');
+        setUsername('');
+        setPassword('');
+        onStatusChange();
+      } else {
+        setError(data.error || 'Login failed');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Login failed');
+    }
+    setLoading(false);
+  };
+
+  const handleLogout = async () => {
+    await fetch('/api/providers/qobuz/auth/logout', { method: 'POST' });
+    toast('Qobuz disconnected', 'info');
+    onStatusChange();
+  };
+
+  return (
+    <div className="bg-surface-light rounded-lg p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">&#127927;</span>
+          <div>
+            <p className="text-sm font-medium">Qobuz</p>
+            <p className="text-xs text-gray-500">
+              {authenticated ? 'Connected' : 'Login with your Qobuz account'}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {authenticated && <span className="w-2 h-2 rounded-full bg-green-500" />}
+          {authenticated && (
+            <button onClick={handleLogout} className="px-3 py-1.5 text-xs text-gray-500 hover:text-red-400 transition">
+              Disconnect
+            </button>
+          )}
+        </div>
+      </div>
+      {!authenticated && (
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="Qobuz email"
+            className="w-full px-3 py-1.5 text-sm bg-surface-dark border border-white/10 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent"
+          />
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+            placeholder="Password"
+            className="w-full px-3 py-1.5 text-sm bg-surface-dark border border-white/10 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent"
+          />
+          {error && <p className="text-xs text-red-400">{error}</p>}
+          <button
+            onClick={handleLogin}
+            disabled={loading || !username || !password}
+            className="px-4 py-1.5 text-sm bg-accent rounded hover:bg-accent-hover transition disabled:opacity-50"
+          >
+            {loading ? 'Logging in...' : 'Login'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
