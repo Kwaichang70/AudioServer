@@ -51,25 +51,31 @@ export default function AlbumPage() {
   const [favorited, setFavorited] = useState(false);
   const { playTrack, playAlbum, currentTrack, isPlaying } = useAudioContext();
 
-  const isSpotifyAlbum = id?.startsWith('spotify:') ?? false;
+  const providerType = id?.startsWith('spotify:') ? 'spotify'
+    : id?.startsWith('qobuz:') ? 'qobuz'
+    : 'local';
 
   useEffect(() => {
     if (!id) return;
 
-    if (isSpotifyAlbum) {
-      // Load from Spotify API
+    if (providerType === 'spotify') {
       const spotifyId = id.replace('spotify:', '');
       fetch(`/api/providers/spotify/albums/${spotifyId}`).then(r => r.json())
         .then((res) => setAlbum(res.data)).catch(() => {});
       fetch(`/api/providers/spotify/albums/${spotifyId}/tracks`).then(r => r.json())
         .then((res) => setTracks(res.data)).catch(() => {});
+    } else if (providerType === 'qobuz') {
+      const qobuzId = id.replace('qobuz:', '');
+      fetch(`/api/providers/qobuz/albums/${qobuzId}`).then(r => r.json())
+        .then((res) => setAlbum(res.data)).catch(() => {});
+      fetch(`/api/providers/qobuz/albums/${qobuzId}/tracks`).then(r => r.json())
+        .then((res) => setTracks(res.data)).catch(() => {});
     } else {
-      // Load from local library
       api.getAlbum(id).then((res) => setAlbum(res.data));
       api.getAlbumTracks(id).then((res) => setTracks(res.data));
       api.checkFavorite('album', id).then((res) => setFavorited(res.data.favorited)).catch(() => {});
     }
-  }, [id, isSpotifyAlbum]);
+  }, [id, providerType]);
 
   const toggleFavorite = async () => {
     if (!id) return;

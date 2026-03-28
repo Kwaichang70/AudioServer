@@ -102,6 +102,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
     const deviceId = selectedDeviceRef.current;
     const isSpotify = track.id.startsWith('spotify:');
+    const isQobuz = track.id.startsWith('qobuz:');
 
     console.log(`[AudioServer] Playing "${track.title}" on device: ${deviceId}, spotify: ${isSpotify}`);
 
@@ -166,6 +167,41 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       };
 
       playSpotify();
+      return;
+    }
+
+    if (isQobuz) {
+      // Qobuz: get direct stream URL from API, then play like a local track
+      const qobuzId = track.id.replace('qobuz:', '');
+      const playQobuz = async () => {
+        try {
+          const res = await fetch(`/api/providers/qobuz/tracks/${qobuzId}/stream`);
+          const data = await res.json();
+          if (!data.data?.url) {
+            throw new Error('No stream URL from Qobuz');
+          }
+          const qobuzStreamUrl = data.data.url;
+
+          if (deviceId === 'browser') {
+            audio.play(qobuzStreamUrl);
+          } else {
+            // Send Qobuz CDN URL directly to DLNA/Volumio (no proxy needed)
+            await api.devicePlay(deviceId, qobuzStreamUrl, {
+              title: track.title,
+              artist: track.artistName,
+              album: track.albumTitle,
+              duration: track.duration,
+            });
+          }
+          setIsLoading(false);
+          toastRef.current('Playing from Qobuz', 'success');
+        } catch (err) {
+          setIsLoading(false);
+          setCurrentTrack(null);
+          toastRef.current(`Qobuz: ${(err as Error).message || err}`, 'error');
+        }
+      };
+      playQobuz();
       return;
     }
 

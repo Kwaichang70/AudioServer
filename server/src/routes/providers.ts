@@ -176,6 +176,21 @@ providersRouter.post('/qobuz/auth/logout', async (_req, res) => {
   res.json({ data: { authenticated: false } });
 });
 
+// Qobuz album detail + tracks
+providersRouter.get('/qobuz/albums/:id', async (req, res) => {
+  try {
+    const album = await qobuz.getAlbum(req.params.id);
+    res.json({ data: album });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+providersRouter.get('/qobuz/albums/:id/tracks', async (req, res) => {
+  try {
+    const tracks = await qobuz.getAlbumTracks(req.params.id);
+    res.json({ data: tracks, meta: { total: tracks.length } });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
 // Stream URL for a track (returns direct Qobuz CDN URL)
 providersRouter.get('/qobuz/tracks/:id/stream', async (req, res) => {
   try {
