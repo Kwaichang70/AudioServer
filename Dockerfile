@@ -15,8 +15,8 @@ RUN npm ci
 # Build shared types first (server depends on them)
 RUN npm run build --workspace=shared
 
-# Copy shared dist into node_modules so server can find @audioserver/shared
-RUN cp -r shared/dist shared/package.json node_modules/@audioserver/shared/ 2>/dev/null || \
+# Ensure shared dist is available as a real directory (not symlink) for tsc
+RUN rm -rf node_modules/@audioserver/shared && \
     mkdir -p node_modules/@audioserver/shared && \
     cp -r shared/dist node_modules/@audioserver/shared/ && \
     cp shared/package.json node_modules/@audioserver/shared/
