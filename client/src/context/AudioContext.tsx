@@ -97,26 +97,43 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     console.log(`[AudioServer] Playing "${track.title}" on device: ${deviceId}, spotify: ${isSpotify}`);
 
     if (isSpotify) {
-      // Spotify tracks always play via Spotify Connect (DRM restriction)
-      if (deviceId !== 'browser') {
-        toastRef.current('Spotify tracks play via Spotify Connect, not on ' + deviceId.split('-')[0], 'info');
-      }
       const spotifyTrackUri = `spotify:track:${track.id.replace('spotify:', '')}`;
-      api.spotifyConnectPlay(spotifyTrackUri)
-        .then(() => {
+
+      const playSpotify = async () => {
+        try {
+          // Get Spotify Connect devices to find the best target
+          const devRes = await api.spotifyConnectDevices();
+          const connectDevices = devRes.data || [];
+          let targetId: string | undefined;
+
+          // If a non-browser device is selected, try to match it with a Spotify Connect device
+          if (deviceId !== 'browser' && connectDevices.length > 0) {
+            const match = connectDevices.find((d: any) =>
+              d.name.toLowerCase().includes('cocktail') ||
+              d.name.toLowerCase().includes('x35')
+            );
+            if (match) targetId = match.id;
+          }
+
+          await api.spotifyConnectPlay(spotifyTrackUri, targetId);
           setIsLoading(false);
-          toastRef.current('Playing via Spotify Connect', 'success');
-        })
-        .catch((err) => {
+          const target = targetId
+            ? connectDevices.find((d: any) => d.id === targetId)?.name || 'device'
+            : 'Spotify';
+          toastRef.current(`Playing via Spotify Connect on ${target}`, 'success');
+        } catch (err) {
           setIsLoading(false);
           setCurrentTrack(null);
           const msg = String(err);
           if (msg.includes('404') || msg.includes('No active device') || msg.includes('NO_ACTIVE_DEVICE')) {
-            toastRef.current('Open Spotify on your phone or desktop first, then try again', 'error');
+            toastRef.current('Open Spotify on a device first, then try again', 'error');
           } else {
-            toastRef.current(`Spotify: ${err.message || msg}`, 'error');
+            toastRef.current(`Spotify: ${(err as Error).message || msg}`, 'error');
           }
-        });
+        }
+      };
+
+      playSpotify();
       return;
     }
 
