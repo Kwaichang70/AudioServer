@@ -201,8 +201,8 @@ export class DlnaController implements DeviceController {
       // Ignore stop errors
     }
 
-    // Give device time to release the old stream
-    await new Promise((r) => setTimeout(r, 500));
+    // Give device time to release the old stream (Cocktail Audio needs ~1s)
+    await new Promise((r) => setTimeout(r, 1000));
 
     // Set the new URI with proper DIDL-Lite metadata
     const didl = this.buildDidlMetadata(streamUrl, metadata);
@@ -218,7 +218,7 @@ export class DlnaController implements DeviceController {
     }
 
     // Give device time to buffer
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, 1000));
 
     // Then play
     await this.sendAction(device.controlUrl, 'Play', {

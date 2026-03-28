@@ -117,12 +117,32 @@ libraryRouter.get('/tracks/:id/stream', (req, res) => {
   };
 
   const fileStat = statSync(track.filePath);
-  res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream');
-  res.setHeader('Content-Length', fileStat.size);
-  res.setHeader('Accept-Ranges', 'bytes');
-  res.setHeader('transferMode.dlna.org', 'Streaming');
-  res.setHeader('contentFeatures.dlna.org', 'DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000');
-  createReadStream(track.filePath).pipe(res);
+  const mime = mimeTypes[ext] || 'application/octet-stream';
+  const totalSize = fileStat.size;
+
+  // Handle Range requests (required by DLNA renderers)
+  const range = req.headers.range;
+  if (range) {
+    const parts = range.replace('bytes=', '').split('-');
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+    const chunkSize = end - start + 1;
+
+    res.status(206);
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Content-Range', `bytes ${start}-${end}/${totalSize}`);
+    res.setHeader('Content-Length', chunkSize);
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('transferMode.dlna.org', 'Streaming');
+    createReadStream(track.filePath, { start, end }).pipe(res);
+  } else {
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Content-Length', totalSize);
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('transferMode.dlna.org', 'Streaming');
+    res.setHeader('contentFeatures.dlna.org', 'DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000');
+    createReadStream(track.filePath).pipe(res);
+  }
 });
 
 // ─── Search ──────────────────────────────────────────────────────

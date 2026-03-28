@@ -18,8 +18,9 @@ export default function NowPlayingBar() {
 
   if (!currentTrack) {
     return (
-      <div className="h-20 bg-surface border-t border-white/10 flex items-center justify-center text-gray-500">
-        No track playing
+      <div className="h-20 bg-surface border-t border-white/10 flex items-center justify-between px-4 text-gray-500">
+        <span>No track playing</span>
+        <DeviceSelector selectedDeviceId={selectedDeviceId} onSelect={setSelectedDeviceId} />
       </div>
     );
   }
