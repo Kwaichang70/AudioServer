@@ -202,18 +202,20 @@ export class DlnaController implements DeviceController {
 
     await new Promise((r) => setTimeout(r, 1000));
 
-    await this.sendAction(device.controlUrl, 'SetAVTransportURI', {
+    const setResult = await this.sendAction(device.controlUrl, 'SetAVTransportURI', {
       InstanceID: '0',
       CurrentURI: streamUrl,
       CurrentURIMetaData: didl,
     });
+    logger.debug(`DLNA SetURI response: ${setResult.substring(0, 200)}`);
 
     await new Promise((r) => setTimeout(r, 1000));
 
-    await this.sendAction(device.controlUrl, 'Play', {
+    const playResult = await this.sendAction(device.controlUrl, 'Play', {
       InstanceID: '0',
       Speed: '1',
     });
+    logger.debug(`DLNA Play response: ${playResult.substring(0, 200)}`);
 
     logger.info(`DLNA play: ${metadata?.title || 'track'} → ${device.name}`);
   }
@@ -299,7 +301,11 @@ export class DlnaController implements DeviceController {
 
   private async sendAction(controlUrl: string, action: string, args: Record<string, string>): Promise<string> {
     const argsXml = Object.entries(args)
-      .map(([k, v]) => `<${k}>${this.escapeXml(v)}</${k}>`)
+      .map(([k, v]) => {
+        // Don't escape CurrentURIMetaData — it's already XML-escaped DIDL
+        const val = k === 'CurrentURIMetaData' ? v : this.escapeXml(v);
+        return `<${k}>${val}</${k}>`;
+      })
       .join('');
 
     const body = `<?xml version="1.0" encoding="utf-8"?>
