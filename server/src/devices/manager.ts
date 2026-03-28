@@ -12,7 +12,7 @@ export class DeviceManager {
   private controllers: DeviceController[] = [];
   private cachedDevices: OutputDevice[] = [];
   private lastDiscovery = 0;
-  private readonly CACHE_TTL = 30_000; // 30 seconds
+  private readonly CACHE_TTL = 300_000; // 5 minutes
 
   constructor() {
     this.controllers.push(new VolumioController());
@@ -55,43 +55,49 @@ export class DeviceManager {
     return this.controllers.find((c) => c.deviceType === deviceType);
   }
 
+  /** Find device in cache without triggering discovery */
+  private findCachedDevice(deviceId: string): OutputDevice | undefined {
+    return this.cachedDevices.find((d) => d.id === deviceId);
+  }
+
   async play(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void> {
-    const device = (await this.getDevices()).find((d) => d.id === deviceId);
-    if (!device || device.type === 'browser') return; // browser playback is client-side
+    const device = this.findCachedDevice(deviceId);
+    if (!device || device.type === 'browser') return;
     const controller = this.getController(device.type);
-    if (controller) await controller.play(deviceId, streamUrl, metadata);
+    if (!controller) throw new Error(`No controller for device type: ${device.type}`);
+    await controller.play(deviceId, streamUrl, metadata);
   }
 
   async pause(deviceId: string): Promise<void> {
-    const device = (await this.getDevices()).find((d) => d.id === deviceId);
+    const device = this.findCachedDevice(deviceId);
     if (!device || device.type === 'browser') return;
     const controller = this.getController(device.type);
     if (controller) await controller.pause(deviceId);
   }
 
   async resume(deviceId: string): Promise<void> {
-    const device = (await this.getDevices()).find((d) => d.id === deviceId);
+    const device = this.findCachedDevice(deviceId);
     if (!device || device.type === 'browser') return;
     const controller = this.getController(device.type);
     if (controller) await controller.resume(deviceId);
   }
 
   async stop(deviceId: string): Promise<void> {
-    const device = (await this.getDevices()).find((d) => d.id === deviceId);
+    const device = this.findCachedDevice(deviceId);
     if (!device || device.type === 'browser') return;
     const controller = this.getController(device.type);
     if (controller) await controller.stop(deviceId);
   }
 
   async setVolume(deviceId: string, volume: number): Promise<void> {
-    const device = (await this.getDevices()).find((d) => d.id === deviceId);
+    const device = this.findCachedDevice(deviceId);
     if (!device || device.type === 'browser') return;
     const controller = this.getController(device.type);
     if (controller) await controller.setVolume(deviceId, volume);
   }
 
   async getPlaybackState(deviceId: string): Promise<DevicePlaybackStatus> {
-    const device = (await this.getDevices()).find((d) => d.id === deviceId);
+    const device = this.findCachedDevice(deviceId);
     if (!device || device.type === 'browser') {
       return { state: 'stopped', position: 0, duration: 0, volume: 50 };
     }

@@ -193,64 +193,29 @@ export class DlnaController implements DeviceController {
 
   async play(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void> {
     const device = this.getDevice(deviceId);
+    const didl = this.buildDidlMetadata(streamUrl, metadata);
 
-    // Stop current playback first
+    // Stop → wait → SetURI → wait → Play (exact sequence that works via curl)
     try {
       await this.sendAction(device.controlUrl, 'Stop', { InstanceID: '0' });
-    } catch {
-      // Ignore stop errors
-    }
+    } catch { /* ignore */ }
 
-    // Give device time to release the old stream (Cocktail Audio needs ~1s)
     await new Promise((r) => setTimeout(r, 1000));
 
-    // Set the new URI with proper DIDL-Lite metadata
-    const didl = this.buildDidlMetadata(streamUrl, metadata);
-    const setResult = await this.sendAction(device.controlUrl, 'SetAVTransportURI', {
+    await this.sendAction(device.controlUrl, 'SetAVTransportURI', {
       InstanceID: '0',
       CurrentURI: streamUrl,
       CurrentURIMetaData: didl,
     });
 
-    if (setResult.includes('Fault')) {
-      logger.error(`DLNA SetURI failed for ${device.name}: ${setResult}`);
-      throw new Error('Failed to set stream URI on device');
-    }
-
-    // Give device time to buffer
     await new Promise((r) => setTimeout(r, 1000));
 
-    // Play with retry — some devices need multiple attempts
-    for (let attempt = 0; attempt < 3; attempt++) {
-      await this.sendAction(device.controlUrl, 'Play', {
-        InstanceID: '0',
-        Speed: '1',
-      });
+    await this.sendAction(device.controlUrl, 'Play', {
+      InstanceID: '0',
+      Speed: '1',
+    });
 
-      // Verify it's actually playing
-      await new Promise((r) => setTimeout(r, 2000));
-      try {
-        const info = await this.sendAction(device.controlUrl, 'GetTransportInfo', { InstanceID: '0' });
-        if (info.includes('PLAYING')) {
-          logger.info(`DLNA play: ${metadata?.title || 'track'} → ${device.name} (attempt ${attempt + 1})`);
-          return;
-        }
-        logger.warn(`DLNA: device not playing after attempt ${attempt + 1}, retrying...`);
-        // Re-send SetURI and Play
-        await this.sendAction(device.controlUrl, 'Stop', { InstanceID: '0' });
-        await new Promise((r) => setTimeout(r, 1000));
-        await this.sendAction(device.controlUrl, 'SetAVTransportURI', {
-          InstanceID: '0',
-          CurrentURI: streamUrl,
-          CurrentURIMetaData: didl,
-        });
-        await new Promise((r) => setTimeout(r, 1000));
-      } catch {
-        // Continue retrying
-      }
-    }
-
-    logger.warn(`DLNA play: ${metadata?.title || 'track'} → ${device.name} (may not have started)`);
+    logger.info(`DLNA play: ${metadata?.title || 'track'} → ${device.name}`);
   }
 
   async pause(deviceId: string): Promise<void> {
