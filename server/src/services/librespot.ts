@@ -59,27 +59,26 @@ export function isLibrespotAvailable(): boolean {
 }
 
 export async function checkLibrespotAvailable(): Promise<boolean> {
-  return new Promise((resolve) => {
-    try {
-      const proc = spawn('librespot', ['--version'], { stdio: 'pipe' });
-      proc.on('error', () => resolve(false));
-      proc.on('close', (code) => resolve(code === 0));
-      setTimeout(() => { proc.kill(); resolve(false); }, 3000);
-    } catch {
-      resolve(false);
-    }
-  });
+  return checkBinaryAvailable('librespot', ['--version']);
 }
 
 export async function checkFfmpegAvailable(): Promise<boolean> {
+  return checkBinaryAvailable('ffmpeg', ['-version']);
+}
+
+function checkBinaryAvailable(cmd: string, args: string[]): Promise<boolean> {
   return new Promise((resolve) => {
+    let resolved = false;
+    const done = (result: boolean) => {
+      if (!resolved) { resolved = true; resolve(result); }
+    };
     try {
-      const proc = spawn('ffmpeg', ['-version'], { stdio: 'pipe' });
-      proc.on('error', () => resolve(false));
-      proc.on('close', (code) => resolve(code === 0));
-      setTimeout(() => { proc.kill(); resolve(false); }, 3000);
+      const proc = spawn(cmd, args, { stdio: 'pipe' });
+      proc.on('error', () => done(false));
+      proc.on('close', (code) => done(code === 0));
+      setTimeout(() => { try { proc.kill(); } catch {} done(false); }, 5000);
     } catch {
-      resolve(false);
+      done(false);
     }
   });
 }
