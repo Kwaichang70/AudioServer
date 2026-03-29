@@ -76,3 +76,17 @@ authRouter.get('/me', (req, res) => {
   const user = db.prepare('SELECT id, username FROM users WHERE id = ?').get(req.userId) as { id: string; username: string } | undefined;
   res.json({ data: user || null });
 });
+
+// Import provider tokens (for syncing between local dev and Synology)
+authRouter.post('/import-token', (req, res) => {
+  const { provider, accessToken, refreshToken, expiresAt } = req.body;
+  if (!provider || !accessToken || !refreshToken) {
+    res.status(400).json({ error: 'provider, accessToken, refreshToken required' });
+    return;
+  }
+  const db = getRawDb();
+  db.prepare('INSERT OR REPLACE INTO provider_tokens (provider, access_token, refresh_token, expires_at) VALUES (?, ?, ?, ?)')
+    .run(provider, accessToken, refreshToken, expiresAt || 0);
+  logger.info(`Token imported for ${provider}`);
+  res.json({ data: { ok: true } });
+});
