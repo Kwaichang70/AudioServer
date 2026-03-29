@@ -205,6 +205,96 @@ async function fetchFromSpotify(artist: string, title: string): Promise<Buffer |
   return null;
 }
 
+// ─── Artist Images ───────────────────────────────────────────────
+
+let artistFetchStatus = { isRunning: false, total: 0, processed: 0, found: 0, notFound: 0 };
+
+export function getArtistFetchStatus() { return { ...artistFetchStatus }; }
+
+export function getLocalArtistImagePath(artistId: string): string | null {
+  const path = join(COVER_DIR, `artist-${artistId}.jpg`);
+  return existsSync(path) ? path : null;
+}
+
+export function readCachedArtistImage(artistId: string): { data: Buffer; mime: string } | null {
+  const path = getLocalArtistImagePath(artistId);
+  if (!path) return null;
+  try {
+    return { data: readFileSync(path), mime: 'image/jpeg' };
+  } catch { return null; }
+}
+
+export async function fetchMissingArtistImages(): Promise<typeof artistFetchStatus> {
+  if (artistFetchStatus.isRunning) return artistFetchStatus;
+
+  mkdirSync(COVER_DIR, { recursive: true });
+
+  const db = getDb();
+  const allArtists = db.select().from(albums)
+    .all()
+    .reduce((acc: Map<string, string>, a) => {
+      if (!acc.has(a.artistId)) acc.set(a.artistId, a.artistName);
+      return acc;
+    }, new Map<string, string>());
+
+  // Filter artists without an image
+  const missing = Array.from(allArtists.entries()).filter(([id]) => !getLocalArtistImagePath(id));
+
+  artistFetchStatus = { isRunning: true, total: missing.length, processed: 0, found: 0, notFound: 0 };
+  logger.info(`Artist image fetch: ${missing.length} artists without images`);
+
+  for (const [artistId, artistName] of missing) {
+    try {
+      const found = await fetchArtistImage(artistId, artistName);
+      if (found) artistFetchStatus.found++;
+      else artistFetchStatus.notFound++;
+    } catch {
+      artistFetchStatus.notFound++;
+    }
+    artistFetchStatus.processed++;
+
+    if (artistFetchStatus.processed % 20 === 0) {
+      logger.info(`Artist images: ${artistFetchStatus.processed}/${artistFetchStatus.total} (${artistFetchStatus.found} found)`);
+    }
+  }
+
+  artistFetchStatus.isRunning = false;
+  logger.info(`Artist image fetch complete: ${artistFetchStatus.found} found`);
+  return artistFetchStatus;
+}
+
+async function fetchArtistImage(artistId: string, artistName: string): Promise<boolean> {
+  if (getLocalArtistImagePath(artistId)) return true;
+  if (artistName === 'Unknown Artist') return false;
+
+  // Try Spotify
+  try {
+    const { providers } = await import('../providers/registry.js');
+    if (!providers.spotify.auth.isAuthenticated) return false;
+
+    const results = await providers.spotify.search(`artist:${artistName}`, 3);
+    const match = results.artists?.find((a: any) =>
+      a.name.toLowerCase() === artistName.toLowerCase() && a.imageUrl
+    ) || results.artists?.[0];
+
+    if (match?.imageUrl) {
+      const imgRes = await fetch(match.imageUrl);
+      if (imgRes.ok) {
+        const buffer = Buffer.from(await imgRes.arrayBuffer());
+        if (buffer.length > 1000) {
+          const path = join(COVER_DIR, `artist-${artistId}.jpg`);
+          writeFileSync(path, buffer);
+          return true;
+        }
+      }
+    }
+  } catch (err) {
+    logger.debug(`Spotify artist image failed for "${artistName}": ${err}`);
+  }
+
+  return false;
+}
+
 function saveCover(albumId: string, data: Buffer): void {
   mkdirSync(COVER_DIR, { recursive: true });
   const path = join(COVER_DIR, `${albumId}.jpg`);

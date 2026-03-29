@@ -115,5 +115,6 @@ export const api = {
   // URLs (not fetched, used directly)
   getStreamUrl: (trackId: string) => `${API_BASE}/library/tracks/${trackId}/stream`,
   getAlbumCoverUrl: (albumId: string) => `${API_BASE}/library/albums/${albumId}/cover`,
+  getArtistImageUrl: (artistId: string) => `${API_BASE}/library/artists/${artistId}/image`,
   getTrackCoverUrl: (trackId: string) => `${API_BASE}/library/tracks/${trackId}/cover`,
 };

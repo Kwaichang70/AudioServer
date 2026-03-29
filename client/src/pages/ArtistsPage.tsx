@@ -7,6 +7,39 @@ interface Artist {
   name: string;
 }
 
+function ArtistImage({ artistId, name }: { artistId: string; name: string }) {
+  const [failed, setFailed] = useState(false);
+  const initial = name.charAt(0).toUpperCase();
+
+  // Generate a color from the name
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
+  const hue = Math.abs(hash) % 360;
+
+  if (failed) {
+    return (
+      <div
+        className="w-24 h-24 mx-auto mb-3 rounded-full flex items-center justify-center text-3xl font-bold text-white/80"
+        style={{ background: `hsl(${hue}, 40%, 25%)` }}
+      >
+        {initial}
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-24 h-24 mx-auto mb-3 rounded-full overflow-hidden bg-surface-dark">
+      <img
+        src={api.getArtistImageUrl(artistId)}
+        alt={name}
+        className="w-full h-full object-cover"
+        loading="lazy"
+        onError={() => setFailed(true)}
+      />
+    </div>
+  );
+}
+
 export default function ArtistsPage() {
   const [artists, setArtists] = useState<Artist[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,9 +69,7 @@ export default function ArtistsPage() {
             to={`/artists/${artist.id}`}
             className="bg-surface-light rounded-lg p-4 text-center hover:bg-surface transition group"
           >
-            <div className="w-20 h-20 mx-auto mb-3 rounded-full bg-surface-dark flex items-center justify-center text-2xl text-gray-600">
-              &#9835;
-            </div>
+            <ArtistImage artistId={artist.id} name={artist.name} />
             <p className="text-sm font-medium truncate group-hover:text-accent transition">{artist.name}</p>
           </Link>
         ))}

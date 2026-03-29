@@ -125,6 +125,34 @@ export default function SettingsPage() {
               Fetch Covers
             </button>
           </div>
+
+          {/* Artist Images */}
+          <div className="flex items-center justify-between pt-2 border-t border-white/5">
+            <div>
+              <p className="text-sm font-medium">Fetch Artist Images</p>
+              <p className="text-xs text-gray-500">Download artist photos from Spotify (requires Spotify connection)</p>
+            </div>
+            <button
+              onClick={async () => {
+                const res = await fetch('/api/library/artists/images/fetch', { method: 'POST' });
+                const data = await res.json();
+                toast(data.message || 'Artist image fetch started', 'info');
+                const interval = setInterval(async () => {
+                  const statusRes = await fetch('/api/library/artists/images/fetch/status').then(r => r.json());
+                  const s = statusRes.data;
+                  if (s.isRunning) {
+                    toast(`Artists: ${s.processed}/${s.total} (${s.found} found)`, 'info');
+                  } else {
+                    clearInterval(interval);
+                    toast(`Artist images done: ${s.found} found`, 'success');
+                  }
+                }, 10000);
+              }}
+              className="px-4 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-accent transition"
+            >
+              Fetch Images
+            </button>
+          </div>
         </div>
       </section>
 

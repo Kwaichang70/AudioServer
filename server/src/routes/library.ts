@@ -9,7 +9,7 @@ import { createReadStream, existsSync, statSync } from 'fs';
 import { extname } from 'path';
 import type { ApiResponse } from '@audioserver/shared';
 import { getCoverForAlbum, getCoverForTrack } from '../services/coverart.js';
-import { fetchMissingCovers, getCoverFetchStatus } from '../services/coverart-fetch.js';
+import { fetchMissingCovers, getCoverFetchStatus, readCachedArtistImage, fetchMissingArtistImages, getArtistFetchStatus } from '../services/coverart-fetch.js';
 
 export const libraryRouter = Router();
 
@@ -70,6 +70,16 @@ libraryRouter.get('/albums/:id/tracks', (req, res) => {
     .orderBy(tracks.discNumber, tracks.trackNumber)
     .all();
   res.json({ data: result, meta: { total: result.length } });
+});
+
+// ─── Artist Images ───────────────────────────────────────────────
+
+libraryRouter.get('/artists/:id/image', (req, res) => {
+  const image = readCachedArtistImage(req.params.id);
+  if (!image) return res.status(404).json({ error: 'No artist image' });
+  res.setHeader('Content-Type', image.mime);
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send(image.data);
 });
 
 // ─── Cover Art ───────────────────────────────────────────────────
@@ -203,4 +213,21 @@ libraryRouter.post('/covers/fetch', (_req, res) => {
 
 libraryRouter.get('/covers/fetch/status', (_req, res) => {
   res.json({ data: getCoverFetchStatus() });
+});
+
+// ─── Artist Image Fetch ──────────────────────────────────────────
+
+libraryRouter.post('/artists/images/fetch', (_req, res) => {
+  const status = getArtistFetchStatus();
+  if (status.isRunning) {
+    res.json({ data: status, message: 'Already running' });
+    return;
+  }
+  logger.info('Artist image fetch requested');
+  fetchMissingArtistImages();
+  res.json({ data: getArtistFetchStatus(), message: 'Artist image fetch started' });
+});
+
+libraryRouter.get('/artists/images/fetch/status', (_req, res) => {
+  res.json({ data: getArtistFetchStatus() });
 });
