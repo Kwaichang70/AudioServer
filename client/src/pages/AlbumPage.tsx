@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
 import AddToPlaylist from '../components/AddToPlaylist.js';
+import AlbumCover from '../components/AlbumCover.js';
 
 interface Track {
   id: string;
@@ -92,15 +93,8 @@ export default function AlbumPage() {
     <div>
       {/* Album header */}
       <div className="flex gap-6 mb-8">
-        <div className="w-56 h-56 bg-surface-light rounded-lg overflow-hidden shrink-0 shadow-lg">
-          <img
-            src={album.coverUrl || api.getAlbumCoverUrl(album.id)}
-            alt={album.title}
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none';
-            }}
-          />
+        <div className="w-56 h-56 shrink-0 shadow-lg">
+          <AlbumCover albumId={album.id} title={album.title} artistName={album.artistName} coverUrl={album.coverUrl} size="lg" />
         </div>
         <div className="flex flex-col justify-end">
           <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Album</p>

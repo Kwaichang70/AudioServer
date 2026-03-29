@@ -18,6 +18,7 @@ import { librespotRouter } from './routes/librespot.js';
 import { playlistsRouter } from './routes/playlists.js';
 import { initDatabase } from './db/index.js';
 import { providers } from './providers/registry.js';
+import { autoStartLibrespot } from './services/librespot.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -55,6 +56,7 @@ if (config.nodeEnv === 'production') {
 async function main() {
   await initDatabase();
   await providers.initialize();
+  autoStartLibrespot().catch(() => {});
   httpServer.listen(config.port, '0.0.0.0', () => {
     logger.info(`AudioServer running on http://0.0.0.0:${config.port}`);
     logger.info(`Music library paths: ${config.musicLibraryPaths.join(', ')}`);

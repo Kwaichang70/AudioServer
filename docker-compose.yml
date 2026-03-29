@@ -14,6 +14,8 @@ services:
       - QOBUZ_PASSWORD=${QOBUZ_PASSWORD:-}
       - DLNA_DEVICES=${DLNA_DEVICES:-}
       - VOLUMIO_DEVICES=${VOLUMIO_DEVICES:-}
+      - SPOTIFY_USERNAME=${SPOTIFY_USERNAME:-}
+      - SPOTIFY_PASSWORD=${SPOTIFY_PASSWORD:-}
     volumes:
       - audioserver-data:/data
       # On Synology: /volume1/music is the typical path for a "music" shared folder

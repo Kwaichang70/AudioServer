@@ -20,6 +20,9 @@ interface AudioContextValue {
   duration: number;
   volume: number;
   queue: TrackInfo[];
+  queueIndex: number;
+  shuffle: boolean;
+  repeat: 'off' | 'all' | 'one';
   selectedDeviceId: string;
   playTrack: (track: TrackInfo) => void;
   playAlbum: (tracks: TrackInfo[]) => void;
@@ -33,6 +36,8 @@ interface AudioContextValue {
   setVolume: (v: number) => void;
   seek: (time: number) => void;
   setSelectedDeviceId: (id: string) => void;
+  toggleShuffle: () => void;
+  toggleRepeat: () => void;
 }
 
 const AudioCtx = createContext<AudioContextValue | null>(null);
@@ -44,6 +49,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const [queueIndex, setQueueIndex] = useState(-1);
   const [selectedDeviceId, setSelectedDeviceId] = useState('browser');
   const [isLoading, setIsLoading] = useState(false);
+  const [shuffle, setShuffle] = useState(false);
+  const [repeat, setRepeat] = useState<'off' | 'all' | 'one'>('off');
   const [devicePosition, setDevicePosition] = useState(0);
   const [deviceDuration, setDeviceDuration] = useState(0);
   const [deviceIsPlaying, setDeviceIsPlaying] = useState(false);
@@ -262,12 +269,33 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
   const playNext = useCallback(() => {
     if (queue.length === 0) return;
-    const nextIndex = queueIndex + 1;
+
+    if (repeat === 'one') {
+      // Repeat current track
+      if (queue[queueIndex]) startTrack(queue[queueIndex]);
+      return;
+    }
+
+    let nextIndex: number;
+    if (shuffle) {
+      // Random next track (avoid repeating current)
+      nextIndex = Math.floor(Math.random() * queue.length);
+      if (nextIndex === queueIndex && queue.length > 1) {
+        nextIndex = (nextIndex + 1) % queue.length;
+      }
+    } else {
+      nextIndex = queueIndex + 1;
+    }
+
     if (nextIndex < queue.length) {
       setQueueIndex(nextIndex);
       startTrack(queue[nextIndex]);
+    } else if (repeat === 'all') {
+      // Loop back to start
+      setQueueIndex(0);
+      startTrack(queue[0]);
     }
-  }, [queue, queueIndex, startTrack]);
+  }, [queue, queueIndex, startTrack, shuffle, repeat]);
   playNextRef.current = playNext;
 
   const playPrevious = useCallback(() => {
@@ -282,8 +310,6 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       startTrack(queue[prevIndex]);
     }
   }, [queue, queueIndex, startTrack, audio]);
-
-  const isSpotifyTrack = currentTrackRef.current?.id.startsWith('spotify:') ?? false;
 
   const devicePause = useCallback(() => {
     setIsLoading(true);
@@ -342,6 +368,11 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     setIsLoading(false);
   }, [audio]);
 
+  const toggleShuffle = useCallback(() => setShuffle((s) => !s), []);
+  const toggleRepeat = useCallback(() => {
+    setRepeat((r) => r === 'off' ? 'all' : r === 'all' ? 'one' : 'off');
+  }, []);
+
   // Auto-advance to next track when current ends
   audio.setOnEnded(playNext);
 
@@ -355,6 +386,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         duration: selectedDeviceId === 'browser' ? audio.duration : deviceDuration,
         volume: audio.volume,
         queue,
+        queueIndex,
+        shuffle,
+        repeat,
         selectedDeviceId,
         playTrack,
         playAlbum,
@@ -368,6 +402,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         setVolume: deviceSetVolume,
         seek: audio.seek,
         setSelectedDeviceId,
+        toggleShuffle,
+        toggleRepeat,
       }}
     >
       {children}

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useAudioContext } from '../context/AudioContext.js';
 import { api } from '../api/client.js';
 import DeviceSelector from './DeviceSelector.js';
@@ -12,9 +13,10 @@ function formatTime(seconds: number): string {
 export default function NowPlayingBar() {
   const {
     currentTrack, isPlaying, isLoading, currentTime, duration, volume,
-    pause, resume, setVolume, seek, playNext, playPrevious, queue,
-    selectedDeviceId, setSelectedDeviceId,
+    pause, resume, setVolume, seek, playNext, playPrevious, queue, queueIndex,
+    selectedDeviceId, setSelectedDeviceId, shuffle, repeat, toggleShuffle, toggleRepeat,
   } = useAudioContext();
+  const [showQueue, setShowQueue] = useState(false);
 
   if (!currentTrack) {
     return (
@@ -28,7 +30,7 @@ export default function NowPlayingBar() {
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className="h-20 bg-surface border-t border-white/10 flex items-center px-4 gap-4">
+    <div className="relative h-20 bg-surface border-t border-white/10 flex items-center px-4 gap-4">
       {/* Cover + Track info */}
       <div className="flex items-center gap-3 w-72 min-w-0">
         <div className="w-12 h-12 rounded bg-surface-dark overflow-hidden shrink-0">
@@ -57,7 +59,14 @@ export default function NowPlayingBar() {
 
       {/* Controls */}
       <div className="flex-1 flex flex-col items-center gap-1">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={toggleShuffle}
+            className={`text-sm transition ${shuffle ? 'text-accent' : 'text-gray-500 hover:text-white'}`}
+            title={shuffle ? 'Shuffle on' : 'Shuffle off'}
+          >
+            &#128256;
+          </button>
           <button
             onClick={playPrevious}
             className="text-gray-400 hover:text-white transition text-lg"
@@ -81,6 +90,13 @@ export default function NowPlayingBar() {
           >
             &#9197;
           </button>
+          <button
+            onClick={toggleRepeat}
+            className={`text-sm transition ${repeat !== 'off' ? 'text-accent' : 'text-gray-500 hover:text-white'}`}
+            title={repeat === 'off' ? 'Repeat off' : repeat === 'all' ? 'Repeat all' : 'Repeat one'}
+          >
+            {repeat === 'one' ? '\u{1F502}' : '\u{1F501}'}
+          </button>
         </div>
         <div className="w-full max-w-lg flex items-center gap-2 text-xs text-gray-400">
           <span className="w-10 text-right">{formatTime(currentTime)}</span>
@@ -100,10 +116,15 @@ export default function NowPlayingBar() {
         </div>
       </div>
 
-      {/* Volume + Device + Queue */}
-      <div className="flex items-center gap-3 w-56">
+      {/* Volume + Queue + Device */}
+      <div className="flex items-center gap-2 w-64">
         {queue.length > 0 && (
-          <span className="text-xs text-gray-500">{queue.length} in queue</span>
+          <button
+            onClick={() => setShowQueue(!showQueue)}
+            className={`text-xs px-2 py-0.5 rounded transition ${showQueue ? 'bg-accent text-white' : 'text-gray-500 hover:text-white'}`}
+          >
+            {queueIndex + 1}/{queue.length}
+          </button>
         )}
         <div className="flex items-center gap-1.5 flex-1">
           <span className="text-xs text-gray-500">&#128264;</span>
@@ -122,6 +143,30 @@ export default function NowPlayingBar() {
           onSelect={setSelectedDeviceId}
         />
       </div>
+
+      {/* Queue panel */}
+      {showQueue && queue.length > 0 && (
+        <div className="absolute bottom-full right-4 mb-2 w-80 max-h-96 overflow-y-auto bg-surface border border-white/10 rounded-lg shadow-xl z-50">
+          <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+            <p className="text-xs text-gray-400 uppercase tracking-wider">Queue</p>
+            <button onClick={() => setShowQueue(false)} className="text-gray-500 hover:text-white text-sm">&times;</button>
+          </div>
+          {queue.map((track, i) => (
+            <div
+              key={`q-${i}`}
+              className={`px-3 py-1.5 text-sm flex items-center gap-2 ${
+                i === queueIndex ? 'text-accent bg-accent/10' : 'text-gray-400'
+              }`}
+            >
+              <span className="w-5 text-xs text-right shrink-0">
+                {i === queueIndex && isPlaying ? '\u25B6' : i + 1}
+              </span>
+              <span className="truncate">{track.title}</span>
+              <span className="text-xs text-gray-600 truncate ml-auto">{track.artistName}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

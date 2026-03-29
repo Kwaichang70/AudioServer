@@ -1,5 +1,23 @@
-# ── Single stage build (simpler, uses tsx at runtime) ─────────────
+# ── Build librespot from source ───────────────────────────────────
+FROM rust:slim-bookworm AS librespot-build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libasound2-dev pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN cargo install librespot --no-default-features --features with-dns-sd
+
+# ── Main application ─────────────────────────────────────────────
 FROM node:22-slim
+
+# Install ffmpeg + audio libraries
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libasound2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy librespot binary from build stage
+COPY --from=librespot-build /usr/local/cargo/bin/librespot /usr/local/bin/librespot
 
 WORKDIR /app
 
@@ -18,7 +36,6 @@ RUN npm run build --workspace=shared
 # Build client (Vite static files)
 RUN npm run build --workspace=client
 
-# Server runs via tsx (no tsc build needed — same as dev)
 ENV NODE_ENV=production
 ENV PORT=3001
 ENV DATABASE_PATH=/data/audioserver.db

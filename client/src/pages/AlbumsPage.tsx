@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
+import AlbumCover from '../components/AlbumCover.js';
 
 interface Album {
   id: string;
@@ -82,20 +83,8 @@ export default function AlbumsPage() {
               to={`/albums/${album.id}`}
               className="group bg-surface-light rounded-lg p-3 hover:bg-surface transition"
             >
-              <div className="aspect-square bg-surface-dark rounded mb-2 overflow-hidden">
-                <img
-                  src={api.getAlbumCoverUrl(album.id)}
-                  alt={album.title}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                    (e.target as HTMLImageElement).parentElement!.classList.add('flex', 'items-center', 'justify-center');
-                    const span = document.createElement('span');
-                    span.className = 'text-4xl text-gray-600';
-                    span.textContent = '\u266A';
-                    (e.target as HTMLImageElement).parentElement!.appendChild(span);
-                  }}
-                />
+              <div className="mb-2">
+                <AlbumCover albumId={album.id} title={album.title} artistName={album.artistName} />
               </div>
               <p className="text-sm font-medium truncate group-hover:text-accent transition">{album.title}</p>
               <p className="text-xs text-gray-400 truncate">{album.artistName}</p>

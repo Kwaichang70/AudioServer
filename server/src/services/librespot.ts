@@ -242,6 +242,27 @@ export function getLibrespotState() {
  * HTTP handler for the live MP3 stream.
  * DLNA/Volumio devices connect to this endpoint to receive audio.
  */
+/**
+ * Auto-start librespot if available and SPOTIFY_USERNAME/SPOTIFY_PASSWORD are set.
+ */
+export async function autoStartLibrespot(): Promise<void> {
+  const username = process.env.SPOTIFY_USERNAME;
+  const password = process.env.SPOTIFY_PASSWORD;
+  if (!username || !password) {
+    logger.info('Librespot: No SPOTIFY_USERNAME/SPOTIFY_PASSWORD set, skipping auto-start');
+    return;
+  }
+
+  const hasLibrespot = await checkLibrespotAvailable();
+  const hasFfmpeg = await checkFfmpegAvailable();
+
+  if (hasLibrespot && hasFfmpeg) {
+    await startLibrespot(username, password);
+  } else {
+    logger.info(`Librespot: auto-start skipped (librespot: ${hasLibrespot}, ffmpeg: ${hasFfmpeg})`);
+  }
+}
+
 export function handleStreamRequest(req: import('http').IncomingMessage, res: import('http').ServerResponse) {
   if (!state.isRunning || !state.ffmpegProcess) {
     res.writeHead(503, { 'Content-Type': 'text/plain' });
