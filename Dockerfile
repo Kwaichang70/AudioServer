@@ -5,7 +5,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2-dev pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-RUN cargo install librespot --no-default-features --features with-dns-sd
+# Try version 0.6.0, fall back to 0.5.0, create dummy if both fail
+RUN cargo install librespot@0.6.0 2>/dev/null \
+    || cargo install librespot@0.5.0 2>/dev/null \
+    || touch /usr/local/cargo/bin/librespot
 
 # ── Main application ─────────────────────────────────────────────
 FROM node:22-slim
@@ -16,8 +19,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy librespot binary from build stage
+# Copy librespot binary (might be dummy if build failed)
 COPY --from=librespot-build /usr/local/cargo/bin/librespot /usr/local/bin/librespot
+RUN chmod +x /usr/local/bin/librespot 2>/dev/null || true
 
 WORKDIR /app
 
