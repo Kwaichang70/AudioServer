@@ -24,8 +24,8 @@ export default function OAuthCallbackPage() {
       return;
     }
 
-    const origin = window.location.origin.replace('localhost', '127.0.0.1');
-    const redirectUri = `${origin}/settings/callback/${provider}`;
+    // Use origin as-is (we were redirected here from Spotify with the correct URL)
+    const redirectUri = `${window.location.origin}/settings/callback/${provider}`;
 
     fetch(`/api/providers/${provider}/auth/callback`, {
       method: 'POST',

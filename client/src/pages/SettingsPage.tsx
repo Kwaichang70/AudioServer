@@ -27,12 +27,23 @@ export default function SettingsPage() {
       .catch(() => {});
   };
 
-  useEffect(() => { loadStatus(); }, []);
+  const [lanAddress, setLanAddress] = useState<string | null>(null);
+  useEffect(() => {
+    loadStatus();
+    fetch('/api/health').then(r => r.json()).then(d => {
+      if (d.lanAddress) setLanAddress(d.lanAddress);
+    }).catch(() => {});
+  }, []);
 
   const connectProvider = async (provider: 'spotify' | 'tidal' | 'qobuz') => {
     try {
-      // Spotify requires 127.0.0.1 (not localhost) for loopback redirect URIs
-      const origin = window.location.origin.replace('localhost', '127.0.0.1');
+      // Build redirect URI using LAN IP (Spotify doesn't accept hostnames like 'diskstation')
+      let origin = window.location.origin;
+      if (lanAddress && !origin.includes('127.0.0.1')) {
+        origin = `${window.location.protocol}//${lanAddress}:${window.location.port || '3001'}`;
+      } else if (origin.includes('localhost')) {
+        origin = origin.replace('localhost', '127.0.0.1');
+      }
       const redirectUri = `${origin}/settings/callback/${provider}`;
       const res = await fetch(`/api/providers/${provider}/auth/init`, {
         method: 'POST',
