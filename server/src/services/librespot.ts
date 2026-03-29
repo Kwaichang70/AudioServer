@@ -108,16 +108,19 @@ export async function startLibrespot(username: string, password: string): Promis
   }
 
   try {
-    // Start librespot with pipe backend (raw PCM output)
-    const proc = spawn('librespot', [
+    // Build args — if credentials provided use them, otherwise discovery mode
+    const args = [
       '--name', 'AudioServer',
       '--backend', 'pipe',
       '--bitrate', '320',
-      '--username', username,
-      '--password', password,
       '--initial-volume', '80',
-      '--format', 'S16', // 16-bit signed PCM
-    ], {
+    ];
+    if (username && password) {
+      args.push('--username', username, '--password', password);
+    }
+    // v0.4.x doesn't support --format flag
+
+    const proc = spawn('librespot', args, {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
@@ -126,7 +129,11 @@ export async function startLibrespot(username: string, password: string): Promis
 
     proc.stderr?.on('data', (data: Buffer) => {
       const msg = data.toString().trim();
-      if (msg) logger.debug(`Librespot: ${msg}`);
+      if (msg.includes('ERROR') || msg.includes('WARN')) {
+        logger.warn(`Librespot: ${msg}`);
+      } else if (msg) {
+        logger.info(`Librespot: ${msg}`);
+      }
 
       // Detect track changes from librespot stderr
       if (msg.includes('Loading <') || msg.includes('Track "')) {
@@ -246,21 +253,19 @@ export function getLibrespotState() {
  * Auto-start librespot if available and SPOTIFY_USERNAME/SPOTIFY_PASSWORD are set.
  */
 export async function autoStartLibrespot(): Promise<void> {
-  const username = process.env.SPOTIFY_USERNAME;
-  const password = process.env.SPOTIFY_PASSWORD;
-  if (!username || !password) {
-    logger.info('Librespot: No SPOTIFY_USERNAME/SPOTIFY_PASSWORD set, skipping auto-start');
-    return;
-  }
-
   const hasLibrespot = await checkLibrespotAvailable();
   const hasFfmpeg = await checkFfmpegAvailable();
 
-  if (hasLibrespot && hasFfmpeg) {
-    await startLibrespot(username, password);
-  } else {
+  if (!hasLibrespot || !hasFfmpeg) {
     logger.info(`Librespot: auto-start skipped (librespot: ${hasLibrespot}, ffmpeg: ${hasFfmpeg})`);
+    return;
   }
+
+  const username = process.env.SPOTIFY_USERNAME || '';
+  const password = process.env.SPOTIFY_PASSWORD || '';
+
+  // Start with credentials if available, otherwise discovery mode
+  await startLibrespot(username, password);
 }
 
 export function handleStreamRequest(req: import('http').IncomingMessage, res: import('http').ServerResponse) {
