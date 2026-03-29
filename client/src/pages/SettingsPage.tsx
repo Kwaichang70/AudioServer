@@ -96,6 +96,35 @@ export default function SettingsPage() {
           {scanning && scanInfo && (
             <p className="text-xs text-gray-400 animate-pulse">{scanInfo}</p>
           )}
+
+          {/* Cover Art Fetch */}
+          <div className="flex items-center justify-between pt-2 border-t border-white/5">
+            <div>
+              <p className="text-sm font-medium">Fetch Missing Cover Art</p>
+              <p className="text-xs text-gray-500">Download covers from MusicBrainz for albums without embedded art</p>
+            </div>
+            <button
+              onClick={async () => {
+                const res = await fetch('/api/library/covers/fetch', { method: 'POST' });
+                const data = await res.json();
+                toast(data.message || 'Cover fetch started', 'info');
+                // Poll status
+                const interval = setInterval(async () => {
+                  const statusRes = await fetch('/api/library/covers/fetch/status').then(r => r.json());
+                  const s = statusRes.data;
+                  if (s.isRunning) {
+                    toast(`Covers: ${s.processed}/${s.total} (${s.found} found)`, 'info');
+                  } else {
+                    clearInterval(interval);
+                    toast(`Cover art done: ${s.found} found, ${s.notFound} not found`, 'success');
+                  }
+                }, 10000);
+              }}
+              className="px-4 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-accent transition"
+            >
+              Fetch Covers
+            </button>
+          </div>
         </div>
       </section>
 

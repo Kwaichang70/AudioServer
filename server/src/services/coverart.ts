@@ -4,6 +4,7 @@ import { getDb } from '../db/index.js';
 import { tracks } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { logger } from '../logger.js';
+import { readCachedCover } from './coverart-fetch.js';
 
 interface CoverResult {
   data: Buffer;
@@ -16,7 +17,6 @@ const MAX_CACHE_SIZE = 200;
 
 function addToCache(key: string, value: CoverResult | null) {
   if (coverCache.size >= MAX_CACHE_SIZE) {
-    // Delete oldest entry
     const firstKey = coverCache.keys().next().value!;
     coverCache.delete(firstKey);
   }
@@ -36,8 +36,15 @@ export async function getCoverForTrack(trackId: string): Promise<CoverResult | n
 export async function getCoverForAlbum(albumId: string): Promise<CoverResult | null> {
   if (coverCache.has(`album:${albumId}`)) return coverCache.get(`album:${albumId}`)!;
 
+  // 1. Check disk cache (fetched from MusicBrainz/Spotify)
+  const cached = readCachedCover(albumId);
+  if (cached) {
+    addToCache(`album:${albumId}`, cached);
+    return cached;
+  }
+
+  // 2. Try extracting from embedded audio metadata
   const db = getDb();
-  // Get first track of this album that has a file path
   const track = db.select().from(tracks)
     .where(eq(tracks.albumId, albumId))
     .limit(1)

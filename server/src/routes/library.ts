@@ -9,6 +9,7 @@ import { createReadStream, existsSync, statSync } from 'fs';
 import { extname } from 'path';
 import type { ApiResponse } from '@audioserver/shared';
 import { getCoverForAlbum, getCoverForTrack } from '../services/coverart.js';
+import { fetchMissingCovers, getCoverFetchStatus } from '../services/coverart-fetch.js';
 
 export const libraryRouter = Router();
 
@@ -185,4 +186,21 @@ libraryRouter.post('/scan', (_req, res) => {
 
 libraryRouter.get('/scan/status', (_req, res) => {
   res.json({ data: getScanStatus() });
+});
+
+// ─── Cover Art Fetch ─────────────────────────────────────────────
+
+libraryRouter.post('/covers/fetch', (_req, res) => {
+  const status = getCoverFetchStatus();
+  if (status.isRunning) {
+    res.json({ data: status, message: 'Already running' });
+    return;
+  }
+  logger.info('Cover art fetch requested');
+  fetchMissingCovers();
+  res.json({ data: getCoverFetchStatus(), message: 'Cover art fetch started' });
+});
+
+libraryRouter.get('/covers/fetch/status', (_req, res) => {
+  res.json({ data: getCoverFetchStatus() });
 });
