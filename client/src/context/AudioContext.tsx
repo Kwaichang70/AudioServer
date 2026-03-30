@@ -84,6 +84,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     if (currentTrack.id.startsWith('spotify:')) return;
 
     let wasPlaying = false;
+    let lastPosition = 0;
+    let stoppedCount = 0;
     const poll = setInterval(() => {
       api.getDeviceStatus(selectedDeviceId).then((res) => {
         const s = res.data;
@@ -92,11 +94,26 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         const isPlaying = s.state === 'playing';
         setDeviceIsPlaying(isPlaying);
 
-        // Auto-advance: device was playing but now stopped → next track
-        if (wasPlaying && !isPlaying && s.position === 0) {
-          playNextRef.current?.();
+        // Auto-advance: detect track ended
+        // Track ended when: was playing, now stopped, and either:
+        // - position is near duration (finished naturally)
+        // - position reset to 0 (device cleared)
+        // - device reports stopped for 2 consecutive polls
+        if (wasPlaying && !isPlaying) {
+          stoppedCount++;
+          const nearEnd = s.duration > 0 && s.position >= s.duration - 2;
+          const positionReset = s.position === 0 || s.position < lastPosition;
+          if (nearEnd || positionReset || stoppedCount >= 2) {
+            console.log(`[AudioServer] Track ended, advancing (pos=${s.position}, dur=${s.duration})`);
+            playNextRef.current?.();
+            stoppedCount = 0;
+          }
+        } else {
+          stoppedCount = 0;
         }
+
         wasPlaying = isPlaying;
+        lastPosition = s.position || 0;
       }).catch(() => {});
     }, 2000);
 

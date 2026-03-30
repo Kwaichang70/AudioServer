@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAudioContext } from '../context/AudioContext.js';
 import { api } from '../api/client.js';
 import DeviceSelector from './DeviceSelector.js';
@@ -11,6 +12,7 @@ function formatTime(seconds: number): string {
 }
 
 export default function NowPlayingBar() {
+  const navigate = useNavigate();
   const {
     currentTrack, isPlaying, isLoading, currentTime, duration, volume,
     pause, resume, setVolume, seek, playNext, playPrevious, queue, queueIndex,
@@ -41,8 +43,10 @@ export default function NowPlayingBar() {
             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
           />
         </div>
-        <div className="min-w-0">
-          <p className="text-sm font-medium truncate">
+        <div className="min-w-0 cursor-pointer" onClick={() => {
+          if (currentTrack.albumId) navigate(`/albums/${currentTrack.albumId}`);
+        }}>
+          <p className="text-sm font-medium truncate hover:text-accent transition">
             {currentTrack.title}
             {currentTrack.id.startsWith('spotify:') && (
               <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-green-900/50 text-green-300">spotify</span>
