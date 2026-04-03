@@ -116,6 +116,33 @@ export async function initDatabase() {
 
     CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist ON playlist_tracks(playlist_id, position);
 
+    CREATE TABLE IF NOT EXISTS playback_state (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      device_id TEXT DEFAULT 'browser',
+      track_id TEXT,
+      state TEXT DEFAULT 'stopped',
+      position REAL DEFAULT 0,
+      volume INTEGER DEFAULT 50,
+      shuffle INTEGER DEFAULT 0,
+      repeat TEXT DEFAULT 'off',
+      updated_at INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS queue_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      track_id TEXT NOT NULL,
+      track_title TEXT NOT NULL,
+      artist_name TEXT NOT NULL,
+      album_title TEXT NOT NULL,
+      album_id TEXT,
+      duration REAL,
+      source TEXT DEFAULT 'local',
+      position INTEGER NOT NULL,
+      added_at INTEGER DEFAULT (unixepoch())
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_queue_position ON queue_items(position);
+
     CREATE TABLE IF NOT EXISTS favorites (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       item_type TEXT NOT NULL,

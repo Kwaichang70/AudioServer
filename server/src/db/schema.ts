@@ -68,6 +68,31 @@ export const playHistory = sqliteTable('play_history', {
   playedAt: integer('played_at', { mode: 'timestamp' }),
 });
 
+export const playbackState = sqliteTable('playback_state', {
+  id: integer('id').primaryKey().default(1), // singleton row
+  deviceId: text('device_id').default('browser'),
+  trackId: text('track_id'),
+  state: text('state').default('stopped'), // playing, paused, stopped
+  position: real('position').default(0),
+  volume: integer('volume').default(50),
+  shuffle: integer('shuffle', { mode: 'boolean' }).default(false),
+  repeat: text('repeat').default('off'), // off, all, one
+  updatedAt: integer('updated_at', { mode: 'timestamp' }),
+});
+
+export const queueItems = sqliteTable('queue_items', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  trackId: text('track_id').notNull(),
+  trackTitle: text('track_title').notNull(),
+  artistName: text('artist_name').notNull(),
+  albumTitle: text('album_title').notNull(),
+  albumId: text('album_id'),
+  duration: real('duration'),
+  source: text('source').default('local'),
+  position: integer('position').notNull(),
+  addedAt: integer('added_at', { mode: 'timestamp' }),
+});
+
 export const favorites = sqliteTable('favorites', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   itemType: text('item_type').notNull(), // 'track', 'album', 'artist'

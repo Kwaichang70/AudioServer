@@ -19,6 +19,7 @@ import { playlistsRouter } from './routes/playlists.js';
 import { initDatabase } from './db/index.js';
 import { providers } from './providers/registry.js';
 import { autoStartLibrespot } from './services/librespot.js';
+import { playbackService } from './services/playback.js';
 import { globalLimiter } from './middleware/rateLimiter.js';
 
 const app = express();
@@ -58,6 +59,7 @@ if (config.nodeEnv === 'production') {
 async function main() {
   await initDatabase();
   await providers.initialize();
+  playbackService.initialize();
   autoStartLibrespot().catch(() => {});
   httpServer.listen(config.port, '0.0.0.0', () => {
     logger.info(`AudioServer running on http://0.0.0.0:${config.port}`);
