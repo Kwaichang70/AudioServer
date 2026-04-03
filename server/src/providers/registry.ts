@@ -46,7 +46,35 @@ class ProviderRegistry {
       }
     }
 
+    // Deduplicate: prefer local > qobuz > tidal > spotify
+    merged.artists = this.dedup(merged.artists, (a) => a.name.toLowerCase());
+    merged.albums = this.dedup(merged.albums, (a) => `${a.artistName}-${a.title}`.toLowerCase());
+    merged.tracks = this.dedup(merged.tracks, (t) => `${t.artistName}-${t.title}`.toLowerCase());
+
     return merged;
+  }
+
+  /** Remove duplicates, keeping the first occurrence (local comes first) */
+  private dedup<T extends { source?: string }>(items: T[], keyFn: (item: T) => string): T[] {
+    const seen = new Map<string, T>();
+    const sourceOrder: Record<string, number> = { local: 0, qobuz: 1, tidal: 2, spotify: 3 };
+
+    for (const item of items) {
+      const key = keyFn(item);
+      const existing = seen.get(key);
+      if (!existing) {
+        seen.set(key, item);
+      } else {
+        // Keep the one with higher priority (lower number)
+        const existingPriority = sourceOrder[existing.source || 'spotify'] ?? 9;
+        const newPriority = sourceOrder[item.source || 'spotify'] ?? 9;
+        if (newPriority < existingPriority) {
+          seen.set(key, item);
+        }
+      }
+    }
+
+    return Array.from(seen.values());
   }
 }
 

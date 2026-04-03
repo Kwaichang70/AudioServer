@@ -1,7 +1,7 @@
 import type { AuthenticatedMusicProvider, ProviderAuth } from '@audioserver/shared';
 import type { Artist, Album, Track, SearchResults, Playlist } from '@audioserver/shared';
-import { config } from '../config.js';
 import { logger } from '../logger.js';
+import { saveTokens, loadTokens, deleteTokens } from '../services/tokenstore.js';
 
 const TIDAL_AUTH_URL = 'https://auth.tidal.com/v1/oauth2';
 const TIDAL_API_URL = 'https://openapi.tidal.com/v2';
@@ -42,7 +42,7 @@ export class TidalProvider implements AuthenticatedMusicProvider {
     logout: async () => {
       this.tokens = null;
       this.auth.isAuthenticated = false;
-      this.isAvailable = false;
+      deleteTokens('tidal');
     },
     refreshToken: async () => {
       await this.refreshAccessToken();
@@ -60,8 +60,22 @@ export class TidalProvider implements AuthenticatedMusicProvider {
       logger.info('Tidal: No client credentials configured, skipping');
       return;
     }
-    // TODO: Load stored tokens from DB and try to refresh
-    logger.info('Tidal: Provider initialized (awaiting authentication)');
+    try {
+      const stored = loadTokens('tidal');
+      if (stored) {
+        this.tokens = stored;
+        this.auth.isAuthenticated = true;
+        logger.info('Tidal: Restored tokens from database');
+        if (Date.now() >= stored.expiresAt - 60_000) {
+          await this.refreshAccessToken();
+          logger.info('Tidal: Refreshed expired token');
+        }
+      } else {
+        logger.info('Tidal: Provider initialized (awaiting authentication)');
+      }
+    } catch (err) {
+      logger.warn(`Tidal: Failed to restore tokens: ${err}`);
+    }
   }
 
   async dispose(): Promise<void> {
@@ -106,6 +120,7 @@ export class TidalProvider implements AuthenticatedMusicProvider {
       expiresAt: Date.now() + data.expires_in * 1000,
     };
     this.auth.isAuthenticated = true;
+    saveTokens('tidal', this.tokens);
     logger.info('Tidal: Authenticated successfully');
   }
 
@@ -130,6 +145,7 @@ export class TidalProvider implements AuthenticatedMusicProvider {
     this.tokens.accessToken = data.access_token;
     if (data.refresh_token) this.tokens.refreshToken = data.refresh_token;
     this.tokens.expiresAt = Date.now() + data.expires_in * 1000;
+    saveTokens('tidal', this.tokens);
   }
 
   private async apiRequest(path: string): Promise<any> {

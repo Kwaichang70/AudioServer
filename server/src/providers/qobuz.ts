@@ -23,7 +23,6 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
 
   private userAuthToken: string | null = null;
   private userId: number | null = null;
-  private appSecret: string | null = null;
 
   auth: ProviderAuth = {
     isAuthenticated: false,
@@ -159,6 +158,20 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
     const res = await fetch(url.toString(), {
       headers: { 'X-User-Auth-Token': this.userAuthToken },
     });
+
+    if (res.status === 401) {
+      // Token expired — try re-login
+      logger.info('Qobuz: Token expired, re-authenticating...');
+      try {
+        await this.auth.refreshToken!();
+        // Retry the request
+        const retryRes = await fetch(url.toString(), {
+          headers: { 'X-User-Auth-Token': this.userAuthToken! },
+        });
+        if (retryRes.ok) return retryRes.json();
+      } catch {}
+      throw new Error('Qobuz: Re-authentication failed');
+    }
 
     if (!res.ok) {
       const text = await res.text();
