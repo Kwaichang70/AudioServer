@@ -12,13 +12,18 @@ export function useInfiniteLoad<T>(
   const [items, setItems] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+
   const fetchRef = useRef(fetchFn);
   fetchRef.current = fetchFn;
+  const pageRef = useRef(1);
+  const loadingRef = useRef(false);
 
   const loadPage = useCallback(async (pageNum: number, append: boolean) => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+
     if (append) setLoadingMore(true); else setLoading(true);
 
     try {
@@ -26,27 +31,28 @@ export function useInfiniteLoad<T>(
       setItems((prev) => append ? [...prev, ...res.data] : res.data);
       setTotal(res.meta.total);
       setHasMore(pageNum < res.meta.totalPages);
-      setPage(pageNum);
+      pageRef.current = pageNum;
     } catch {
       // Keep existing items on error
     }
 
     setLoading(false);
     setLoadingMore(false);
+    loadingRef.current = false;
   }, [limit]);
 
-  // Load first page on mount
   useEffect(() => {
     loadPage(1, false);
   }, [loadPage]);
 
   const loadMore = useCallback(() => {
-    if (loadingMore || !hasMore) return;
-    loadPage(page + 1, true);
-  }, [loadPage, page, loadingMore, hasMore]);
+    if (loadingRef.current || !hasMore) return;
+    loadPage(pageRef.current + 1, true);
+  }, [loadPage, hasMore]);
 
   const reload = useCallback(() => {
     setItems([]);
+    pageRef.current = 1;
     loadPage(1, false);
   }, [loadPage]);
 
