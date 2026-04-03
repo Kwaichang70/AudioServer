@@ -69,7 +69,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const playNextRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    fetch('/api/health').then(r => r.json()).then(d => {
+    api.getHealth().then((d: any) => {
       if (d.lanAddress) lanAddressRef.current = d.lanAddress;
     }).catch(() => {});
   }, []);
@@ -163,13 +163,21 @@ export function AudioProvider({ children }: { children: ReactNode }) {
               // Librespot not available, fall through to Spotify Connect
             }
 
-            // Strategy 2: Try matching with Spotify Connect device (e.g. Cocktail Audio)
+            // Strategy 2: Try matching selected AudioServer device with a Spotify Connect device
             const devRes = await api.spotifyConnectDevices();
             const connectDevices = devRes.data || [];
-            const match = connectDevices.find((d: any) =>
-              d.name.toLowerCase().includes('cocktail') ||
-              d.name.toLowerCase().includes('x35')
-            );
+            // Get the selected device name from cached devices
+            const selectedDevice = await api.getDevices().then((r: any) =>
+              r.data?.find((d: any) => d.id === deviceId)
+            ).catch(() => null);
+            const selectedName = selectedDevice?.name?.toLowerCase() || '';
+            // Match by checking if Spotify device name overlaps with selected device name
+            const match = connectDevices.find((d: any) => {
+              const cName = d.name.toLowerCase();
+              // Match if any word from the device name appears in Spotify Connect device name
+              const words = selectedName.split(/[\s\-_]+/).filter((w: string) => w.length > 2);
+              return words.some((w: string) => cName.includes(w));
+            });
             if (match) {
               await api.spotifyConnectPlay(spotifyTrackUri, match.id);
               setIsLoading(false);
@@ -203,8 +211,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       const qobuzId = track.id.replace('qobuz:', '');
       const playQobuz = async () => {
         try {
-          const res = await fetch(`/api/providers/qobuz/tracks/${qobuzId}/stream`);
-          const data = await res.json();
+          const data = await api.getQobuzStreamUrl(qobuzId);
           if (!data.data?.url) {
             throw new Error('No stream URL from Qobuz');
           }

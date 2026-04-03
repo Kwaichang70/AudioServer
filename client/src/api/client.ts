@@ -112,6 +112,35 @@ export const api = {
   // Library stats
   getStats: () => fetchApi<any>('/library/stats'),
 
+  // Health
+  getHealth: () => fetchApi<any>('/health'),
+
+  // Providers
+  getProviderStatus: () => fetchApi<any>('/providers/status'),
+  providerSearch: (q: string) => fetchApi<any>(`/providers/search?q=${encodeURIComponent(q)}`),
+  providerAuthInit: (provider: string, redirectUri: string) =>
+    fetchApi<any>(`/providers/${provider}/auth/init`, { method: 'POST', body: JSON.stringify({ redirectUri }) }),
+  providerAuthCallback: (provider: string, code: string, redirectUri: string) =>
+    fetchApi<any>(`/providers/${provider}/auth/callback`, { method: 'POST', body: JSON.stringify({ code, redirectUri }) }),
+  providerAuthLogout: (provider: string) =>
+    fetchApi<any>(`/providers/${provider}/auth/logout`, { method: 'POST' }),
+  qobuzLogin: (username: string, password: string) =>
+    fetchApi<any>('/providers/qobuz/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  getSpotifyAlbum: (id: string) => fetchApi<any>(`/providers/spotify/albums/${id}`),
+  getSpotifyAlbumTracks: (id: string) => fetchApi<any>(`/providers/spotify/albums/${id}/tracks`),
+  getQobuzAlbum: (id: string) => fetchApi<any>(`/providers/qobuz/albums/${id}`),
+  getQobuzAlbumTracks: (id: string) => fetchApi<any>(`/providers/qobuz/albums/${id}/tracks`),
+  getQobuzStreamUrl: (trackId: string) => fetchApi<any>(`/providers/qobuz/tracks/${trackId}/stream`),
+
+  // Cover art fetch
+  fetchCovers: () => fetchApi<any>('/library/covers/fetch', { method: 'POST' }),
+  getCoverFetchStatus: () => fetchApi<any>('/library/covers/fetch/status'),
+  fetchArtistImages: () => fetchApi<any>('/library/artists/images/fetch', { method: 'POST' }),
+  getArtistImageFetchStatus: () => fetchApi<any>('/library/artists/images/fetch/status'),
+
+  // Librespot
+  getLibrespotStatus: () => fetchApi<any>('/librespot/status'),
+
   // URLs (not fetched, used directly)
   getStreamUrl: (trackId: string) => `${API_BASE}/library/tracks/${trackId}/stream`,
   getAlbumCoverUrl: (albumId: string) => `${API_BASE}/library/albums/${albumId}/cover`,

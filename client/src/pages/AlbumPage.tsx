@@ -4,6 +4,7 @@ import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
 import AddToPlaylist from '../components/AddToPlaylist.js';
 import AlbumCover from '../components/AlbumCover.js';
+import { formatDuration, formatQuality } from '../utils/format.js';
 
 interface Track {
   id: string;
@@ -30,20 +31,6 @@ interface Album {
   source?: string;
 }
 
-function formatDuration(seconds?: number): string {
-  if (!seconds) return '';
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-function formatQuality(track: Track): string {
-  const parts: string[] = [];
-  if (track.format) parts.push(track.format.toUpperCase());
-  if (track.sampleRate) parts.push(`${(track.sampleRate / 1000).toFixed(1)}kHz`);
-  if (track.bitDepth) parts.push(`${track.bitDepth}bit`);
-  return parts.join(' / ');
-}
 
 export default function AlbumPage() {
   const { id } = useParams<{ id: string }>();
@@ -61,16 +48,12 @@ export default function AlbumPage() {
 
     if (providerType === 'spotify') {
       const spotifyId = id.replace('spotify:', '');
-      fetch(`/api/providers/spotify/albums/${spotifyId}`).then(r => r.json())
-        .then((res) => setAlbum(res.data)).catch(() => {});
-      fetch(`/api/providers/spotify/albums/${spotifyId}/tracks`).then(r => r.json())
-        .then((res) => setTracks(res.data)).catch(() => {});
+      api.getSpotifyAlbum(spotifyId).then((res) => setAlbum(res.data)).catch(() => {});
+      api.getSpotifyAlbumTracks(spotifyId).then((res) => setTracks(res.data)).catch(() => {});
     } else if (providerType === 'qobuz') {
       const qobuzId = id.replace('qobuz:', '');
-      fetch(`/api/providers/qobuz/albums/${qobuzId}`).then(r => r.json())
-        .then((res) => setAlbum(res.data)).catch(() => {});
-      fetch(`/api/providers/qobuz/albums/${qobuzId}/tracks`).then(r => r.json())
-        .then((res) => setTracks(res.data)).catch(() => {});
+      api.getQobuzAlbum(qobuzId).then((res) => setAlbum(res.data)).catch(() => {});
+      api.getQobuzAlbumTracks(qobuzId).then((res) => setTracks(res.data)).catch(() => {});
     } else {
       api.getAlbum(id).then((res) => setAlbum(res.data));
       api.getAlbumTracks(id).then((res) => setTracks(res.data));

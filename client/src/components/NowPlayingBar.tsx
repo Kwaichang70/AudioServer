@@ -3,13 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAudioContext } from '../context/AudioContext.js';
 import { api } from '../api/client.js';
 import DeviceSelector from './DeviceSelector.js';
-
-function formatTime(seconds: number): string {
-  if (!seconds || isNaN(seconds)) return '0:00';
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
+import { formatTime } from '../utils/format.js';
 
 export default function NowPlayingBar() {
   const navigate = useNavigate();

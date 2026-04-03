@@ -32,7 +32,7 @@ export default function SearchPage() {
         // Unified search: local + Spotify + Tidal
         const [localRes, providerRes] = await Promise.allSettled([
           api.search(query),
-          fetch(`/api/providers/search?q=${encodeURIComponent(query)}`).then(r => r.json()),
+          api.providerSearch(query),
         ]);
 
         const local = localRes.status === 'fulfilled' ? localRes.value.data : { artists: [], albums: [], tracks: [] };
