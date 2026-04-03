@@ -65,7 +65,20 @@ export class DeviceManager {
     if (!device || device.type === 'browser') return;
     const controller = this.getController(device.type);
     if (!controller) throw new Error(`No controller for device type: ${device.type}`);
-    await controller.play(deviceId, streamUrl, metadata);
+
+    try {
+      await controller.play(deviceId, streamUrl, metadata);
+    } catch (err) {
+      // Retry once
+      logger.warn(`Device play failed on ${device.name}, retrying: ${err}`);
+      try {
+        await new Promise((r) => setTimeout(r, 1000));
+        await controller.play(deviceId, streamUrl, metadata);
+      } catch (retryErr) {
+        logger.error(`Device play retry failed on ${device.name}: ${retryErr}`);
+        throw retryErr;
+      }
+    }
   }
 
   async pause(deviceId: string): Promise<void> {

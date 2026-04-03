@@ -195,29 +195,52 @@ export class DlnaController implements DeviceController {
     const device = this.getDevice(deviceId);
     const didl = this.buildDidlMetadata(streamUrl, metadata);
 
-    // Stop → wait → SetURI → wait → Play (exact sequence that works via curl)
+    // Stop current playback
     try {
       await this.sendAction(device.controlUrl, 'Stop', { InstanceID: '0' });
-    } catch { /* ignore */ }
+      await this.waitForState(device.controlUrl, 'STOPPED', 3000);
+    } catch { /* ignore — may already be stopped */ }
 
-    await new Promise((r) => setTimeout(r, 1000));
-
+    // Set new URI
     const setResult = await this.sendAction(device.controlUrl, 'SetAVTransportURI', {
       InstanceID: '0',
       CurrentURI: streamUrl,
       CurrentURIMetaData: didl,
     });
-    logger.debug(`DLNA SetURI response: ${setResult.substring(0, 200)}`);
 
-    await new Promise((r) => setTimeout(r, 1000));
+    if (setResult.includes('Fault')) {
+      logger.error(`DLNA SetURI fault on ${device.name}: ${setResult.substring(0, 200)}`);
+      throw new Error(`DLNA SetURI failed on ${device.name}`);
+    }
 
-    const playResult = await this.sendAction(device.controlUrl, 'Play', {
-      InstanceID: '0',
-      Speed: '1',
-    });
-    logger.debug(`DLNA Play response: ${playResult.substring(0, 200)}`);
+    // Wait a moment for device to buffer
+    await new Promise((r) => setTimeout(r, 500));
+
+    // Play
+    await this.sendAction(device.controlUrl, 'Play', { InstanceID: '0', Speed: '1' });
+
+    // Verify it's playing (retry once if not)
+    const playing = await this.waitForState(device.controlUrl, 'PLAYING', 5000);
+    if (!playing) {
+      logger.warn(`DLNA: ${device.name} not PLAYING after first attempt, retrying...`);
+      await this.sendAction(device.controlUrl, 'Play', { InstanceID: '0', Speed: '1' });
+      await this.waitForState(device.controlUrl, 'PLAYING', 3000);
+    }
 
     logger.info(`DLNA play: ${metadata?.title || 'track'} → ${device.name}`);
+  }
+
+  /** Poll transport state until it matches expected, or timeout */
+  private async waitForState(controlUrl: string, expected: string, timeoutMs: number): Promise<boolean> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const info = await this.sendAction(controlUrl, 'GetTransportInfo', { InstanceID: '0' });
+        if (info.includes(expected)) return true;
+      } catch { /* ignore */ }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    return false;
   }
 
   async pause(deviceId: string): Promise<void> {

@@ -96,6 +96,11 @@ export default function NowPlayingBar() {
             {repeat === 'one' ? '\u{1F502}' : '\u{1F501}'}
           </button>
         </div>
+        {selectedDeviceId !== 'browser' && (
+          <p className="text-[10px] text-gray-500 mb-0.5">
+            Playing on external device
+          </p>
+        )}
         <div className="w-full max-w-lg flex items-center gap-2 text-xs text-gray-400">
           <span className="w-10 text-right">{formatTime(currentTime)}</span>
           <div className="flex-1 relative h-1 bg-white/10 rounded group cursor-pointer"

@@ -49,7 +49,14 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const [currentTrack, setCurrentTrack] = useState<TrackInfo | null>(null);
   const [queue, setQueue] = useState<TrackInfo[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
-  const [selectedDeviceId, setSelectedDeviceId] = useState('browser');
+  const [selectedDeviceId, setSelectedDeviceIdState] = useState(() =>
+    localStorage.getItem('audioserver_device') || 'browser'
+  );
+
+  const setSelectedDeviceId = (id: string) => {
+    setSelectedDeviceIdState(id);
+    localStorage.setItem('audioserver_device', id);
+  };
   const [isLoading, setIsLoading] = useState(false);
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState<'off' | 'all' | 'one'>('off');
