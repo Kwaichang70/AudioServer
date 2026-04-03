@@ -19,6 +19,7 @@ import { playlistsRouter } from './routes/playlists.js';
 import { initDatabase } from './db/index.js';
 import { providers } from './providers/registry.js';
 import { autoStartLibrespot } from './services/librespot.js';
+import { globalLimiter } from './middleware/rateLimiter.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -27,6 +28,7 @@ initSocketIO(httpServer);
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(globalLimiter);
 
 // Routes
 app.use('/api/auth', authRouter);

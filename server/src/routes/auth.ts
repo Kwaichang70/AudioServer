@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
 import { getRawDb } from '../db/index.js';
 import { hashPassword, verifyPassword, generateToken } from '../middleware/auth.js';
+import { loginLimiter, registerLimiter } from '../middleware/rateLimiter.js';
 import { logger } from '../logger.js';
 
 export const authRouter = Router();
@@ -13,14 +14,14 @@ interface UserRow {
 }
 
 // Register (only works if no users exist yet — first-run setup)
-authRouter.post('/register', async (req, res) => {
+authRouter.post('/register', registerLimiter, async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     res.status(400).json({ error: 'Username and password required' });
     return;
   }
-  if (password.length < 6) {
-    res.status(400).json({ error: 'Password must be at least 6 characters' });
+  if (password.length < 8) {
+    res.status(400).json({ error: 'Password must be at least 8 characters' });
     return;
   }
 
@@ -41,7 +42,7 @@ authRouter.post('/register', async (req, res) => {
 });
 
 // Login
-authRouter.post('/login', async (req, res) => {
+authRouter.post('/login', loginLimiter, async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     res.status(400).json({ error: 'Username and password required' });
