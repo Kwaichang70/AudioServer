@@ -1,12 +1,18 @@
 import rateLimit from 'express-rate-limit';
 
-// Global: max 300 requests per minute per IP (covers + API calls on page load)
+// Global: 1000 req/min, skip covers/images/streams (those are heavy on page load)
 export const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 300,
+  max: 1000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later' },
+  skip: (req) =>
+    req.path.includes('/cover') ||
+    req.path.includes('/image') ||
+    req.path.includes('/stream') ||
+    req.path.includes('/status') ||
+    req.path.startsWith('/assets/'),
 });
 
 // Auth login: max 5 attempts per 15 minutes per IP
