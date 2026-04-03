@@ -17,11 +17,11 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  // Library
-  getArtists: () => fetchApi<any>('/library/artists'),
+  // Library (paginated)
+  getArtists: (page = 1, limit = 50) => fetchApi<any>(`/library/artists?page=${page}&limit=${limit}`),
   getArtist: (id: string) => fetchApi<any>(`/library/artists/${id}`),
   getArtistAlbums: (id: string) => fetchApi<any>(`/library/artists/${id}/albums`),
-  getAlbums: () => fetchApi<any>('/library/albums'),
+  getAlbums: (page = 1, limit = 50) => fetchApi<any>(`/library/albums?page=${page}&limit=${limit}`),
   getAlbum: (id: string) => fetchApi<any>(`/library/albums/${id}`),
   getAlbumTracks: (id: string) => fetchApi<any>(`/library/albums/${id}/tracks`),
   search: (q: string) => fetchApi<any>(`/library/search?q=${encodeURIComponent(q)}`),

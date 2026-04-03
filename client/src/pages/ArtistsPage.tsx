@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
+import { useInfiniteLoad } from '../hooks/useInfiniteLoad.js';
 
 interface Artist {
   id: string;
@@ -11,7 +12,6 @@ function ArtistImage({ artistId, name }: { artistId: string; name: string }) {
   const [failed, setFailed] = useState(false);
   const initial = name.charAt(0).toUpperCase();
 
-  // Generate a color from the name
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
   const hue = Math.abs(hash) % 360;
@@ -41,15 +41,10 @@ function ArtistImage({ artistId, name }: { artistId: string; name: string }) {
 }
 
 export default function ArtistsPage() {
-  const [artists, setArtists] = useState<Artist[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api.getArtists().then((res) => {
-      setArtists(res.data);
-      setLoading(false);
-    });
-  }, []);
+  const { items: artists, loading, loadingMore, total, hasMore, loadMore } = useInfiniteLoad<Artist>(
+    (page, limit) => api.getArtists(page, limit),
+    60,
+  );
 
   if (loading) return <p className="text-gray-400">Loading artists...</p>;
 
@@ -60,7 +55,7 @@ export default function ArtistsPage() {
   return (
     <div>
       <h2 className="text-2xl font-bold mb-6">
-        Artists <span className="text-sm font-normal text-gray-500">({artists.length})</span>
+        Artists <span className="text-sm font-normal text-gray-500">({total})</span>
       </h2>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
         {artists.map((artist) => (
@@ -74,6 +69,18 @@ export default function ArtistsPage() {
           </Link>
         ))}
       </div>
+
+      {hasMore && (
+        <div className="flex justify-center mt-8">
+          <button
+            onClick={loadMore}
+            disabled={loadingMore}
+            className="px-6 py-2 bg-surface-light border border-white/10 rounded hover:border-accent transition disabled:opacity-50"
+          >
+            {loadingMore ? 'Loading...' : `Load More (${artists.length} of ${total})`}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

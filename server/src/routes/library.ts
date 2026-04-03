@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getDb } from '../db/index.js';
+import { getDb, getRawDb } from '../db/index.js';
 import { artists, albums, tracks } from '../db/schema.js';
 import { eq, like, or } from 'drizzle-orm';
 import { scanLibrary, getScanStatus } from '../services/scanner.js';
@@ -7,32 +7,31 @@ import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { createReadStream, existsSync, statSync } from 'fs';
 import { extname } from 'path';
-import type { ApiResponse } from '@audioserver/shared';
+// ApiResponse type removed — using inline format with buildMeta
 import { getCoverForAlbum, getCoverForTrack } from '../services/coverart.js';
 import { fetchMissingCovers, getCoverFetchStatus, readCachedArtistImage, fetchMissingArtistImages, getArtistFetchStatus } from '../services/coverart-fetch.js';
+import { parsePagination, buildMeta } from '../utils/pagination.js';
 
 export const libraryRouter = Router();
 
 // ─── Stats ───────────────────────────────────────────────────────
 
 libraryRouter.get('/stats', (_req, res) => {
-  const db = getDb();
-  const artistCount = db.select().from(artists).all().length;
-  const albumCount = db.select().from(albums).all().length;
-  const trackCount = db.select().from(tracks).all().length;
+  const raw = getRawDb();
+  const artistCount = (raw.prepare('SELECT COUNT(*) as c FROM artists').get() as any).c;
+  const albumCount = (raw.prepare('SELECT COUNT(*) as c FROM albums').get() as any).c;
+  const trackCount = (raw.prepare('SELECT COUNT(*) as c FROM tracks').get() as any).c;
   res.json({ data: { artists: artistCount, albums: albumCount, tracks: trackCount } });
 });
 
 // ─── Artists ─────────────────────────────────────────────────────
 
-libraryRouter.get('/artists', (_req, res) => {
-  const db = getDb();
-  const result = db.select().from(artists).orderBy(artists.name).all();
-  const response: ApiResponse<typeof result> = {
-    data: result,
-    meta: { total: result.length },
-  };
-  res.json(response);
+libraryRouter.get('/artists', (req, res) => {
+  const { page, limit, offset } = parsePagination(req, 50);
+  const raw = getRawDb();
+  const total = (raw.prepare('SELECT COUNT(*) as count FROM artists').get() as any).count;
+  const data = raw.prepare('SELECT * FROM artists ORDER BY name COLLATE NOCASE LIMIT ? OFFSET ?').all(limit, offset);
+  res.json({ data, meta: buildMeta(page, limit, total) });
 });
 
 libraryRouter.get('/artists/:id', (req, res) => {
@@ -50,10 +49,12 @@ libraryRouter.get('/artists/:id/albums', (req, res) => {
 
 // ─── Albums ──────────────────────────────────────────────────────
 
-libraryRouter.get('/albums', (_req, res) => {
-  const db = getDb();
-  const result = db.select().from(albums).orderBy(albums.title).all();
-  res.json({ data: result, meta: { total: result.length } });
+libraryRouter.get('/albums', (req, res) => {
+  const { page, limit, offset } = parsePagination(req, 50);
+  const raw = getRawDb();
+  const total = (raw.prepare('SELECT COUNT(*) as count FROM albums').get() as any).count;
+  const data = raw.prepare('SELECT * FROM albums ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?').all(limit, offset);
+  res.json({ data, meta: buildMeta(page, limit, total) });
 });
 
 libraryRouter.get('/albums/:id', (req, res) => {
@@ -160,16 +161,17 @@ libraryRouter.get('/tracks/:id/stream', (req, res) => {
 
 libraryRouter.get('/search', (req, res) => {
   const query = (req.query.q as string || '').trim();
+  const limit = Math.min(50, parseInt(req.query.limit as string) || 20);
   if (!query) return res.json({ data: { artists: [], albums: [], tracks: [] } });
 
   const db = getDb();
   const pattern = `%${query}%`;
 
-  const matchedArtists = db.select().from(artists).where(like(artists.name, pattern)).limit(20).all();
-  const matchedAlbums = db.select().from(albums).where(like(albums.title, pattern)).limit(20).all();
+  const matchedArtists = db.select().from(artists).where(like(artists.name, pattern)).limit(limit).all();
+  const matchedAlbums = db.select().from(albums).where(like(albums.title, pattern)).limit(limit).all();
   const matchedTracks = db.select().from(tracks).where(
     or(like(tracks.title, pattern), like(tracks.artistName, pattern))
-  ).limit(50).all();
+  ).limit(limit).all();
 
   res.json({
     data: {
