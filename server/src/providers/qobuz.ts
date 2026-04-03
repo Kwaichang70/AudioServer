@@ -88,9 +88,14 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
   // ─── Auth ────────────────────────────────────────────────────
 
   private async loginWithPassword(username: string, password: string): Promise<void> {
-    const res = await fetch(`${QOBUZ_API_URL}/user/login?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&app_id=${QOBUZ_APP_ID}`, {
+    // Qobuz web player sends app_id as X-App-Id header + credentials as form body
+    const res = await fetch(`${QOBUZ_API_URL}/user/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-App-Id': QOBUZ_APP_ID,
+      },
+      body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`,
     });
 
     if (!res.ok) {

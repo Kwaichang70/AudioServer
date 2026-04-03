@@ -2,17 +2,18 @@ import type { MusicProvider } from '@audioserver/shared';
 import { LocalProvider } from './local.js';
 import { TidalProvider } from './tidal.js';
 import { SpotifyProvider } from './spotify.js';
-import { QobuzProvider } from './qobuz.js';
+// import { QobuzProvider } from './qobuz.js'; // Disabled: Qobuz blocked external API access
 import { logger } from '../logger.js';
 
 class ProviderRegistry {
   readonly local = new LocalProvider();
   readonly tidal = new TidalProvider();
   readonly spotify = new SpotifyProvider();
-  readonly qobuz = new QobuzProvider();
+  // readonly qobuz = new QobuzProvider(); // Disabled: Qobuz blocked external API access
+  readonly qobuz = { type: 'qobuz', name: 'Qobuz', isAvailable: false, auth: { isAuthenticated: false } } as any;
 
   getAllProviders(): MusicProvider[] {
-    return [this.local, this.tidal, this.spotify, this.qobuz];
+    return [this.local, this.tidal, this.spotify];
   }
 
   getActiveProviders(): MusicProvider[] {
