@@ -42,3 +42,38 @@ export const config = {
     .split(',')
     .map((o) => o.trim()),
 } as const;
+
+// Validate config at import time
+export function validateConfig(): void {
+  const warnings: string[] = [];
+  const errors: string[] = [];
+
+  // Check music paths
+  for (const p of config.musicLibraryPaths) {
+    if (p === './test-music') {
+      warnings.push(`MUSIC_LIBRARY_PATHS not set (using default: ${p})`);
+    }
+  }
+
+  // Check database path directory
+  if (config.databasePath === './data/audioserver.db') {
+    // Default is fine
+  }
+
+  // Log startup summary
+  console.log('\n--- AudioServer Configuration ---');
+  console.log(`  Environment: ${config.nodeEnv}`);
+  console.log(`  Port: ${config.port}`);
+  console.log(`  Music paths: ${config.musicLibraryPaths.join(', ')}`);
+  console.log(`  Database: ${config.databasePath}`);
+  console.log(`  Spotify: ${process.env.SPOTIFY_CLIENT_ID ? 'configured' : 'not configured'}`);
+  console.log(`  Tidal: ${process.env.TIDAL_CLIENT_ID ? 'configured' : 'not configured'}`);
+  console.log(`  Qobuz: ${process.env.QOBUZ_USERNAME ? 'configured' : 'not configured'}`);
+  console.log(`  DLNA devices: ${process.env.DLNA_DEVICES || 'auto-discover'}`);
+  console.log(`  Volumio devices: ${process.env.VOLUMIO_DEVICES || 'none'}`);
+  console.log(`  Watcher: ${process.env.WATCH_LIBRARY === 'true' ? 'enabled' : 'disabled'}`);
+  console.log('');
+
+  for (const w of warnings) console.warn(`⚠️  ${w}`);
+  for (const e of errors) { console.error(`❌ ${e}`); process.exit(1); }
+}

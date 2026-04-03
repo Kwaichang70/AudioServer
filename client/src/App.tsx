@@ -1,25 +1,34 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout.js';
-import HomePage from './pages/HomePage.js';
-import ArtistsPage from './pages/ArtistsPage.js';
-import ArtistPage from './pages/ArtistPage.js';
-import AlbumPage from './pages/AlbumPage.js';
-import AlbumsPage from './pages/AlbumsPage.js';
-import SearchPage from './pages/SearchPage.js';
-import PlaylistsPage from './pages/PlaylistsPage.js';
-import PlaylistPage from './pages/PlaylistPage.js';
-import SettingsPage from './pages/SettingsPage.js';
-import OAuthCallbackPage from './pages/OAuthCallbackPage.js';
 import LoginPage from './pages/LoginPage.js';
 import { api } from './api/client.js';
+
+// Lazy-loaded pages (code splitting)
+const HomePage = lazy(() => import('./pages/HomePage.js'));
+const ArtistsPage = lazy(() => import('./pages/ArtistsPage.js'));
+const ArtistPage = lazy(() => import('./pages/ArtistPage.js'));
+const AlbumPage = lazy(() => import('./pages/AlbumPage.js'));
+const AlbumsPage = lazy(() => import('./pages/AlbumsPage.js'));
+const SearchPage = lazy(() => import('./pages/SearchPage.js'));
+const PlaylistsPage = lazy(() => import('./pages/PlaylistsPage.js'));
+const PlaylistPage = lazy(() => import('./pages/PlaylistPage.js'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage.js'));
+const OAuthCallbackPage = lazy(() => import('./pages/OAuthCallbackPage.js'));
+
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center py-20 text-gray-400">
+      Loading...
+    </div>
+  );
+}
 
 export default function App() {
   const [authChecked, setAuthChecked] = useState(false);
   const [needsAuth, setNeedsAuth] = useState(false);
 
   useEffect(() => {
-    // Check if auth is required (server returns 401 if users exist and no token)
     api.getStats()
       .then(() => {
         setAuthChecked(true);
@@ -27,7 +36,6 @@ export default function App() {
       })
       .catch((err) => {
         if (err.message?.includes('Unauthorized') || err.message?.includes('401')) {
-          // Check for stored token
           const token = localStorage.getItem('audioserver_token');
           if (token) {
             setAuthChecked(true);
@@ -37,7 +45,6 @@ export default function App() {
             setAuthChecked(true);
           }
         } else {
-          // Server error or no auth required
           setAuthChecked(true);
           setNeedsAuth(false);
         }
@@ -62,19 +69,21 @@ export default function App() {
   }
 
   return (
-    <Routes>
-      <Route element={<Layout />}>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/artists" element={<ArtistsPage />} />
-        <Route path="/artists/:id" element={<ArtistPage />} />
-        <Route path="/albums" element={<AlbumsPage />} />
-        <Route path="/albums/:id" element={<AlbumPage />} />
-        <Route path="/playlists" element={<PlaylistsPage />} />
-        <Route path="/playlists/:id" element={<PlaylistPage />} />
-        <Route path="/search" element={<SearchPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-      </Route>
-      <Route path="/settings/callback/:provider" element={<OAuthCallbackPage />} />
-    </Routes>
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/artists" element={<ArtistsPage />} />
+          <Route path="/artists/:id" element={<ArtistPage />} />
+          <Route path="/albums" element={<AlbumsPage />} />
+          <Route path="/albums/:id" element={<AlbumPage />} />
+          <Route path="/playlists" element={<PlaylistsPage />} />
+          <Route path="/playlists/:id" element={<PlaylistPage />} />
+          <Route path="/search" element={<SearchPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+        </Route>
+        <Route path="/settings/callback/:provider" element={<OAuthCallbackPage />} />
+      </Routes>
+    </Suspense>
   );
 }
