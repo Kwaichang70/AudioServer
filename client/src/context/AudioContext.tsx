@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { useAudio } from '../hooks/useAudio.js';
+import { useSocket } from '../hooks/useSocket.js';
 import { api } from '../api/client.js';
 import { useToast } from '../components/Toast.js';
 
@@ -44,6 +45,7 @@ const AudioCtx = createContext<AudioContextValue | null>(null);
 
 export function AudioProvider({ children }: { children: ReactNode }) {
   const audio = useAudio();
+  const socket = useSocket();
   const [currentTrack, setCurrentTrack] = useState<TrackInfo | null>(null);
   const [queue, setQueue] = useState<TrackInfo[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
@@ -72,53 +74,55 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     }).catch(() => {});
   }, []);
 
-  // Poll device playback position when playing on external device
+  // Subscribe to device updates via WebSocket (replaces client-side polling)
   useEffect(() => {
-    if (!currentTrack || selectedDeviceId === 'browser') {
+    if (selectedDeviceId === 'browser') {
+      socket.unsubscribeDevice(selectedDeviceId);
       setDevicePosition(0);
       setDeviceDuration(0);
       setDeviceIsPlaying(false);
       return;
     }
-    // Don't poll for Spotify (no position info via our API)
+    socket.subscribeDevice(selectedDeviceId);
+    return () => socket.unsubscribeDevice(selectedDeviceId);
+  }, [selectedDeviceId]);
+
+  // Process WebSocket device updates
+  const prevDeviceState = useRef<string>('stopped');
+  useEffect(() => {
+    if (!socket.deviceUpdate || socket.deviceUpdate.deviceId !== selectedDeviceRef.current) return;
+
+    const u = socket.deviceUpdate;
+    setDevicePosition(u.position);
+    setDeviceDuration(u.duration);
+    setDeviceIsPlaying(u.state === 'playing');
+
+    // Auto-advance: device was playing, now stopped → next track
+    if (prevDeviceState.current === 'playing' && u.state === 'stopped') {
+      const nearEnd = u.duration > 0 && u.position >= u.duration - 2;
+      if (nearEnd || u.position === 0) {
+        console.log(`[AudioServer] Track ended via WebSocket, advancing`);
+        playNextRef.current?.();
+      }
+    }
+    prevDeviceState.current = u.state;
+  }, [socket.deviceUpdate]);
+
+  // Fallback: if WebSocket disconnected, use polling
+  useEffect(() => {
+    if (socket.connected || selectedDeviceId === 'browser' || !currentTrack) return;
     if (currentTrack.id.startsWith('spotify:')) return;
 
-    let wasPlaying = false;
-    let lastPosition = 0;
-    let stoppedCount = 0;
     const poll = setInterval(() => {
       api.getDeviceStatus(selectedDeviceId).then((res) => {
-        const s = res.data;
-        setDevicePosition(s.position || 0);
-        setDeviceDuration(s.duration || 0);
-        const isPlaying = s.state === 'playing';
-        setDeviceIsPlaying(isPlaying);
-
-        // Auto-advance: detect track ended
-        // Track ended when: was playing, now stopped, and either:
-        // - position is near duration (finished naturally)
-        // - position reset to 0 (device cleared)
-        // - device reports stopped for 2 consecutive polls
-        if (wasPlaying && !isPlaying) {
-          stoppedCount++;
-          const nearEnd = s.duration > 0 && s.position >= s.duration - 2;
-          const positionReset = s.position === 0 || s.position < lastPosition;
-          if (nearEnd || positionReset || stoppedCount >= 2) {
-            console.log(`[AudioServer] Track ended, advancing (pos=${s.position}, dur=${s.duration})`);
-            playNextRef.current?.();
-            stoppedCount = 0;
-          }
-        } else {
-          stoppedCount = 0;
-        }
-
-        wasPlaying = isPlaying;
-        lastPosition = s.position || 0;
+        setDevicePosition(res.data.position || 0);
+        setDeviceDuration(res.data.duration || 0);
+        setDeviceIsPlaying(res.data.state === 'playing');
       }).catch(() => {});
     }, 2000);
 
     return () => clearInterval(poll);
-  }, [currentTrack, selectedDeviceId]);
+  }, [socket.connected, currentTrack, selectedDeviceId]);
 
   const startTrack = useCallback((track: TrackInfo) => {
     setCurrentTrack(track);
