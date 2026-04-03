@@ -1,9 +1,9 @@
 import rateLimit from 'express-rate-limit';
 
-// Global: max 100 requests per minute per IP
+// Global: max 300 requests per minute per IP (covers + API calls on page load)
 export const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 100,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later' },
