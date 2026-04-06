@@ -536,6 +536,29 @@ Laatste polish voor production readiness:
 
 ---
 
+## Sprint 14 — Music Discovery
+
+**Doel:** Bibliotheek verkenning verbeteren met genre browsen en smart playlists.
+
+### Wijzigingen:
+
+1. **Genre browsen** — `server/src/routes/library.ts` + `client/src/pages/GenresPage.tsx`:
+   - `GET /api/library/genres` retourneert unieke genres met album- en track-counts
+   - `GET /api/library/genres/:genre/albums` retourneert albums per genre (gepagineerd)
+   - GenresPage met kleurrijke genre-cards en album grid per genre
+   - Navigatie-item "Genres" toegevoegd
+
+2. **Smart Playlists** — `server/src/routes/smart-playlists.ts` + `client/src/pages/SmartPlaylistsPage.tsx`:
+   - Nieuwe `smart_playlists` tabel in database schema
+   - Rule engine: filter op genre, jaar, formaat, sample rate, bit depth, artiest
+   - Operators: equals, contains, greaterThan, lessThan, between
+   - Tracks worden altijd dynamisch gegenereerd (niet opgeslagen)
+   - CRUD endpoints: GET/POST/PATCH/DELETE + GET /:id/tracks
+   - Visuele rule builder UI met dropdowns
+   - "Play All" functionaliteit
+
+---
+
 ## Sprint Volgorde & Afhankelijkheden
 
 ```
@@ -552,6 +575,7 @@ Sprint 10 (Polish)           ← Production readiness
 Sprint 11 (Essentials UI)    ← Favorieten, Geschiedenis, Recently Added
 Sprint 12 (Interactie)       ← Shortcuts, Queue editing, Fullscreen, Stats
 Sprint 13 (Drag & Playlists) ← DnD queue/playlist, M3U import/export
+Sprint 14 (Music Discovery)  ← Genres, Smart Playlists
 ```
 
 Geschatte doorlooptijd per sprint: 1-2 sessies met Claude.

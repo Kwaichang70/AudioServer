@@ -10,9 +10,11 @@ const navItems = [
   { to: '/', label: 'Home' },
   { to: '/albums', label: 'Albums' },
   { to: '/artists', label: 'Artists' },
+  { to: '/genres', label: 'Genres' },
   { to: '/favorites', label: 'Favorites' },
   { to: '/history', label: 'History' },
   { to: '/playlists', label: 'Playlists' },
+  { to: '/smart-playlists', label: 'Smart' },
   { to: '/search', label: 'Search' },
   { to: '/settings', label: 'Settings' },
 ];

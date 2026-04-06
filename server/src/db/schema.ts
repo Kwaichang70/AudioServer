@@ -93,6 +93,15 @@ export const queueItems = sqliteTable('queue_items', {
   addedAt: integer('added_at', { mode: 'timestamp' }),
 });
 
+export const smartPlaylists = sqliteTable('smart_playlists', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  rules: text('rules').notNull(), // JSON: array of rule objects
+  trackCount: integer('track_count').default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }),
+});
+
 export const favorites = sqliteTable('favorites', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   itemType: text('item_type').notNull(), // 'track', 'album', 'artist'

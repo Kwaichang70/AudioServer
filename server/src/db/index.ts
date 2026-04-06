@@ -151,6 +151,15 @@ export async function initDatabase() {
       UNIQUE(item_type, item_id)
     );
 
+    CREATE TABLE IF NOT EXISTS smart_playlists (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      rules TEXT NOT NULL,
+      track_count INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT (unixepoch()),
+      updated_at INTEGER DEFAULT (unixepoch())
+    );
+
     CREATE INDEX IF NOT EXISTS idx_albums_artist ON albums(artist_id);
     CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_id);
     CREATE INDEX IF NOT EXISTS idx_tracks_artist ON tracks(artist_id);

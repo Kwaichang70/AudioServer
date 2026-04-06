@@ -123,6 +123,20 @@ export const api = {
   // Recently added albums
   getRecentlyAdded: (limit = 20) => fetchApi<any>(`/library/albums/recent?limit=${limit}`),
 
+  // Genres
+  getGenres: () => fetchApi<any>('/library/genres'),
+  getGenreAlbums: (genre: string, page = 1, limit = 50) =>
+    fetchApi<any>(`/library/genres/${encodeURIComponent(genre)}/albums?page=${page}&limit=${limit}`),
+
+  // Smart Playlists
+  getSmartPlaylists: () => fetchApi<any>('/smart-playlists'),
+  createSmartPlaylist: (name: string, rules: any[]) =>
+    fetchApi<any>('/smart-playlists', { method: 'POST', body: JSON.stringify({ name, rules }) }),
+  getSmartPlaylistTracks: (id: string) => fetchApi<any>(`/smart-playlists/${id}/tracks`),
+  updateSmartPlaylist: (id: string, data: { name?: string; rules?: any[] }) =>
+    fetchApi<any>(`/smart-playlists/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteSmartPlaylist: (id: string) => fetchApi<any>(`/smart-playlists/${id}`, { method: 'DELETE' }),
+
   // Library stats
   getStats: () => fetchApi<any>('/library/stats'),
 

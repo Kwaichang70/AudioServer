@@ -165,6 +165,29 @@ libraryRouter.get('/tracks/:id/stream', (req, res) => {
   }
 });
 
+// ─── Genres ─────────────────────────────────────────────────────
+
+libraryRouter.get('/genres', (_req, res) => {
+  const raw = getRawDb();
+  const data = raw.prepare(`
+    SELECT genre, COUNT(*) as albumCount, SUM(track_count) as trackCount
+    FROM albums
+    WHERE genre IS NOT NULL AND genre != ''
+    GROUP BY genre
+    ORDER BY albumCount DESC
+  `).all();
+  res.json({ data });
+});
+
+libraryRouter.get('/genres/:genre/albums', (req, res) => {
+  const { page, limit, offset } = parsePagination(req, 50);
+  const genre = decodeURIComponent(req.params.genre);
+  const raw = getRawDb();
+  const total = (raw.prepare('SELECT COUNT(*) as count FROM albums WHERE genre = ?').get(genre) as any).count;
+  const data = raw.prepare('SELECT * FROM albums WHERE genre = ? ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?').all(genre, limit, offset);
+  res.json({ data, meta: buildMeta(page, limit, total) });
+});
+
 // ─── Search ──────────────────────────────────────────────────────
 
 libraryRouter.get('/search', (req, res) => {
