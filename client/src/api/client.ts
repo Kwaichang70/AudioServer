@@ -154,6 +154,17 @@ export const api = {
     fetchApi<any>(`/providers/${provider}/auth/logout`, { method: 'POST' }),
   qobuzLogin: (username: string, password: string) =>
     fetchApi<any>('/providers/qobuz/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  // Tidal
+  getTidalAlbum: (id: string) => fetchApi<any>(`/providers/tidal/albums/${id}`),
+  getTidalAlbumTracks: (id: string) => fetchApi<any>(`/providers/tidal/albums/${id}/tracks`),
+  getTidalStreamUrl: (trackId: string) => fetchApi<any>(`/providers/tidal/tracks/${trackId}/stream`),
+  getTidalPlaylists: () => fetchApi<any>('/providers/tidal/playlists'),
+  getTidalPlaylistTracks: (id: string) => fetchApi<any>(`/providers/tidal/playlists/${id}/tracks`),
+  getTidalFavoriteAlbums: () => fetchApi<any>('/providers/tidal/favorites/albums'),
+  getTidalFavoriteTracks: () => fetchApi<any>('/providers/tidal/favorites/tracks'),
+  getTidalFavoriteArtists: () => fetchApi<any>('/providers/tidal/favorites/artists'),
+
+  // Spotify
   getSpotifyAlbum: (id: string) => fetchApi<any>(`/providers/spotify/albums/${id}`),
   getSpotifyAlbumTracks: (id: string) => fetchApi<any>(`/providers/spotify/albums/${id}/tracks`),
   getQobuzAlbum: (id: string) => fetchApi<any>(`/providers/qobuz/albums/${id}`),

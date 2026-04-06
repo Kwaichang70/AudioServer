@@ -559,6 +559,43 @@ Laatste polish voor production readiness:
 
 ---
 
+## Sprint 15 — Tidal Streaming
+
+**Doel:** De multi-provider belofte waarmaken door Tidal streaming, playlists en favorites te implementeren.
+
+### Wijzigingen:
+
+1. **Tidal Stream URL** — `server/src/providers/tidal.ts`:
+   - `getStreamUrl()` implementeert twee strategieën:
+     - Legacy API `playbackinfopostpaywall` endpoint (base64 manifest → URL extractie)
+     - Fallback: `urlpostpaywall` endpoint
+   - Ondersteunt LOSSLESS audio quality
+   - OAuth scope uitgebreid met `playback`
+   - Nieuwe legacy API helper (`legacyApiRequest`) voor api.tidal.com/v1
+
+2. **Tidal Playlists** — Provider + routes:
+   - `getPlaylists()` haalt user playlists op via legacy API
+   - `getPlaylistTracks()` haalt tracks per playlist op
+   - Routes: `GET /providers/tidal/playlists`, `GET /providers/tidal/playlists/:id/tracks`
+
+3. **Tidal Favorites/Collection** — Provider + routes:
+   - `getFavoriteAlbums()`, `getFavoriteTracks()`, `getFavoriteArtists()`
+   - Routes: `GET /providers/tidal/favorites/{albums,tracks,artists}`
+
+4. **Tidal Album Browse** — Routes:
+   - `GET /providers/tidal/albums/:id` en `GET /providers/tidal/albums/:id/tracks`
+   - `GET /providers/tidal/tracks/:id/stream` voor directe stream URL
+
+5. **Frontend Tidal Playback** — `client/src/context/AudioContext.tsx`:
+   - Tidal tracks (`tidal:` prefix) worden nu afgespeeld via stream URL
+   - Browser playback: directe URL naar audio element
+   - Device playback: stream URL naar DLNA/Volumio/Sonos
+
+6. **API Client** — `client/src/api/client.ts`:
+   - 8 nieuwe Tidal API methods (album, tracks, stream, playlists, favorites)
+
+---
+
 ## Sprint Volgorde & Afhankelijkheden
 
 ```
@@ -576,6 +613,7 @@ Sprint 11 (Essentials UI)    ← Favorieten, Geschiedenis, Recently Added
 Sprint 12 (Interactie)       ← Shortcuts, Queue editing, Fullscreen, Stats
 Sprint 13 (Drag & Playlists) ← DnD queue/playlist, M3U import/export
 Sprint 14 (Music Discovery)  ← Genres, Smart Playlists
+Sprint 15 (Tidal Streaming)  ← Stream URLs, playlists, favorites
 ```
 
 Geschatte doorlooptijd per sprint: 1-2 sessies met Claude.

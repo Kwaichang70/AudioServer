@@ -86,6 +86,67 @@ providersRouter.post('/tidal/auth/logout', async (_req, res) => {
   res.json({ data: { authenticated: false } });
 });
 
+// Tidal album detail + tracks
+providersRouter.get('/tidal/albums/:id', async (req, res) => {
+  try {
+    const album = await tidal.getAlbum(req.params.id);
+    res.json({ data: album });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+providersRouter.get('/tidal/albums/:id/tracks', async (req, res) => {
+  try {
+    const tracks = await tidal.getAlbumTracks(req.params.id);
+    res.json({ data: tracks, meta: { total: tracks.length } });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+// Tidal stream URL
+providersRouter.get('/tidal/tracks/:id/stream', async (req, res) => {
+  try {
+    const url = await tidal.getStreamUrl(req.params.id);
+    if (!url) { res.status(404).json({ error: 'Stream URL not available. Tidal may require a HiFi subscription.' }); return; }
+    res.json({ data: { url } });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+// Tidal user playlists
+providersRouter.get('/tidal/playlists', async (_req, res) => {
+  try {
+    const playlists = await tidal.getPlaylists();
+    res.json({ data: playlists });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+providersRouter.get('/tidal/playlists/:id/tracks', async (req, res) => {
+  try {
+    const tracks = await tidal.getPlaylistTracks(req.params.id);
+    res.json({ data: tracks, meta: { total: tracks.length } });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+// Tidal favorites/collection
+providersRouter.get('/tidal/favorites/albums', async (_req, res) => {
+  try {
+    const albums = await tidal.getFavoriteAlbums();
+    res.json({ data: albums });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+providersRouter.get('/tidal/favorites/tracks', async (_req, res) => {
+  try {
+    const tracks = await tidal.getFavoriteTracks();
+    res.json({ data: tracks });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+providersRouter.get('/tidal/favorites/artists', async (_req, res) => {
+  try {
+    const artists = await tidal.getFavoriteArtists();
+    res.json({ data: artists });
+  } catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
 providersRouter.get('/tidal/search', async (req, res) => {
   const q = req.query.q as string;
   if (!q) { res.json({ data: { artists: [], albums: [], tracks: [], playlists: [] } }); return; }

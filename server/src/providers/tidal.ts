@@ -5,6 +5,7 @@ import { saveTokens, loadTokens, deleteTokens } from '../services/tokenstore.js'
 
 const TIDAL_AUTH_URL = 'https://auth.tidal.com/v1/oauth2';
 const TIDAL_API_URL = 'https://openapi.tidal.com/v2';
+const TIDAL_LEGACY_API = 'https://api.tidal.com/v1';
 
 interface TidalTokens {
   accessToken: string;
@@ -89,7 +90,7 @@ export class TidalProvider implements AuthenticatedMusicProvider {
       response_type: 'code',
       client_id: this.clientId,
       redirect_uri: redirectUri,
-      scope: 'playlists.read playlists.write collection.read collection.write',
+      scope: 'playlists.read playlists.write collection.read collection.write playback',
     });
     return `${TIDAL_AUTH_URL}/authorize?${params}`;
   }
@@ -170,6 +171,27 @@ export class TidalProvider implements AuthenticatedMusicProvider {
     return res.json();
   }
 
+  private async legacyApiRequest(path: string): Promise<any> {
+    if (!this.tokens) throw new Error('Not authenticated');
+
+    if (Date.now() >= this.tokens.expiresAt - 60_000) {
+      await this.refreshAccessToken();
+    }
+
+    const separator = path.includes('?') ? '&' : '?';
+    const res = await fetch(`${TIDAL_LEGACY_API}${path}${separator}countryCode=US`, {
+      headers: {
+        Authorization: `Bearer ${this.tokens.accessToken}`,
+      },
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Tidal legacy API error: ${res.status} ${err}`);
+    }
+    return res.json();
+  }
+
   // ─── MusicProvider Implementation ────────────────────────────
 
   async getArtists(_page?: number, _pageSize?: number) {
@@ -241,20 +263,111 @@ export class TidalProvider implements AuthenticatedMusicProvider {
 
   async getStreamUrl(trackId: string): Promise<string | null> {
     if (!this.auth.isAuthenticated) return null;
-    // Tidal streaming requires their Player SDK — URL retrieval is limited
-    // For now, return null. Real implementation needs Tidal's playbackinfo endpoint.
-    logger.debug(`Tidal: Stream URL requested for ${trackId} (not yet implemented)`);
-    return null;
+    const rawId = trackId.replace('tidal:', '');
+    try {
+      // Try legacy API playbackinfopostpaywall endpoint
+      const data = await this.legacyApiRequest(
+        `/tracks/${rawId}/playbackinfopostpaywall?audioquality=LOSSLESS&playbackmode=STREAM&assetpresentation=FULL`
+      );
+      if (data.manifest) {
+        // Manifest is base64-encoded JSON containing URLs
+        const manifest = JSON.parse(Buffer.from(data.manifest, 'base64').toString('utf-8'));
+        if (manifest.urls && manifest.urls.length > 0) {
+          logger.info(`Tidal: Got stream URL for track ${rawId} (${data.audioQuality})`);
+          return manifest.urls[0];
+        }
+      }
+      // Fallback: direct manifestMimeType check
+      if (data.manifestMimeType === 'application/vnd.tidal.bts' && data.manifest) {
+        logger.info(`Tidal: Got BTS manifest for track ${rawId}`);
+        return data.manifest; // BTS manifest URL
+      }
+      logger.warn(`Tidal: No stream URL in playbackinfo response for ${rawId}`);
+      return null;
+    } catch (err) {
+      // Fallback: try the v2 API track URL endpoint
+      try {
+        const data = await this.legacyApiRequest(`/tracks/${rawId}/urlpostpaywall?urlusagemode=STREAM&audioquality=LOSSLESS&assetpresentation=FULL`);
+        if (data.urls && data.urls.length > 0) {
+          logger.info(`Tidal: Got stream URL via urlpostpaywall for track ${rawId}`);
+          return data.urls[0];
+        }
+      } catch (err2) {
+        logger.debug(`Tidal: urlpostpaywall also failed for ${rawId}: ${err2}`);
+      }
+      logger.warn(`Tidal: Stream URL retrieval failed for ${rawId}: ${err}`);
+      return null;
+    }
   }
 
   async getPlaylists(): Promise<Playlist[]> {
     if (!this.auth.isAuthenticated) return [];
-    return [];
+    try {
+      const data = await this.legacyApiRequest('/users/me/playlists?limit=50');
+      return (data.items || []).map((p: any) => ({
+        id: `tidal:${p.uuid}`,
+        name: p.title,
+        description: p.description || '',
+        trackCount: p.numberOfTracks,
+        coverUrl: p.squareImage ? `https://resources.tidal.com/images/${p.squareImage.replace(/-/g, '/')}/320x320.jpg` : undefined,
+        source: 'tidal',
+      }));
+    } catch (err) {
+      logger.warn(`Tidal: Failed to get playlists: ${err}`);
+      return [];
+    }
   }
 
-  async getPlaylistTracks(_playlistId: string): Promise<Track[]> {
+  async getPlaylistTracks(playlistId: string): Promise<Track[]> {
     if (!this.auth.isAuthenticated) return [];
-    return [];
+    const rawId = playlistId.replace('tidal:', '');
+    try {
+      const data = await this.legacyApiRequest(`/playlists/${rawId}/items?limit=100`);
+      return (data.items || [])
+        .filter((item: any) => item.type === 'track' && item.item)
+        .map((item: any) => this.mapLegacyTrack(item.item));
+    } catch (err) {
+      logger.warn(`Tidal: Failed to get playlist tracks: ${err}`);
+      return [];
+    }
+  }
+
+  async getFavoriteAlbums(): Promise<Album[]> {
+    if (!this.auth.isAuthenticated) return [];
+    try {
+      const data = await this.legacyApiRequest('/users/me/favorites/albums?limit=50&order=DATE&orderDirection=DESC');
+      return (data.items || []).map((item: any) => this.mapLegacyAlbum(item.item));
+    } catch (err) {
+      logger.warn(`Tidal: Failed to get favorite albums: ${err}`);
+      return [];
+    }
+  }
+
+  async getFavoriteTracks(): Promise<Track[]> {
+    if (!this.auth.isAuthenticated) return [];
+    try {
+      const data = await this.legacyApiRequest('/users/me/favorites/tracks?limit=100&order=DATE&orderDirection=DESC');
+      return (data.items || []).map((item: any) => this.mapLegacyTrack(item.item));
+    } catch (err) {
+      logger.warn(`Tidal: Failed to get favorite tracks: ${err}`);
+      return [];
+    }
+  }
+
+  async getFavoriteArtists(): Promise<Artist[]> {
+    if (!this.auth.isAuthenticated) return [];
+    try {
+      const data = await this.legacyApiRequest('/users/me/favorites/artists?limit=50&order=DATE&orderDirection=DESC');
+      return (data.items || []).map((item: any) => ({
+        id: `tidal:${item.item.id}`,
+        name: item.item.name,
+        imageUrl: item.item.picture ? `https://resources.tidal.com/images/${item.item.picture.replace(/-/g, '/')}/320x320.jpg` : undefined,
+        source: 'tidal' as const,
+      }));
+    } catch (err) {
+      logger.warn(`Tidal: Failed to get favorite artists: ${err}`);
+      return [];
+    }
   }
 
   // ─── Mappers ─────────────────────────────────────────────────
@@ -291,6 +404,34 @@ export class TidalProvider implements AuthenticatedMusicProvider {
       artistName: data.artists?.[0]?.name || 'Unknown',
       trackNumber: data.trackNumber,
       duration: data.duration,
+      source: 'tidal',
+    };
+  }
+
+  // Legacy API mappers (api.tidal.com/v1 has different field names)
+  private mapLegacyTrack(data: any): Track {
+    return {
+      id: `tidal:${data.id}`,
+      title: data.title,
+      albumId: `tidal:${data.album?.id || ''}`,
+      albumTitle: data.album?.title || '',
+      artistId: `tidal:${data.artist?.id ? `tidal:${data.artist.id}` : ''}`,
+      artistName: data.artist?.name || data.artists?.[0]?.name || 'Unknown',
+      trackNumber: data.trackNumber,
+      duration: data.duration,
+      source: 'tidal',
+    };
+  }
+
+  private mapLegacyAlbum(data: any): Album {
+    return {
+      id: `tidal:${data.id}`,
+      title: data.title,
+      artistId: data.artist?.id ? `tidal:${data.artist.id}` : '',
+      artistName: data.artist?.name || data.artists?.[0]?.name || 'Unknown',
+      year: data.releaseDate ? new Date(data.releaseDate).getFullYear() : undefined,
+      coverUrl: data.cover ? `https://resources.tidal.com/images/${data.cover.replace(/-/g, '/')}/640x640.jpg` : undefined,
+      trackCount: data.numberOfTracks,
       source: 'tidal',
     };
   }

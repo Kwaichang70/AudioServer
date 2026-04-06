@@ -249,6 +249,40 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    const isTidal = track.id.startsWith('tidal:');
+
+    if (isTidal) {
+      const tidalId = track.id.replace('tidal:', '');
+      const playTidal = async () => {
+        try {
+          const data = await api.getTidalStreamUrl(tidalId);
+          if (!data.data?.url) {
+            throw new Error('No stream URL from Tidal');
+          }
+          const tidalStreamUrl = data.data.url;
+
+          if (deviceId === 'browser') {
+            audio.play(tidalStreamUrl);
+          } else {
+            await api.devicePlay(deviceId, tidalStreamUrl, {
+              title: track.title,
+              artist: track.artistName,
+              album: track.albumTitle,
+              duration: track.duration,
+            });
+          }
+          setIsLoading(false);
+          toastRef.current('Playing from Tidal', 'success');
+        } catch (err) {
+          setIsLoading(false);
+          setCurrentTrack(null);
+          toastRef.current(`Tidal: ${(err as Error).message || err}`, 'error');
+        }
+      };
+      playTidal();
+      return;
+    }
+
     const streamUrl = api.getStreamUrl(track.id);
 
     if (deviceId === 'browser') {
