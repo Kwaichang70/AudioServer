@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
+import { useToast } from '../components/Toast.js';
 
 interface Playlist {
   id: string;
@@ -14,6 +15,8 @@ export default function PlaylistsPage() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
 
   const load = () => {
     api.getPlaylists().then((res) => { setPlaylists(res.data); setLoading(false); });
@@ -34,6 +37,21 @@ export default function PlaylistsPage() {
     load();
   };
 
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const content = await file.text();
+    const name = file.name.replace(/\.(m3u8?|pls)$/i, '');
+    try {
+      const res = await api.importPlaylist(name, content);
+      toast(`Imported "${name}": ${res.meta?.matched || 0} of ${res.meta?.total || 0} tracks matched`, 'success');
+      load();
+    } catch (err) {
+      toast(`Import failed: ${(err as Error).message}`, 'error');
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   if (loading) return <p className="text-gray-400">Loading playlists...</p>;
 
   return (
@@ -42,12 +60,27 @@ export default function PlaylistsPage() {
         <h2 className="text-2xl font-bold">
           Playlists <span className="text-sm font-normal text-gray-500">({playlists.length})</span>
         </h2>
-        <button
-          onClick={() => setShowCreate(!showCreate)}
-          className="px-3 py-1 text-sm bg-accent rounded hover:bg-accent-hover transition"
-        >
-          + New Playlist
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="px-3 py-1 text-sm bg-surface-light border border-white/10 rounded hover:border-accent transition text-gray-400"
+          >
+            Import M3U
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".m3u,.m3u8"
+            onChange={handleImport}
+            className="hidden"
+          />
+          <button
+            onClick={() => setShowCreate(!showCreate)}
+            className="px-3 py-1 text-sm bg-accent rounded hover:bg-accent-hover transition"
+          >
+            + New Playlist
+          </button>
+        </div>
       </div>
 
       {showCreate && (

@@ -107,6 +107,92 @@ playlistsRouter.post('/:id/tracks', (req, res) => {
   res.json({ data: { ok: true, trackCount: count } });
 });
 
+// Reorder tracks in a playlist
+playlistsRouter.post('/:id/reorder', (req, res) => {
+  const { trackIds } = req.body;
+  if (!Array.isArray(trackIds)) return res.status(400).json({ error: 'trackIds array required' });
+
+  const db = getDb();
+  // Update each track's position based on the new order
+  trackIds.forEach((trackId: string, index: number) => {
+    const item = db.select().from(playlistTracks)
+      .where(eq(playlistTracks.playlistId, req.params.id))
+      .all()
+      .find((i) => i.trackId === trackId);
+    if (item) {
+      db.update(playlistTracks).set({ position: index }).where(eq(playlistTracks.id, item.id)).run();
+    }
+  });
+
+  res.json({ data: { ok: true } });
+});
+
+// Export playlist as M3U
+playlistsRouter.get('/:id/export', (req, res) => {
+  const db = getDb();
+  const playlist = db.select().from(playlists).where(eq(playlists.id, req.params.id)).get();
+  if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
+
+  const items = db.select()
+    .from(playlistTracks)
+    .where(eq(playlistTracks.playlistId, req.params.id))
+    .orderBy(asc(playlistTracks.position))
+    .all();
+
+  const enriched = items.map((item) => {
+    return db.select().from(tracks).where(eq(tracks.id, item.trackId)).get();
+  }).filter(Boolean);
+
+  let m3u = '#EXTM3U\n';
+  m3u += `#PLAYLIST:${playlist.name}\n`;
+  for (const track of enriched) {
+    if (!track) continue;
+    m3u += `#EXTINF:${Math.round(track.duration || 0)},${track.artistName} - ${track.title}\n`;
+    m3u += `${track.filePath || track.id}\n`;
+  }
+
+  res.setHeader('Content-Type', 'audio/mpegurl');
+  res.setHeader('Content-Disposition', `attachment; filename="${playlist.name}.m3u"`);
+  res.send(m3u);
+});
+
+// Import M3U playlist
+playlistsRouter.post('/import', (req, res) => {
+  const { name, content } = req.body;
+  if (!name || !content) return res.status(400).json({ error: 'name and content required' });
+
+  const db = getDb();
+  const id = uuid();
+  db.insert(playlists).values({ id, name }).run();
+
+  // Parse M3U
+  const lines = (content as string).split('\n').map((l: string) => l.trim()).filter((l: string) => l && !l.startsWith('#'));
+  let position = 0;
+
+  for (const line of lines) {
+    // Try to match by file path
+    let track = db.select().from(tracks).where(eq(tracks.filePath, line)).get();
+
+    // Try fuzzy match by filename
+    if (!track) {
+      const filename = line.split('/').pop()?.split('\\').pop() || '';
+      if (filename) {
+        const allTracks = db.select().from(tracks).all();
+        track = allTracks.find((t) => t.filePath?.endsWith(filename));
+      }
+    }
+
+    if (track) {
+      db.insert(playlistTracks).values({ playlistId: id, trackId: track.id, position }).run();
+      position++;
+    }
+  }
+
+  db.update(playlists).set({ trackCount: position }).where(eq(playlists.id, id)).run();
+  const created = db.select().from(playlists).where(eq(playlists.id, id)).get();
+  res.status(201).json({ data: created, meta: { matched: position, total: lines.length } });
+});
+
 // Remove a track from a playlist
 playlistsRouter.delete('/:id/tracks/:trackId', (req, res) => {
   const db = getDb();

@@ -114,6 +114,11 @@ export const api = {
     fetchApi<any>(`/playlists/${playlistId}/tracks`, { method: 'POST', body: JSON.stringify({ trackId }) }),
   removeFromPlaylist: (playlistId: string, trackId: string) =>
     fetchApi<any>(`/playlists/${playlistId}/tracks/${trackId}`, { method: 'DELETE' }),
+  reorderPlaylist: (playlistId: string, trackIds: string[]) =>
+    fetchApi<any>(`/playlists/${playlistId}/reorder`, { method: 'POST', body: JSON.stringify({ trackIds }) }),
+  exportPlaylist: (playlistId: string) => `${API_BASE}/playlists/${playlistId}/export`,
+  importPlaylist: (name: string, content: string) =>
+    fetchApi<any>('/playlists/import', { method: 'POST', body: JSON.stringify({ name, content }) }),
 
   // Recently added albums
   getRecentlyAdded: (limit = 20) => fetchApi<any>(`/library/albums/recent?limit=${limit}`),

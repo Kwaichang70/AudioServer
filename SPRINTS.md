@@ -509,6 +509,33 @@ Laatste polish voor production readiness:
 
 ---
 
+## Sprint 13 — Drag-and-Drop & Playlists
+
+**Doel:** Playlist en queue management op Spotify-niveau met drag-and-drop en M3U import/export.
+
+### Wijzigingen:
+
+1. **Drag-and-drop queue reordering** — `client/src/components/NowPlayingBar.tsx`:
+   - Queue items zijn nu versleepbaar via @dnd-kit
+   - Drag handle (&#9776;) per item
+   - Herbruikbaar `SortableList` component
+
+2. **Drag-and-drop playlist tracks** — `client/src/pages/PlaylistPage.tsx`:
+   - Tracks in playlists zijn versleepbaar
+   - Volgorde wordt opgeslagen via nieuw `POST /playlists/:id/reorder` endpoint
+   - Tabel-layout vervangen door compactere SortableList
+
+3. **M3U Export** — `server/src/routes/playlists.ts`:
+   - `GET /playlists/:id/export` genereert M3U met #EXTINF metadata
+   - "Export M3U" knop op PlaylistPage
+
+4. **M3U Import** — `server/src/routes/playlists.ts` + `client/src/pages/PlaylistsPage.tsx`:
+   - `POST /playlists/import` parst M3U en matcht tracks op bestandspad (exact + fuzzy filename)
+   - "Import M3U" knop met file picker op PlaylistsPage
+   - Toast feedback met aantal gematchte tracks
+
+---
+
 ## Sprint Volgorde & Afhankelijkheden
 
 ```
@@ -524,6 +551,7 @@ Sprint 9 (Scanner)           ← Na Sprint 3 (gebruikt WebSocket)
 Sprint 10 (Polish)           ← Production readiness
 Sprint 11 (Essentials UI)    ← Favorieten, Geschiedenis, Recently Added
 Sprint 12 (Interactie)       ← Shortcuts, Queue editing, Fullscreen, Stats
+Sprint 13 (Drag & Playlists) ← DnD queue/playlist, M3U import/export
 ```
 
 Geschatte doorlooptijd per sprint: 1-2 sessies met Claude.

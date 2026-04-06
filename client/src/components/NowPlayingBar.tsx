@@ -4,6 +4,7 @@ import { useAudioContext } from '../context/AudioContext.js';
 import { api } from '../api/client.js';
 import DeviceSelector from './DeviceSelector.js';
 import { formatTime } from '../utils/format.js';
+import SortableList from './SortableList.js';
 
 interface NowPlayingBarProps {
   onExpandClick?: () => void;
@@ -172,49 +173,34 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
               <button onClick={() => setShowQueue(false)} className="text-gray-500 hover:text-white text-sm">&times;</button>
             </div>
           </div>
-          {queue.map((track, i) => (
-            <div
-              key={`q-${i}`}
-              className={`group px-3 py-1.5 text-sm flex items-center gap-2 ${
-                i === queueIndex ? 'text-accent bg-accent/10' : 'text-gray-400'
-              }`}
-            >
-              <span className="w-5 text-xs text-right shrink-0">
-                {i === queueIndex && isPlaying ? '\u25B6' : i + 1}
-              </span>
-              <span className="truncate flex-1">{track.title}</span>
-              <span className="text-xs text-gray-600 truncate">{track.artistName}</span>
-              <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
-                {i > 0 && (
-                  <button
-                    onClick={() => moveInQueue(i, i - 1)}
-                    className="text-gray-500 hover:text-white text-xs px-1"
-                    title="Move up"
-                  >
-                    &#9650;
-                  </button>
-                )}
-                {i < queue.length - 1 && (
-                  <button
-                    onClick={() => moveInQueue(i, i + 1)}
-                    className="text-gray-500 hover:text-white text-xs px-1"
-                    title="Move down"
-                  >
-                    &#9660;
-                  </button>
-                )}
-                {i !== queueIndex && (
-                  <button
-                    onClick={() => removeFromQueue(i)}
-                    className="text-gray-500 hover:text-red-400 text-xs px-1"
-                    title="Remove"
-                  >
-                    &times;
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
+          <SortableList
+            items={queue.map((t, i) => ({ ...t, id: `q-${i}-${t.id}`, _index: i }))}
+            onReorder={(from, to) => moveInQueue(from, to)}
+            renderItem={(item: any, _i: number) => {
+              const idx = item._index;
+              const isCurrent = idx === queueIndex;
+              return (
+                <div className={`group px-2 py-1.5 text-sm flex items-center gap-2 ${
+                  isCurrent ? 'text-accent bg-accent/10 rounded' : 'text-gray-400'
+                }`}>
+                  <span className="w-5 text-xs text-right shrink-0">
+                    {isCurrent && isPlaying ? '\u25B6' : idx + 1}
+                  </span>
+                  <span className="truncate flex-1">{item.title}</span>
+                  <span className="text-xs text-gray-600 truncate">{item.artistName}</span>
+                  {!isCurrent && (
+                    <button
+                      onClick={() => removeFromQueue(idx)}
+                      className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 text-xs px-1 shrink-0 transition"
+                      title="Remove"
+                    >
+                      &times;
+                    </button>
+                  )}
+                </div>
+              );
+            }}
+          />
         </div>
       )}
     </div>
