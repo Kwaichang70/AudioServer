@@ -21,15 +21,24 @@ interface TopArtist {
   play_count: number;
 }
 
+interface RecentlyAddedAlbum {
+  id: string;
+  title: string;
+  artistName: string;
+  year?: number;
+}
+
 export default function HomePage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [recentAlbums, setRecentAlbums] = useState<RecentAlbum[]>([]);
   const [topArtists, setTopArtists] = useState<TopArtist[]>([]);
+  const [recentlyAdded, setRecentlyAdded] = useState<RecentlyAddedAlbum[]>([]);
 
   useEffect(() => {
     api.getStats().then((res) => setStats(res.data)).catch(() => {});
     api.getRecentAlbums().then((res) => setRecentAlbums(res.data)).catch(() => {});
     api.getTopArtists().then((res) => setTopArtists(res.data)).catch(() => {});
+    api.getRecentlyAdded(12).then((res) => setRecentlyAdded(res.data)).catch(() => {});
   }, []);
 
   return (
@@ -51,6 +60,37 @@ export default function HomePage() {
           </div>
         )}
       </section>
+
+      {/* Recently Added */}
+      {recentlyAdded.length > 0 && (
+        <section>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-semibold">Recently Added</h3>
+            <Link to="/albums" className="text-sm text-gray-400 hover:text-accent transition">View all</Link>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            {recentlyAdded.map((album) => (
+              <Link
+                key={album.id}
+                to={`/albums/${album.id}`}
+                className="group bg-surface-light rounded-lg p-3 hover:bg-surface transition"
+              >
+                <div className="aspect-square bg-surface-dark rounded mb-2 overflow-hidden">
+                  <img
+                    src={api.getAlbumCoverUrl(album.id)}
+                    alt={album.title}
+                    className="w-full h-full object-cover"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                </div>
+                <p className="text-sm font-medium truncate group-hover:text-accent transition">{album.title}</p>
+                <p className="text-xs text-gray-400 truncate">{album.artistName}</p>
+                {album.year && <p className="text-xs text-gray-500">{album.year}</p>}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Recently Played */}
       {recentAlbums.length > 0 && (

@@ -57,6 +57,14 @@ libraryRouter.get('/albums', (req, res) => {
   res.json({ data, meta: buildMeta(page, limit, total) });
 });
 
+// Recently added albums
+libraryRouter.get('/albums/recent', (req, res) => {
+  const limit = Math.min(50, parseInt(req.query.limit as string) || 20);
+  const raw = getRawDb();
+  const data = raw.prepare('SELECT * FROM albums ORDER BY created_at DESC LIMIT ?').all(limit);
+  res.json({ data });
+});
+
 libraryRouter.get('/albums/:id', (req, res) => {
   const db = getDb();
   const album = db.select().from(albums).where(eq(albums.id, req.params.id)).get();

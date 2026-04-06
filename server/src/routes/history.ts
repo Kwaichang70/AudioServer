@@ -97,6 +97,47 @@ historyRouter.get('/favorites', (req, res) => {
   }
 });
 
+// Favorites for tracks (enriched with track + album + artist data)
+historyRouter.get('/favorites/tracks', (_req, res) => {
+  const db = getDb();
+  const favs = db.select().from(favorites)
+    .where(eq(favorites.itemType, 'track'))
+    .orderBy(desc(favorites.createdAt))
+    .all();
+
+  const enriched = favs.map((f) => {
+    const track = db.select().from(tracks).where(eq(tracks.id, f.itemId)).get();
+    return track ? { ...track, favorited: true } : null;
+  }).filter(Boolean);
+  res.json({ data: enriched });
+});
+
+// Play history (track-level, chronological, paginated)
+historyRouter.get('/tracks', (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const limit = Math.min(100, parseInt(req.query.limit as string) || 50);
+  const offset = (page - 1) * limit;
+
+  const db = getDb();
+  const result = db.all(sql`
+    SELECT h.id, h.track_id, h.album_id, h.artist_id, h.played_at,
+      t.title as track_title, t.duration, t.track_number,
+      a.title as album_title,
+      ar.name as artist_name
+    FROM play_history h
+    LEFT JOIN tracks t ON t.id = h.track_id
+    LEFT JOIN albums a ON a.id = h.album_id
+    LEFT JOIN artists ar ON ar.id = h.artist_id
+    ORDER BY h.played_at DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `);
+
+  const totalResult = db.get(sql`SELECT COUNT(*) as count FROM play_history`) as any;
+  const total = totalResult?.count || 0;
+
+  res.json({ data: result, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } });
+});
+
 // Check if item is favorited
 historyRouter.get('/favorites/check', (req, res) => {
   const { type, id } = req.query;

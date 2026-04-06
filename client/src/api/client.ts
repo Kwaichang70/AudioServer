@@ -65,6 +65,8 @@ export const api = {
     fetchApi<any>('/history/played', { method: 'POST', body: JSON.stringify({ trackId, albumId, artistId }) }),
   getRecentAlbums: () => fetchApi<any>('/history/recent'),
   getTopArtists: () => fetchApi<any>('/history/top-artists'),
+  getHistoryTracks: (page = 1, limit = 50) => fetchApi<any>(`/history/tracks?page=${page}&limit=${limit}`),
+  getFavoriteTracks: () => fetchApi<any>('/history/favorites/tracks'),
   toggleFavorite: (itemType: string, itemId: string) =>
     fetchApi<any>('/history/favorites', { method: 'POST', body: JSON.stringify({ itemType, itemId }) }),
   getFavorites: (type: string) => fetchApi<any>(`/history/favorites?type=${type}`),
@@ -108,6 +110,9 @@ export const api = {
     fetchApi<any>(`/playlists/${playlistId}/tracks`, { method: 'POST', body: JSON.stringify({ trackId }) }),
   removeFromPlaylist: (playlistId: string, trackId: string) =>
     fetchApi<any>(`/playlists/${playlistId}/tracks/${trackId}`, { method: 'DELETE' }),
+
+  // Recently added albums
+  getRecentlyAdded: (limit = 20) => fetchApi<any>(`/library/albums/recent?limit=${limit}`),
 
   // Library stats
   getStats: () => fetchApi<any>('/library/stats'),

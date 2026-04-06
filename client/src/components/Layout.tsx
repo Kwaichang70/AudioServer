@@ -7,6 +7,8 @@ const navItems = [
   { to: '/', label: 'Home' },
   { to: '/albums', label: 'Albums' },
   { to: '/artists', label: 'Artists' },
+  { to: '/favorites', label: 'Favorites' },
+  { to: '/history', label: 'History' },
   { to: '/playlists', label: 'Playlists' },
   { to: '/search', label: 'Search' },
   { to: '/settings', label: 'Settings' },

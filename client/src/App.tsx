@@ -13,6 +13,8 @@ const AlbumsPage = lazy(() => import('./pages/AlbumsPage.js'));
 const SearchPage = lazy(() => import('./pages/SearchPage.js'));
 const PlaylistsPage = lazy(() => import('./pages/PlaylistsPage.js'));
 const PlaylistPage = lazy(() => import('./pages/PlaylistPage.js'));
+const FavoritesPage = lazy(() => import('./pages/FavoritesPage.js'));
+const HistoryPage = lazy(() => import('./pages/HistoryPage.js'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage.js'));
 const OAuthCallbackPage = lazy(() => import('./pages/OAuthCallbackPage.js'));
 
@@ -77,6 +79,8 @@ export default function App() {
           <Route path="/artists/:id" element={<ArtistPage />} />
           <Route path="/albums" element={<AlbumsPage />} />
           <Route path="/albums/:id" element={<AlbumPage />} />
+          <Route path="/favorites" element={<FavoritesPage />} />
+          <Route path="/history" element={<HistoryPage />} />
           <Route path="/playlists" element={<PlaylistsPage />} />
           <Route path="/playlists/:id" element={<PlaylistPage />} />
           <Route path="/search" element={<SearchPage />} />
