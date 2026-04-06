@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
 import NowPlayingBar from './NowPlayingBar.js';
 import { AudioProvider } from '../context/AudioContext.js';
+import { KeyboardShortcuts } from './KeyboardShortcuts.js';
+
+const NowPlayingFull = lazy(() => import('./NowPlayingFull.js'));
 
 const navItems = [
   { to: '/', label: 'Home' },
@@ -16,6 +19,15 @@ const navItems = [
 
 export default function Layout() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showFullscreen, setShowFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showFullscreen) setShowFullscreen(false);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [showFullscreen]);
 
   return (
     <AudioProvider>
@@ -78,7 +90,13 @@ export default function Layout() {
         </main>
 
         {/* Bottom: Now Playing bar */}
-        <NowPlayingBar />
+        <NowPlayingBar onExpandClick={() => setShowFullscreen(true)} />
+        <KeyboardShortcuts />
+        {showFullscreen && (
+          <Suspense fallback={null}>
+            <NowPlayingFull onClose={() => setShowFullscreen(false)} />
+          </Suspense>
+        )}
       </div>
     </AudioProvider>
   );

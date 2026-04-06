@@ -29,6 +29,8 @@ interface AudioContextValue {
   playAlbum: (tracks: TrackInfo[]) => void;
   addToQueue: (track: TrackInfo) => void;
   clearQueue: () => void;
+  removeFromQueue: (index: number) => void;
+  moveInQueue: (from: number, to: number) => void;
   playNext: () => void;
   playPrevious: () => void;
   pause: () => void;
@@ -302,6 +304,34 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     setQueueIndex(-1);
   }, []);
 
+  const removeFromQueue = useCallback((index: number) => {
+    setQueue((q) => {
+      const newQueue = [...q];
+      newQueue.splice(index, 1);
+      return newQueue;
+    });
+    setQueueIndex((curr) => {
+      if (index < curr) return curr - 1;
+      if (index === curr) return curr; // track shifts, same index plays next
+      return curr;
+    });
+  }, []);
+
+  const moveInQueue = useCallback((from: number, to: number) => {
+    setQueue((q) => {
+      const newQueue = [...q];
+      const [item] = newQueue.splice(from, 1);
+      newQueue.splice(to, 0, item);
+      return newQueue;
+    });
+    setQueueIndex((curr) => {
+      if (curr === from) return to;
+      if (from < curr && to >= curr) return curr - 1;
+      if (from > curr && to <= curr) return curr + 1;
+      return curr;
+    });
+  }, []);
+
   const playNext = useCallback(() => {
     if (queue.length === 0) return;
 
@@ -429,6 +459,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         playAlbum,
         addToQueue,
         clearQueue,
+        removeFromQueue,
+        moveInQueue,
         playNext,
         playPrevious,
         pause: devicePause,

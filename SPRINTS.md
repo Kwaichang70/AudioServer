@@ -471,6 +471,44 @@ Laatste polish voor production readiness:
 
 ---
 
+## Sprint 12 — Interactie & Shortcuts
+
+**Doel:** De app voelt professioneel en responsief met keyboard shortcuts, queue editing, fullscreen view en statistieken.
+
+### Wijzigingen:
+
+1. **Keyboard shortcuts** — `client/src/hooks/useKeyboardShortcuts.ts`:
+   - Spatie: play/pause
+   - Shift+←/→: vorige/volgende track
+   - Shift+↑/↓: volume omhoog/omlaag
+   - M: mute/unmute
+   - S: shuffle toggle
+   - R: repeat toggle
+   - /: ga naar zoekpagina
+   - Negeert input wanneer gebruiker typt in input/textarea velden
+
+2. **Queue bewerking** — `client/src/components/NowPlayingBar.tsx`:
+   - Verwijder knop per queue item (hover)
+   - Verplaats omhoog/omlaag knoppen (hover)
+   - "Clear" knop om hele queue te wissen
+   - Queue telt nu tracks in header
+   - Nieuwe AudioContext methods: `removeFromQueue()`, `moveInQueue()`
+   - API client: `removeFromQueue()`, `moveInQueue()` (backend endpoints bestonden al)
+
+3. **Fullscreen Now Playing** — `client/src/components/NowPlayingFull.tsx`:
+   - Volledig scherm met grote album art en blur achtergrond
+   - Track info, progress bar met seek, alle playback controls
+   - "Up Next" zijpaneel met komende tracks uit queue
+   - Openen via klik op album art in NowPlayingBar
+   - Sluiten via Escape of chevron-knop
+   - Lazy-loaded component
+
+4. **Bibliotheek statistieken** — `server/src/routes/health.ts` + `client/src/pages/HomePage.tsx`:
+   - Backend uitgebreid met: totale speeltijd, formaat-verdeling, sample rates, bit depths, top genres
+   - Homepage toont: totale speeltijd, top formaat, genre tags
+
+---
+
 ## Sprint Volgorde & Afhankelijkheden
 
 ```
@@ -485,6 +523,7 @@ Sprint 8 (DLNA/Devices)      ← Na Sprint 3 (gebruikt WebSocket)
 Sprint 9 (Scanner)           ← Na Sprint 3 (gebruikt WebSocket)
 Sprint 10 (Polish)           ← Production readiness
 Sprint 11 (Essentials UI)    ← Favorieten, Geschiedenis, Recently Added
+Sprint 12 (Interactie)       ← Shortcuts, Queue editing, Fullscreen, Stats
 ```
 
 Geschatte doorlooptijd per sprint: 1-2 sessies met Claude.

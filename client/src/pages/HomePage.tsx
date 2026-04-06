@@ -28,17 +28,33 @@ interface RecentlyAddedAlbum {
   year?: number;
 }
 
+interface LibraryStats {
+  totalDuration: number;
+  formats: { format: string; count: number }[];
+  genres: { genre: string; count: number }[];
+}
+
+function formatTotalDuration(seconds: number): string {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  if (days > 0) return `${days}d ${hours}h`;
+  const mins = Math.floor((seconds % 3600) / 60);
+  return `${hours}h ${mins}m`;
+}
+
 export default function HomePage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [recentAlbums, setRecentAlbums] = useState<RecentAlbum[]>([]);
   const [topArtists, setTopArtists] = useState<TopArtist[]>([]);
   const [recentlyAdded, setRecentlyAdded] = useState<RecentlyAddedAlbum[]>([]);
+  const [libraryStats, setLibraryStats] = useState<LibraryStats | null>(null);
 
   useEffect(() => {
     api.getStats().then((res) => setStats(res.data)).catch(() => {});
     api.getRecentAlbums().then((res) => setRecentAlbums(res.data)).catch(() => {});
     api.getTopArtists().then((res) => setTopArtists(res.data)).catch(() => {});
     api.getRecentlyAdded(12).then((res) => setRecentlyAdded(res.data)).catch(() => {});
+    api.getHealth().then((res) => { if (res.libraryStats) setLibraryStats(res.libraryStats); }).catch(() => {});
   }, []);
 
   return (
@@ -139,6 +155,39 @@ export default function HomePage() {
                 </div>
               </Link>
             ))}
+          </div>
+        </section>
+      )}
+
+      {/* Library Stats */}
+      {libraryStats && stats && stats.tracks > 0 && (
+        <section>
+          <h3 className="text-xl font-semibold mb-4">Library Stats</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="bg-surface-light rounded-lg p-4">
+              <p className="text-2xl font-bold text-white">{formatTotalDuration(libraryStats.totalDuration)}</p>
+              <p className="text-xs text-gray-500">Total playtime</p>
+            </div>
+            {libraryStats.formats.length > 0 && (
+              <div className="bg-surface-light rounded-lg p-4">
+                <p className="text-2xl font-bold text-white">{libraryStats.formats[0].format || 'N/A'}</p>
+                <p className="text-xs text-gray-500">
+                  Top format ({libraryStats.formats[0].count} tracks)
+                </p>
+              </div>
+            )}
+            {libraryStats.genres.length > 0 && (
+              <div className="bg-surface-light rounded-lg p-4 col-span-2">
+                <div className="flex flex-wrap gap-1.5">
+                  {libraryStats.genres.slice(0, 8).map((g) => (
+                    <span key={g.genre} className="text-xs px-2 py-1 bg-surface-dark rounded-full text-gray-400">
+                      {g.genre} <span className="text-gray-600">{g.count}</span>
+                    </span>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-2">Top genres</p>
+              </div>
+            )}
           </div>
         </section>
       )}

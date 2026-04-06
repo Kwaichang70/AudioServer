@@ -5,12 +5,17 @@ import { api } from '../api/client.js';
 import DeviceSelector from './DeviceSelector.js';
 import { formatTime } from '../utils/format.js';
 
-export default function NowPlayingBar() {
+interface NowPlayingBarProps {
+  onExpandClick?: () => void;
+}
+
+export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
   const navigate = useNavigate();
   const {
     currentTrack, isPlaying, isLoading, currentTime, duration, volume,
     pause, resume, setVolume, seek, playNext, playPrevious, queue, queueIndex,
     selectedDeviceId, setSelectedDeviceId, shuffle, repeat, toggleShuffle, toggleRepeat,
+    removeFromQueue, moveInQueue, clearQueue,
   } = useAudioContext();
   const [showQueue, setShowQueue] = useState(false);
 
@@ -29,7 +34,11 @@ export default function NowPlayingBar() {
     <div className="relative h-20 bg-surface border-t border-white/10 flex items-center px-4 gap-4">
       {/* Cover + Track info */}
       <div className="flex items-center gap-3 w-72 min-w-0">
-        <div className="w-12 h-12 rounded bg-surface-dark overflow-hidden shrink-0">
+        <div
+          className="w-12 h-12 rounded bg-surface-dark overflow-hidden shrink-0 cursor-pointer hover:opacity-80 transition"
+          onClick={onExpandClick}
+          title="Fullscreen view"
+        >
           <img
             src={currentTrack.albumId ? api.getAlbumCoverUrl(currentTrack.albumId) : api.getTrackCoverUrl(currentTrack.id)}
             alt=""
@@ -149,23 +158,61 @@ export default function NowPlayingBar() {
 
       {/* Queue panel */}
       {showQueue && queue.length > 0 && (
-        <div className="absolute bottom-full right-4 mb-2 w-80 max-h-96 overflow-y-auto bg-surface border border-white/10 rounded-lg shadow-xl z-50">
+        <div className="absolute bottom-full right-4 mb-2 w-96 max-h-96 overflow-y-auto bg-surface border border-white/10 rounded-lg shadow-xl z-50">
           <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
-            <p className="text-xs text-gray-400 uppercase tracking-wider">Queue</p>
-            <button onClick={() => setShowQueue(false)} className="text-gray-500 hover:text-white text-sm">&times;</button>
+            <p className="text-xs text-gray-400 uppercase tracking-wider">Queue ({queue.length} tracks)</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={clearQueue}
+                className="text-[10px] text-gray-500 hover:text-red-400 transition"
+                title="Clear queue"
+              >
+                Clear
+              </button>
+              <button onClick={() => setShowQueue(false)} className="text-gray-500 hover:text-white text-sm">&times;</button>
+            </div>
           </div>
           {queue.map((track, i) => (
             <div
               key={`q-${i}`}
-              className={`px-3 py-1.5 text-sm flex items-center gap-2 ${
+              className={`group px-3 py-1.5 text-sm flex items-center gap-2 ${
                 i === queueIndex ? 'text-accent bg-accent/10' : 'text-gray-400'
               }`}
             >
               <span className="w-5 text-xs text-right shrink-0">
                 {i === queueIndex && isPlaying ? '\u25B6' : i + 1}
               </span>
-              <span className="truncate">{track.title}</span>
-              <span className="text-xs text-gray-600 truncate ml-auto">{track.artistName}</span>
+              <span className="truncate flex-1">{track.title}</span>
+              <span className="text-xs text-gray-600 truncate">{track.artistName}</span>
+              <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
+                {i > 0 && (
+                  <button
+                    onClick={() => moveInQueue(i, i - 1)}
+                    className="text-gray-500 hover:text-white text-xs px-1"
+                    title="Move up"
+                  >
+                    &#9650;
+                  </button>
+                )}
+                {i < queue.length - 1 && (
+                  <button
+                    onClick={() => moveInQueue(i, i + 1)}
+                    className="text-gray-500 hover:text-white text-xs px-1"
+                    title="Move down"
+                  >
+                    &#9660;
+                  </button>
+                )}
+                {i !== queueIndex && (
+                  <button
+                    onClick={() => removeFromQueue(i)}
+                    className="text-gray-500 hover:text-red-400 text-xs px-1"
+                    title="Remove"
+                  >
+                    &times;
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>

@@ -53,6 +53,10 @@ export const api = {
   addToQueue: (track: any) =>
     fetchApi<any>('/playback/queue/add', { method: 'POST', body: JSON.stringify({ track }) }),
   clearQueue: () => fetchApi<any>('/playback/queue/clear', { method: 'POST' }),
+  removeFromQueue: (index: number) =>
+    fetchApi<any>('/playback/queue/remove', { method: 'POST', body: JSON.stringify({ index }) }),
+  moveInQueue: (from: number, to: number) =>
+    fetchApi<any>('/playback/queue/move', { method: 'POST', body: JSON.stringify({ from, to }) }),
   play: (track: any, deviceId?: string) =>
     fetchApi<any>('/playback/play', { method: 'POST', body: JSON.stringify({ track, deviceId }) }),
   pause: () => fetchApi<any>('/playback/pause', { method: 'POST' }),
