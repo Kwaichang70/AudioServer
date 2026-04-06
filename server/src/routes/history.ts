@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { playHistory, favorites, tracks, albums, artists } from '../db/schema.js';
 import { eq, and, desc, sql } from 'drizzle-orm';
+import { scrobbler } from '../services/scrobbler.js';
 
 export const historyRouter = Router();
 
@@ -17,6 +18,25 @@ historyRouter.post('/played', (req, res) => {
     albumId: albumId || '',
     artistId: artistId || '',
   }).run();
+
+  // Scrobble: look up track details for title/artist/album
+  try {
+    const track = db.select().from(tracks).where(eq(tracks.id, trackId)).get();
+    if (track) {
+      scrobbler.scrobble({
+        title: track.title,
+        artist: track.artistName,
+        album: track.albumTitle,
+        duration: track.duration ? Math.round(track.duration) : undefined,
+      });
+      scrobbler.nowPlaying({
+        title: track.title,
+        artist: track.artistName,
+        album: track.albumTitle,
+        duration: track.duration ? Math.round(track.duration) : undefined,
+      });
+    }
+  } catch {}
 
   res.json({ data: { ok: true } });
 });

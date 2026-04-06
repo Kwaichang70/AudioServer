@@ -151,6 +151,27 @@ export async function initDatabase() {
       UNIQUE(item_type, item_id)
     );
 
+    CREATE TABLE IF NOT EXISTS scrobble_config (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      lastfm_enabled INTEGER DEFAULT 0,
+      lastfm_session_key TEXT,
+      lastfm_username TEXT,
+      listenbrainz_enabled INTEGER DEFAULT 0,
+      listenbrainz_token TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS scrobble_queue (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      service TEXT NOT NULL,
+      track_title TEXT NOT NULL,
+      artist_name TEXT NOT NULL,
+      album_title TEXT,
+      duration INTEGER,
+      timestamp INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      retries INTEGER DEFAULT 0
+    );
+
     CREATE TABLE IF NOT EXISTS smart_playlists (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,

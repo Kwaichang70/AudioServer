@@ -171,6 +171,16 @@ export const api = {
   getQobuzAlbumTracks: (id: string) => fetchApi<any>(`/providers/qobuz/albums/${id}/tracks`),
   getQobuzStreamUrl: (trackId: string) => fetchApi<any>(`/providers/qobuz/tracks/${trackId}/stream`),
 
+  // Scrobbling
+  getScrobbleConfig: () => fetchApi<any>('/scrobble/config'),
+  getLastfmAuthUrl: () => fetchApi<any>('/scrobble/lastfm/auth-url'),
+  authenticateLastfm: (token: string) =>
+    fetchApi<any>('/scrobble/lastfm/auth', { method: 'POST', body: JSON.stringify({ token }) }),
+  disconnectLastfm: () => fetchApi<any>('/scrobble/lastfm/disconnect', { method: 'POST' }),
+  authenticateListenbrainz: (token: string) =>
+    fetchApi<any>('/scrobble/listenbrainz/auth', { method: 'POST', body: JSON.stringify({ token }) }),
+  disconnectListenbrainz: () => fetchApi<any>('/scrobble/listenbrainz/disconnect', { method: 'POST' }),
+
   // Cover art fetch
   fetchCovers: () => fetchApi<any>('/library/covers/fetch', { method: 'POST' }),
   getCoverFetchStatus: () => fetchApi<any>('/library/covers/fetch/status'),

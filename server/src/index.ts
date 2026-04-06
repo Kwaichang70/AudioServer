@@ -17,6 +17,8 @@ import { providersRouter } from './routes/providers.js';
 import { librespotRouter } from './routes/librespot.js';
 import { playlistsRouter } from './routes/playlists.js';
 import { smartPlaylistsRouter } from './routes/smart-playlists.js';
+import { scrobbleRouter } from './routes/scrobble.js';
+import { scrobbler } from './services/scrobbler.js';
 import { initDatabase } from './db/index.js';
 import { providers } from './providers/registry.js';
 import { autoStartLibrespot, stopLibrespot } from './services/librespot.js';
@@ -46,6 +48,7 @@ app.use('/api/history', historyRouter);
 app.use('/api/providers', providersRouter);
 app.use('/api/playlists', playlistsRouter);
 app.use('/api/smart-playlists', smartPlaylistsRouter);
+app.use('/api/scrobble', scrobbleRouter);
 app.use('/api/librespot', librespotRouter);
 
 // In production, serve client static files
@@ -69,6 +72,7 @@ async function main() {
   await providers.initialize();
   playbackService.initialize();
   startWatcher();
+  scrobbler.start();
   autoStartLibrespot().catch(() => {});
 
   httpServer.listen(config.port, '0.0.0.0', () => {

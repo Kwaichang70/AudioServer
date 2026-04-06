@@ -596,6 +596,39 @@ Laatste polish voor production readiness:
 
 ---
 
+## Sprint 16 — Scrobbling & Integraties
+
+**Doel:** Verbinding met het muziek-ecosysteem via Last.fm en ListenBrainz scrobbling.
+
+### Wijzigingen:
+
+1. **Scrobbling Service** — `server/src/services/scrobbler.ts`:
+   - Last.fm: `track.scrobble` + `track.updateNowPlaying` met MD5-signed API calls
+   - ListenBrainz: `submit-listens` (single + playing_now) met token auth
+   - Persistent queue in SQLite (`scrobble_queue` tabel) met retry (max 5)
+   - Queue processor draait elke 30 seconden
+   - Auto-scrobble bij elke `POST /api/history/played` call
+
+2. **Database** — Nieuwe tabellen:
+   - `scrobble_config`: singleton met Last.fm session key + ListenBrainz token
+   - `scrobble_queue`: pending/sent/failed scrobbles met retries
+
+3. **API Routes** — `server/src/routes/scrobble.ts`:
+   - `GET /config` — huidige scrobbling status
+   - `GET /lastfm/auth-url` — Last.fm autorisatie URL
+   - `POST /lastfm/auth` — token exchange voor session key
+   - `POST /lastfm/disconnect` — Last.fm uitschakelen
+   - `POST /listenbrainz/auth` — token validatie en opslag
+   - `POST /listenbrainz/disconnect` — ListenBrainz uitschakelen
+
+4. **Settings UI** — `client/src/pages/SettingsPage.tsx`:
+   - Last.fm: Authorize knop → token invoer → connected status
+   - ListenBrainz: Token invoer → connected status
+   - Disconnect knoppen voor beide services
+   - Env vars: `LASTFM_API_KEY`, `LASTFM_API_SECRET`
+
+---
+
 ## Sprint Volgorde & Afhankelijkheden
 
 ```
@@ -614,6 +647,7 @@ Sprint 12 (Interactie)       ← Shortcuts, Queue editing, Fullscreen, Stats
 Sprint 13 (Drag & Playlists) ← DnD queue/playlist, M3U import/export
 Sprint 14 (Music Discovery)  ← Genres, Smart Playlists
 Sprint 15 (Tidal Streaming)  ← Stream URLs, playlists, favorites
+Sprint 16 (Scrobbling)       ← Last.fm + ListenBrainz scrobbling
 ```
 
 Geschatte doorlooptijd per sprint: 1-2 sessies met Claude.

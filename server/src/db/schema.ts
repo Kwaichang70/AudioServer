@@ -102,6 +102,27 @@ export const smartPlaylists = sqliteTable('smart_playlists', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
 });
 
+export const scrobbleConfig = sqliteTable('scrobble_config', {
+  id: integer('id').primaryKey().default(1), // singleton
+  lastfmEnabled: integer('lastfm_enabled', { mode: 'boolean' }).default(false),
+  lastfmSessionKey: text('lastfm_session_key'),
+  lastfmUsername: text('lastfm_username'),
+  listenbrainzEnabled: integer('listenbrainz_enabled', { mode: 'boolean' }).default(false),
+  listenbrainzToken: text('listenbrainz_token'),
+});
+
+export const scrobbleQueue = sqliteTable('scrobble_queue', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  service: text('service').notNull(), // 'lastfm' | 'listenbrainz'
+  trackTitle: text('track_title').notNull(),
+  artistName: text('artist_name').notNull(),
+  albumTitle: text('album_title'),
+  duration: integer('duration'),
+  timestamp: integer('timestamp').notNull(),
+  status: text('status').notNull().default('pending'), // 'pending' | 'sent' | 'failed'
+  retries: integer('retries').default(0),
+});
+
 export const favorites = sqliteTable('favorites', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   itemType: text('item_type').notNull(), // 'track', 'album', 'artist'
