@@ -274,7 +274,8 @@ export class TidalProvider implements AuthenticatedMusicProvider {
       // Use v2 API relationships endpoint
       const response = await this.apiRequest(`/albums/${rawId}/relationships/items?include=items&page[limit]=100`);
       const tracks = (response.included || []).filter((i: any) => i.type === 'tracks');
-      logger.debug(`Tidal getAlbumTracks: found ${tracks.length} tracks`);
+      logger.info(`Tidal getAlbumTracks: found ${tracks.length} tracks`);
+      if (tracks[0]) logger.info(`Tidal track sample: ${JSON.stringify(tracks[0]).slice(0, 500)}`);
       return tracks.map((t: any) => this.mapTrack(t));
     } catch (err) {
       logger.error(`Tidal getAlbumTracks failed: ${err}`);
