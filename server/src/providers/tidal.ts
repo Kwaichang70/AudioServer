@@ -239,9 +239,12 @@ export class TidalProvider implements AuthenticatedMusicProvider {
   async getAlbum(id: string): Promise<Album | null> {
     if (!this.auth.isAuthenticated) return null;
     try {
-      const data = await this.apiRequest(`/albums/${id}`);
-      return this.mapAlbum(data);
-    } catch {
+      const rawId = id.replace('tidal:', '');
+      // Use legacy API for reliable album data with cover art
+      const data = await this.legacyApiRequest(`/albums/${rawId}`);
+      return this.mapLegacyAlbum(data);
+    } catch (err) {
+      logger.error(`Tidal getAlbum failed: ${err}`);
       return null;
     }
   }
@@ -249,9 +252,12 @@ export class TidalProvider implements AuthenticatedMusicProvider {
   async getAlbumTracks(albumId: string): Promise<Track[]> {
     if (!this.auth.isAuthenticated) return [];
     try {
-      const data = await this.apiRequest(`/albums/${albumId}/items?limit=100`);
-      return (data.data || []).map((item: any) => this.mapTrack(item.resource));
-    } catch {
+      const rawId = albumId.replace('tidal:', '');
+      // Use legacy API for reliable track data
+      const data = await this.legacyApiRequest(`/albums/${rawId}/tracks?limit=100`);
+      return (data.items || []).map((t: any) => this.mapLegacyTrack(t));
+    } catch (err) {
+      logger.error(`Tidal getAlbumTracks failed: ${err}`);
       return [];
     }
   }
@@ -418,13 +424,15 @@ export class TidalProvider implements AuthenticatedMusicProvider {
 
   private mapAlbum(data: any): Album {
     const attrs = data.attributes || data;
+    // Cover art from JSON:API imageLinks
+    const imageLink = attrs.imageLinks?.find((l: any) => l.meta?.width >= 320) || attrs.imageLinks?.[0];
     return {
       id: `tidal:${data.id}`,
       title: attrs.title,
       artistId: '',
       artistName: attrs.artistName || attrs.artists?.[0]?.name || 'Unknown',
       year: attrs.releaseDate ? new Date(attrs.releaseDate).getFullYear() : undefined,
-      coverUrl: attrs.imageLinks?.[0]?.href || attrs.imageCover?.[0]?.url,
+      coverUrl: imageLink?.href || undefined,
       trackCount: attrs.numberOfItems || attrs.numberOfTracks,
       source: 'tidal',
     };
