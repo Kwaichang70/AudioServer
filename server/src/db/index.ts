@@ -79,6 +79,7 @@ export async function initDatabase() {
       id TEXT PRIMARY KEY,
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'user',
       created_at INTEGER DEFAULT (unixepoch())
     );
 

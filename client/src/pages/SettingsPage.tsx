@@ -225,6 +225,12 @@ export default function SettingsPage() {
         </div>
       </section>
 
+      {/* Theme */}
+      <ThemeSection />
+
+      {/* User Management */}
+      <UserManagementSection />
+
       {/* Scrobbling */}
       <ScrobblingSection />
 
@@ -332,6 +338,161 @@ function QobuzCard({ status, onStatusChange }: { status?: ProviderStatus; onStat
         </div>
       )}
     </div>
+  );
+}
+
+function ThemeSection() {
+  const [theme, setTheme] = useState(() => localStorage.getItem('audioserver_theme') || 'dark');
+
+  const applyTheme = (t: string) => {
+    setTheme(t);
+    localStorage.setItem('audioserver_theme', t);
+    document.documentElement.setAttribute('data-theme', t);
+  };
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, []);
+
+  const themes = [
+    { id: 'dark', label: 'Dark', desc: 'Default dark theme' },
+    { id: 'light', label: 'Light', desc: 'Light backgrounds' },
+    { id: 'oled', label: 'OLED', desc: 'Pure black for OLED screens' },
+  ];
+
+  return (
+    <section className="mb-10">
+      <h3 className="text-lg font-semibold mb-4 text-gray-300">Theme</h3>
+      <div className="flex gap-3">
+        {themes.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => applyTheme(t.id)}
+            className={`flex-1 p-3 rounded-lg border transition text-center ${
+              theme === t.id
+                ? 'border-accent bg-accent/10'
+                : 'border-white/10 bg-surface-light hover:border-accent/50'
+            }`}
+          >
+            <p className="text-sm font-medium">{t.label}</p>
+            <p className="text-xs text-gray-500 mt-0.5">{t.desc}</p>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function UserManagementSection() {
+  const [users, setUsers] = useState<any[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newRole, setNewRole] = useState('user');
+  const { toast } = useToast();
+
+  useEffect(() => {
+    api.getMe().then((res) => {
+      if (res.data?.role === 'admin') {
+        setIsAdmin(true);
+        api.getUsers().then((r) => setUsers(r.data)).catch(() => {});
+      }
+    }).catch(() => {});
+  }, []);
+
+  if (!isAdmin) return null;
+
+  const handleCreate = async () => {
+    if (!newUsername.trim() || !newPassword) return;
+    try {
+      await api.createUser(newUsername.trim(), newPassword, newRole);
+      toast(`User "${newUsername}" created`, 'success');
+      setNewUsername('');
+      setNewPassword('');
+      setShowCreate(false);
+      api.getUsers().then((r) => setUsers(r.data)).catch(() => {});
+    } catch (err: any) {
+      toast(err.message || 'Failed to create user', 'error');
+    }
+  };
+
+  const handleDelete = async (id: string, username: string) => {
+    try {
+      await api.deleteUser(id);
+      toast(`User "${username}" deleted`, 'info');
+      setUsers((prev) => prev.filter((u) => u.id !== id));
+    } catch (err: any) {
+      toast(err.message || 'Failed to delete user', 'error');
+    }
+  };
+
+  return (
+    <section className="mb-10">
+      <h3 className="text-lg font-semibold mb-4 text-gray-300">User Management</h3>
+      <div className="bg-surface-light rounded-lg p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-gray-400">{users.length} user(s)</p>
+          <button
+            onClick={() => setShowCreate(!showCreate)}
+            className="px-3 py-1 text-sm bg-accent rounded hover:bg-accent-hover transition"
+          >
+            + Add User
+          </button>
+        </div>
+
+        {showCreate && (
+          <div className="flex gap-2 flex-wrap">
+            <input
+              type="text"
+              value={newUsername}
+              onChange={(e) => setNewUsername(e.target.value)}
+              placeholder="Username"
+              className="flex-1 min-w-[140px] px-3 py-1.5 text-sm bg-surface-dark border border-white/10 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent"
+            />
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="Password (8+ chars)"
+              className="flex-1 min-w-[140px] px-3 py-1.5 text-sm bg-surface-dark border border-white/10 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent"
+            />
+            <select
+              value={newRole}
+              onChange={(e) => setNewRole(e.target.value)}
+              className="px-3 py-1.5 text-sm bg-surface-dark border border-white/10 rounded text-white"
+            >
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
+            </select>
+            <button onClick={handleCreate} className="px-4 py-1.5 text-sm bg-accent rounded hover:bg-accent-hover transition">
+              Create
+            </button>
+          </div>
+        )}
+
+        {users.map((user) => (
+          <div key={user.id} className="flex items-center justify-between py-1">
+            <div>
+              <span className="text-sm">{user.username}</span>
+              <span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded ${
+                user.role === 'admin' ? 'bg-accent/20 text-accent' : 'bg-white/5 text-gray-500'
+              }`}>
+                {user.role}
+              </span>
+            </div>
+            {user.role !== 'admin' && (
+              <button
+                onClick={() => handleDelete(user.id, user.username)}
+                className="text-xs text-gray-600 hover:text-red-400 transition"
+              >
+                Delete
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

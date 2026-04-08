@@ -49,6 +49,12 @@ export const api = {
     fetchApi<any>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
   getMe: () => fetchApi<any>('/auth/me'),
 
+  // Users (admin)
+  getUsers: () => fetchApi<any>('/auth/users'),
+  createUser: (username: string, password: string, role?: string) =>
+    fetchApi<any>('/auth/users/create', { method: 'POST', body: JSON.stringify({ username, password, role }) }),
+  deleteUser: (id: string) => fetchApi<any>(`/auth/users/${id}`, { method: 'DELETE' }),
+
   // Playback
   getNowPlaying: () => fetchApi<any>('/playback/now-playing'),
   getQueue: () => fetchApi<any>('/playback/queue'),

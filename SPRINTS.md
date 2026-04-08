@@ -720,6 +720,32 @@ Laatste polish voor production readiness:
 
 ---
 
+## Sprint 20 — Multi-User & Productie
+
+**Doel:** Gereed voor huishoudgebruik met meerdere gebruikers en visuele personalisatie.
+
+### Wijzigingen:
+
+1. **Multi-User met Rollen** — `server/src/routes/auth.ts` + `server/src/db/index.ts`:
+   - `role` kolom toegevoegd aan users tabel (`admin` / `user`)
+   - Eerste geregistreerde user wordt automatisch admin
+   - Registratie gesloten voor niet-admins; admins maken nieuwe users via API
+   - Admin endpoints: `GET /auth/users`, `POST /auth/users/create`, `DELETE /auth/users/:id`
+
+2. **User Management UI** — `client/src/pages/SettingsPage.tsx`:
+   - UserManagementSection (alleen zichtbaar voor admins)
+   - Gebruikerslijst met rollen (admin badge)
+   - "Add User" formulier met username, password, role selector
+   - Delete knop (niet voor admin accounts)
+
+3. **Theme Switching** — CSS + SettingsPage:
+   - Drie thema's: Dark (standaard), Light, OLED (pure black)
+   - CSS custom properties via `data-theme` attribuut op `<html>`
+   - ThemeSection met visuele theme picker knoppen
+   - Opgeslagen in localStorage
+
+---
+
 ## Sprint Volgorde & Afhankelijkheden
 
 ```
@@ -742,6 +768,7 @@ Sprint 16 (Scrobbling)       ← Last.fm + ListenBrainz scrobbling
 Sprint 17 (Audio Kwaliteit)  ← Gapless, crossfade, quality indicator
 Sprint 18 (PWA & Mobiel)     ← PWA manifest, service worker, responsive
 Sprint 19 (Lyrics)           ← Embedded + LRCLIB, synced highlighting
+Sprint 20 (Multi-User)       ← Admin/user roles, user management, themes
 ```
 
 Geschatte doorlooptijd per sprint: 1-2 sessies met Claude.
