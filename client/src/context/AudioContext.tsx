@@ -11,6 +11,9 @@ interface TrackInfo {
   albumTitle: string;
   albumId?: string;
   duration?: number;
+  format?: string;
+  sampleRate?: number;
+  bitDepth?: number;
 }
 
 interface AudioContextValue {
@@ -24,6 +27,8 @@ interface AudioContextValue {
   queueIndex: number;
   shuffle: boolean;
   repeat: 'off' | 'all' | 'one';
+  crossfade: number;
+  setCrossfade: (seconds: number) => void;
   selectedDeviceId: string;
   playTrack: (track: TrackInfo) => void;
   playAlbum: (tracks: TrackInfo[]) => void;
@@ -62,6 +67,16 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState<'off' | 'all' | 'one'>('off');
+  const [crossfade, setCrossfadeState] = useState(() => {
+    const saved = localStorage.getItem('audioserver_crossfade');
+    return saved ? Number(saved) : 0;
+  });
+
+  const setCrossfade = useCallback((seconds: number) => {
+    setCrossfadeState(seconds);
+    localStorage.setItem('audioserver_crossfade', String(seconds));
+    audio.setCrossfadeDuration(seconds);
+  }, [audio]);
   const [devicePosition, setDevicePosition] = useState(0);
   const [deviceDuration, setDeviceDuration] = useState(0);
   const [deviceIsPlaying, setDeviceIsPlaying] = useState(false);
@@ -488,6 +503,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         queueIndex,
         shuffle,
         repeat,
+        crossfade,
+        setCrossfade,
         selectedDeviceId,
         playTrack,
         playAlbum,

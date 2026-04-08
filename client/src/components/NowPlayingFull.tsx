@@ -11,6 +11,7 @@ export default function NowPlayingFull({ onClose }: Props) {
     currentTrack, isPlaying, isLoading, currentTime, duration, volume,
     pause, resume, setVolume, seek, playNext, playPrevious,
     queue, queueIndex, shuffle, repeat, toggleShuffle, toggleRepeat,
+    crossfade, setCrossfade,
   } = useAudioContext();
 
   if (!currentTrack) return null;
@@ -66,6 +67,19 @@ export default function NowPlayingFull({ onClose }: Props) {
             <h2 className="text-2xl sm:text-3xl font-bold truncate max-w-md">{currentTrack.title}</h2>
             <p className="text-lg text-gray-400 truncate">{currentTrack.artistName}</p>
             <p className="text-sm text-gray-500 truncate">{currentTrack.albumTitle}</p>
+            {currentTrack.format && (
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-xs px-2 py-0.5 rounded bg-white/10 text-gray-400">
+                  {currentTrack.format.toUpperCase()}
+                </span>
+                {currentTrack.sampleRate && (
+                  <span className="text-xs text-gray-500">{(currentTrack.sampleRate / 1000).toFixed(1)} kHz</span>
+                )}
+                {currentTrack.bitDepth && (
+                  <span className="text-xs text-gray-500">{currentTrack.bitDepth}-bit</span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Up next */}
@@ -147,18 +161,33 @@ export default function NowPlayingFull({ onClose }: Props) {
           </button>
         </div>
 
-        {/* Volume */}
-        <div className="flex items-center justify-center gap-2 mt-4">
-          <span className="text-xs text-gray-500">&#128264;</span>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={volume}
-            onChange={(e) => setVolume(Number(e.target.value))}
-            className="w-32 h-1 accent-accent"
-          />
+        {/* Volume + Crossfade */}
+        <div className="flex items-center justify-center gap-6 mt-4">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">&#128264;</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={volume}
+              onChange={(e) => setVolume(Number(e.target.value))}
+              className="w-28 h-1 accent-accent"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">Crossfade</span>
+            <input
+              type="range"
+              min={0}
+              max={12}
+              step={1}
+              value={crossfade}
+              onChange={(e) => setCrossfade(Number(e.target.value))}
+              className="w-20 h-1 accent-accent"
+            />
+            <span className="text-xs text-gray-500 w-6">{crossfade}s</span>
+          </div>
         </div>
       </div>
     </div>

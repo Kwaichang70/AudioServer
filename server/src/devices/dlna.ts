@@ -258,6 +258,22 @@ export class DlnaController implements DeviceController {
     await this.sendAction(device.controlUrl, 'Stop', { InstanceID: '0' });
   }
 
+  async setNextUri(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void> {
+    const device = this.getDevice(deviceId);
+    const didl = this.buildDidlMetadata(streamUrl, metadata);
+    try {
+      await this.sendAction(device.controlUrl, 'SetNextAVTransportURI', {
+        InstanceID: '0',
+        NextURI: streamUrl,
+        NextURIMetaData: didl,
+      });
+      logger.info(`DLNA setNextUri: ${metadata?.title || 'track'} → ${device.name}`);
+    } catch (err) {
+      // Not all DLNA devices support SetNextAVTransportURI
+      logger.debug(`DLNA setNextUri not supported on ${device.name}: ${err}`);
+    }
+  }
+
   async next(deviceId: string): Promise<void> {
     const device = this.getDevice(deviceId);
     await this.sendAction(device.controlUrl, 'Next', { InstanceID: '0' });

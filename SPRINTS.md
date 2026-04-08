@@ -629,6 +629,36 @@ Laatste polish voor production readiness:
 
 ---
 
+## Sprint 17 — Gapless & Audio Kwaliteit
+
+**Doel:** Audiophile features: gapless playback, crossfade, en audio quality indicators.
+
+### Wijzigingen:
+
+1. **Gapless browser playback** — `client/src/hooks/useAudio.ts`:
+   - Volledig herschreven met dual-audio-element architectuur
+   - Pre-buffer volgende track via `preloadNext(url)`
+   - Crossfade met configureerbare duur (0-12 seconden)
+   - Bij crossfade > 0: volume fade-out op oude track, fade-in op nieuwe track
+   - Bij crossfade = 0: gapless overgang
+
+2. **DLNA gapless** — `server/src/devices/dlna.ts`:
+   - `SetNextAVTransportURI` SOAP actie voor gapless queue
+   - Graceful fallback als device het niet ondersteunt
+   - Route: `POST /devices/:id/set-next` via device manager
+
+3. **Crossfade configuratie** — AudioContext + NowPlayingFull:
+   - `crossfade` state (0-12 seconden) opgeslagen in localStorage
+   - Crossfade slider in fullscreen Now Playing view
+   - 0 = gapless (standaard), >0 = crossfade met die duur
+
+4. **Audio quality indicator** — NowPlayingBar + NowPlayingFull:
+   - Track formaat badge (FLAC, MP3, etc.) in NowPlayingBar
+   - Sample rate en bit depth weergave (bijv. "44.1kHz / 16-bit")
+   - Uitgebreide quality info in fullscreen view
+
+---
+
 ## Sprint Volgorde & Afhankelijkheden
 
 ```
@@ -648,6 +678,7 @@ Sprint 13 (Drag & Playlists) ← DnD queue/playlist, M3U import/export
 Sprint 14 (Music Discovery)  ← Genres, Smart Playlists
 Sprint 15 (Tidal Streaming)  ← Stream URLs, playlists, favorites
 Sprint 16 (Scrobbling)       ← Last.fm + ListenBrainz scrobbling
+Sprint 17 (Audio Kwaliteit)  ← Gapless, crossfade, quality indicator
 ```
 
 Geschatte doorlooptijd per sprint: 1-2 sessies met Claude.

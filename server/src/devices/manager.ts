@@ -81,6 +81,15 @@ export class DeviceManager {
     }
   }
 
+  async setNextUri(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void> {
+    const device = this.findCachedDevice(deviceId);
+    if (!device || device.type === 'browser') return;
+    const controller = this.getController(device.type);
+    if (controller && 'setNextUri' in controller) {
+      await (controller as any).setNextUri(deviceId, streamUrl, metadata);
+    }
+  }
+
   async pause(deviceId: string): Promise<void> {
     const device = this.findCachedDevice(deviceId);
     if (!device || device.type === 'browser') return;

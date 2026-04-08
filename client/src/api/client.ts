@@ -34,6 +34,8 @@ export const api = {
   getDeviceStatus: (id: string) => fetchApi<any>(`/devices/${id}/status`),
   devicePlay: (id: string, streamUrl: string, metadata?: any, trackId?: string) =>
     fetchApi<any>(`/devices/${id}/play`, { method: 'POST', body: JSON.stringify({ streamUrl, metadata, trackId }) }),
+  deviceSetNext: (id: string, streamUrl: string, metadata?: any) =>
+    fetchApi<any>(`/devices/${id}/set-next`, { method: 'POST', body: JSON.stringify({ streamUrl, metadata }) }),
   devicePause: (id: string) => fetchApi<any>(`/devices/${id}/pause`, { method: 'POST' }),
   deviceResume: (id: string) => fetchApi<any>(`/devices/${id}/resume`, { method: 'POST' }),
   deviceStop: (id: string) => fetchApi<any>(`/devices/${id}/stop`, { method: 'POST' }),

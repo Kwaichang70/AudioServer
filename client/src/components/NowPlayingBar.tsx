@@ -61,6 +61,13 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
             {currentTrack.id.startsWith('spotify:') && (
               <span className="ml-1 text-green-400"> &middot; via Spotify Connect</span>
             )}
+            {currentTrack.format && (
+              <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-gray-500">
+                {currentTrack.format.toUpperCase()}
+                {currentTrack.sampleRate ? `/${(currentTrack.sampleRate / 1000).toFixed(1)}kHz` : ''}
+                {currentTrack.bitDepth ? `/${currentTrack.bitDepth}bit` : ''}
+              </span>
+            )}
           </p>
         </div>
       </div>

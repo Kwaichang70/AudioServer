@@ -62,6 +62,16 @@ devicesRouter.post('/:id/play', async (req, res) => {
   }
 });
 
+devicesRouter.post('/:id/set-next', async (req, res) => {
+  try {
+    const { streamUrl, metadata } = req.body;
+    await deviceManager.setNextUri(req.params.id, streamUrl, metadata);
+    res.json({ data: { ok: true } });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 devicesRouter.post('/:id/pause', async (req, res) => {
   try {
     await deviceManager.pause(req.params.id);
