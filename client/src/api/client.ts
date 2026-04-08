@@ -173,6 +173,9 @@ export const api = {
   getQobuzAlbumTracks: (id: string) => fetchApi<any>(`/providers/qobuz/albums/${id}/tracks`),
   getQobuzStreamUrl: (trackId: string) => fetchApi<any>(`/providers/qobuz/tracks/${trackId}/stream`),
 
+  // Lyrics
+  getLyrics: (trackId: string) => fetchApi<any>(`/library/tracks/${trackId}/lyrics`),
+
   // Scrobbling
   getScrobbleConfig: () => fetchApi<any>('/scrobble/config'),
   getLastfmAuthUrl: () => fetchApi<any>('/scrobble/lastfm/auth-url'),

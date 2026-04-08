@@ -188,6 +188,26 @@ libraryRouter.get('/genres/:genre/albums', (req, res) => {
   res.json({ data, meta: buildMeta(page, limit, total) });
 });
 
+// ─── Lyrics ─────────────────────────────────────────────────────
+
+libraryRouter.get('/tracks/:id/lyrics', async (req, res) => {
+  try {
+    const { getLyrics, parseLrc } = await import('../services/lyrics.js');
+    const result = await getLyrics(req.params.id);
+    if (!result) return res.status(404).json({ error: 'No lyrics found' });
+
+    res.json({
+      data: {
+        plain: result.plain || null,
+        synced: result.synced ? parseLrc(result.synced) : null,
+        source: result.source,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // ─── Search ──────────────────────────────────────────────────────
 
 libraryRouter.get('/search', (req, res) => {

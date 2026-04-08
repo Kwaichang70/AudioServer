@@ -691,6 +691,35 @@ Laatste polish voor production readiness:
 
 ---
 
+## Sprint 19 — Lyrics & Now Playing
+
+**Doel:** Lyrics weergave met synced highlighting in het fullscreen Now Playing view.
+
+### Wijzigingen:
+
+1. **Lyrics Service** — `server/src/services/lyrics.ts`:
+   - Embedded lyrics uit audio metadata (USLT/SYLT tags via music-metadata)
+   - LRCLIB.net gratis API fallback (geen API key nodig)
+   - LRC parser voor gesynchroniseerde lyrics → `{ time, text }[]`
+   - In-memory cache per trackId
+
+2. **Lyrics Route** — `server/src/routes/library.ts`:
+   - `GET /api/library/tracks/:id/lyrics`
+   - Retourneert: `{ plain, synced: [{time, text}], source }`
+
+3. **LyricsDisplay Component** — `client/src/components/LyricsDisplay.tsx`:
+   - Synced lyrics met karaoke-stijl highlighting (active line = wit, past lines = grijs)
+   - Auto-scroll naar actieve regel
+   - Plain lyrics fallback als geen synced beschikbaar
+   - Lazy-loaded in fullscreen view
+
+4. **Fullscreen Integration** — `client/src/components/NowPlayingFull.tsx`:
+   - "Lyrics" toggle knop in header
+   - Lyrics panel vervangt "Up Next" wanneer actief
+   - Lazy-loaded LyricsDisplay component
+
+---
+
 ## Sprint Volgorde & Afhankelijkheden
 
 ```
@@ -712,6 +741,7 @@ Sprint 15 (Tidal Streaming)  ← Stream URLs, playlists, favorites
 Sprint 16 (Scrobbling)       ← Last.fm + ListenBrainz scrobbling
 Sprint 17 (Audio Kwaliteit)  ← Gapless, crossfade, quality indicator
 Sprint 18 (PWA & Mobiel)     ← PWA manifest, service worker, responsive
+Sprint 19 (Lyrics)           ← Embedded + LRCLIB, synced highlighting
 ```
 
 Geschatte doorlooptijd per sprint: 1-2 sessies met Claude.

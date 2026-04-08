@@ -1,6 +1,9 @@
+import { useState, lazy, Suspense } from 'react';
 import { useAudioContext } from '../context/AudioContext.js';
 import { api } from '../api/client.js';
 import { formatTime } from '../utils/format.js';
+
+const LyricsDisplay = lazy(() => import('./LyricsDisplay.js'));
 
 interface Props {
   onClose: () => void;
@@ -13,6 +16,8 @@ export default function NowPlayingFull({ onClose }: Props) {
     queue, queueIndex, shuffle, repeat, toggleShuffle, toggleRepeat,
     crossfade, setCrossfade,
   } = useAudioContext();
+
+  const [showLyrics, setShowLyrics] = useState(false);
 
   if (!currentTrack) return null;
 
@@ -44,7 +49,13 @@ export default function NowPlayingFull({ onClose }: Props) {
           &#9660;
         </button>
         <p className="text-xs text-gray-500 uppercase tracking-widest">Now Playing</p>
-        <div className="w-8" />
+        <button
+          onClick={() => setShowLyrics(!showLyrics)}
+          className={`text-sm px-3 py-1 rounded transition ${showLyrics ? 'bg-accent text-white' : 'text-gray-500 hover:text-white'}`}
+          title="Toggle lyrics"
+        >
+          Lyrics
+        </button>
       </div>
 
       {/* Main content */}
@@ -82,8 +93,15 @@ export default function NowPlayingFull({ onClose }: Props) {
             )}
           </div>
 
-          {/* Up next */}
-          {queue.length > 0 && queueIndex < queue.length - 1 && (
+          {/* Lyrics or Up Next */}
+          {showLyrics ? (
+            <div className="w-full mt-4">
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Lyrics</p>
+              <Suspense fallback={<p className="text-xs text-gray-500">Loading...</p>}>
+                <LyricsDisplay />
+              </Suspense>
+            </div>
+          ) : queue.length > 0 && queueIndex < queue.length - 1 ? (
             <div className="w-full mt-4">
               <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Up Next</p>
               <div className="space-y-1 max-h-48 overflow-y-auto">
@@ -99,7 +117,7 @@ export default function NowPlayingFull({ onClose }: Props) {
                 )}
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
 
