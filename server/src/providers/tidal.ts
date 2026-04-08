@@ -270,10 +270,11 @@ export class TidalProvider implements AuthenticatedMusicProvider {
     if (!this.auth.isAuthenticated) return { artists: [], albums: [], tracks: [], playlists: [] };
     try {
       // JSON:API format: fetch relationships separately
+      const q = encodeURIComponent(query);
       const [artistsRes, albumsRes, tracksRes] = await Promise.allSettled([
-        this.apiRequest(`/searchresults/${encodeURIComponent(query)}/relationships/artists?include=artists&page[limit]=${limit}`),
-        this.apiRequest(`/searchresults/${encodeURIComponent(query)}/relationships/albums?include=albums&page[limit]=${limit}`),
-        this.apiRequest(`/searchresults/${encodeURIComponent(query)}/relationships/tracks?include=tracks&page[limit]=${limit}`),
+        this.apiRequest(`/searchResults/${q}/relationships/artists?include=artists&page[limit]=${limit}`),
+        this.apiRequest(`/searchResults/${q}/relationships/albums?include=albums&page[limit]=${limit}`),
+        this.apiRequest(`/searchResults/${q}/relationships/tracks?include=tracks&page[limit]=${limit}`),
       ]);
 
       const artists = artistsRes.status === 'fulfilled'
