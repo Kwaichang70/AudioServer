@@ -240,8 +240,9 @@ export class TidalProvider implements AuthenticatedMusicProvider {
     if (!this.auth.isAuthenticated) return null;
     try {
       const rawId = id.replace('tidal:', '');
-      // Use legacy API for reliable album data with cover art
       const data = await this.legacyApiRequest(`/albums/${rawId}`);
+      logger.info(`Tidal getAlbum raw response keys: ${Object.keys(data).join(', ')}`);
+      logger.info(`Tidal getAlbum raw: id=${data.id}, title=${data.title}, artist=${JSON.stringify(data.artist)?.slice(0,100)}`);
       return this.mapLegacyAlbum(data);
     } catch (err) {
       logger.error(`Tidal getAlbum failed: ${err}`);
