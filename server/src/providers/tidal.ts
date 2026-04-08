@@ -1,5 +1,6 @@
 import type { AuthenticatedMusicProvider, ProviderAuth } from '@audioserver/shared';
 import type { Artist, Album, Track, SearchResults, Playlist } from '@audioserver/shared';
+import { randomBytes, createHash } from 'crypto';
 import { logger } from '../logger.js';
 import { saveTokens, loadTokens, deleteTokens } from '../services/tokenstore.js';
 
@@ -56,6 +57,9 @@ export class TidalProvider implements AuthenticatedMusicProvider {
     this.isAvailable = !!(this.clientId && this.clientSecret);
   }
 
+  // PKCE state
+  private codeVerifier: string | null = null;
+
   async initialize(): Promise<void> {
     if (!this.clientId || !this.clientSecret) {
       logger.info('Tidal: No client credentials configured, skipping');
@@ -86,26 +90,40 @@ export class TidalProvider implements AuthenticatedMusicProvider {
   // ─── OAuth Flow ──────────────────────────────────────────────
 
   getAuthUrl(redirectUri: string): string {
+    // Generate PKCE code verifier and challenge
+    this.codeVerifier = randomBytes(32).toString('base64url');
+    const codeChallenge = createHash('sha256').update(this.codeVerifier).digest('base64url');
+
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: this.clientId,
       redirect_uri: redirectUri,
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
     });
     return `https://login.tidal.com/authorize?${params}`;
   }
 
   private async exchangeCode(code: string, redirectUri: string): Promise<void> {
+    const body: Record<string, string> = {
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+      client_id: this.clientId,
+    };
+    // Include PKCE code verifier if available
+    if (this.codeVerifier) {
+      body.code_verifier = this.codeVerifier;
+      this.codeVerifier = null; // Single use
+    }
+
     const res = await fetch(`${TIDAL_AUTH_URL}/token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
         Authorization: `Basic ${Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64')}`,
       },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: redirectUri,
-      }),
+      body: new URLSearchParams(body),
     });
 
     if (!res.ok) {
