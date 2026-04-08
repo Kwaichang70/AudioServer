@@ -100,6 +100,7 @@ export class TidalProvider implements AuthenticatedMusicProvider {
       redirect_uri: redirectUri,
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
+      scope: 'user.read collection.read collection.write playlists.read playlists.write entitlements.read recommendations.read playback search.read search.write',
     });
     return `https://login.tidal.com/authorize?${params}`;
   }
