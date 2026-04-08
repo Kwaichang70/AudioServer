@@ -32,11 +32,11 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   return (
-    <div className="relative h-20 bg-surface border-t border-white/10 flex items-center px-4 gap-4">
+    <div className="relative h-20 bg-surface border-t border-white/10 flex items-center px-2 md:px-4 gap-2 md:gap-4 safe-bottom no-select">
       {/* Cover + Track info */}
-      <div className="flex items-center gap-3 w-72 min-w-0">
+      <div className="flex items-center gap-2 md:gap-3 w-40 md:w-72 min-w-0 shrink-0">
         <div
-          className="w-12 h-12 rounded bg-surface-dark overflow-hidden shrink-0 cursor-pointer hover:opacity-80 transition"
+          className="w-10 h-10 md:w-12 md:h-12 rounded bg-surface-dark overflow-hidden shrink-0 cursor-pointer hover:opacity-80 transition"
           onClick={onExpandClick}
           title="Fullscreen view"
         >
@@ -137,7 +137,7 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
       </div>
 
       {/* Volume + Queue + Device */}
-      <div className="flex items-center gap-2 w-64">
+      <div className="hidden md:flex items-center gap-2 w-64">
         {queue.length > 0 && (
           <button
             onClick={() => setShowQueue(!showQueue)}

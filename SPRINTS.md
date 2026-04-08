@@ -659,6 +659,38 @@ Laatste polish voor production readiness:
 
 ---
 
+## Sprint 18 — PWA & Mobiel
+
+**Doel:** AudioServer installeerbaar als app op telefoon/tablet met offline album art caching.
+
+### Wijzigingen:
+
+1. **PWA Manifest** — `client/public/manifest.json`:
+   - App naam, beschrijving, kleuren, standalone display mode
+   - SVG iconen (192x192 en 512x512) met vinyl-plaat design
+   - Categories: music, entertainment
+
+2. **Service Worker** — `client/public/sw.js`:
+   - Cache-first strategie voor album covers en artist images
+   - Network-first voor API calls en app shell
+   - Aparte cache voor covers (`audioserver-covers-v1`)
+   - Auto-activate met `skipWaiting` + `clients.claim`
+
+3. **HTML Meta Tags** — `client/index.html`:
+   - `theme-color` voor browser adresbalk (#e94560)
+   - `apple-mobile-web-app-capable` voor iOS standalone
+   - `apple-mobile-web-app-status-bar-style: black-translucent`
+   - `viewport-fit: cover` voor notched devices
+   - Manifest link, apple-touch-icon
+
+4. **Mobile Responsive** — CSS + NowPlayingBar:
+   - Safe area padding voor notched devices (`env(safe-area-inset-bottom)`)
+   - Touch-friendly tap targets (min 44px op touch devices)
+   - NowPlayingBar: compactere layout op mobiel, volume/device verborgen
+   - Kleinere cover art thumbnail op mobiel
+
+---
+
 ## Sprint Volgorde & Afhankelijkheden
 
 ```
@@ -679,6 +711,7 @@ Sprint 14 (Music Discovery)  ← Genres, Smart Playlists
 Sprint 15 (Tidal Streaming)  ← Stream URLs, playlists, favorites
 Sprint 16 (Scrobbling)       ← Last.fm + ListenBrainz scrobbling
 Sprint 17 (Audio Kwaliteit)  ← Gapless, crossfade, quality indicator
+Sprint 18 (PWA & Mobiel)     ← PWA manifest, service worker, responsive
 ```
 
 Geschatte doorlooptijd per sprint: 1-2 sessies met Claude.
