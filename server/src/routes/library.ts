@@ -30,7 +30,10 @@ libraryRouter.get('/artists', (req, res) => {
   const { page, limit, offset } = parsePagination(req, 50);
   const raw = getRawDb();
   const total = (raw.prepare('SELECT COUNT(*) as count FROM artists').get() as any).count;
-  const data = raw.prepare('SELECT * FROM artists ORDER BY name COLLATE NOCASE LIMIT ? OFFSET ?').all(limit, offset);
+  const data = raw.prepare(`
+    SELECT id, name, image_url as imageUrl, source, created_at as createdAt, updated_at as updatedAt
+    FROM artists ORDER BY name COLLATE NOCASE LIMIT ? OFFSET ?
+  `).all(limit, offset);
   res.json({ data, meta: buildMeta(page, limit, total) });
 });
 
@@ -53,7 +56,12 @@ libraryRouter.get('/albums', (req, res) => {
   const { page, limit, offset } = parsePagination(req, 50);
   const raw = getRawDb();
   const total = (raw.prepare('SELECT COUNT(*) as count FROM albums').get() as any).count;
-  const data = raw.prepare('SELECT * FROM albums ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?').all(limit, offset);
+  const data = raw.prepare(`
+    SELECT id, title, artist_id as artistId, artist_name as artistName, year,
+      cover_url as coverUrl, genre, track_count as trackCount, source,
+      created_at as createdAt, updated_at as updatedAt
+    FROM albums ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?
+  `).all(limit, offset);
   res.json({ data, meta: buildMeta(page, limit, total) });
 });
 
