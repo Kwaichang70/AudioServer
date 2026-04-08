@@ -90,9 +90,8 @@ export class TidalProvider implements AuthenticatedMusicProvider {
       response_type: 'code',
       client_id: this.clientId,
       redirect_uri: redirectUri,
-      scope: 'playlists.read playlists.write collection.read collection.write playback',
     });
-    return `${TIDAL_AUTH_URL}/authorize?${params}`;
+    return `https://login.tidal.com/authorize?${params}`;
   }
 
   private async exchangeCode(code: string, redirectUri: string): Promise<void> {
