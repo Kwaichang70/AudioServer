@@ -263,17 +263,29 @@ export class TidalProvider implements AuthenticatedMusicProvider {
     }
   }
 
-  async search(query: string, limit = 20): Promise<SearchResults> {
+  async search(query: string, limit = 10): Promise<SearchResults> {
     if (!this.auth.isAuthenticated) return { artists: [], albums: [], tracks: [], playlists: [] };
     try {
-      const data = await this.apiRequest(`/searchresults/${encodeURIComponent(query)}?limit=${limit}&include=artists,albums,tracks`);
-      return {
-        artists: (data.artists || []).map((a: any) => this.mapArtist(a.resource)),
-        albums: (data.albums || []).map((a: any) => this.mapAlbum(a.resource)),
-        tracks: (data.tracks || []).map((t: any) => this.mapTrack(t.resource)),
-        playlists: [],
-      };
-    } catch {
+      // JSON:API format: fetch relationships separately
+      const [artistsRes, albumsRes, tracksRes] = await Promise.allSettled([
+        this.apiRequest(`/searchresults/${encodeURIComponent(query)}/relationships/artists?include=artists&page[limit]=${limit}`),
+        this.apiRequest(`/searchresults/${encodeURIComponent(query)}/relationships/albums?include=albums&page[limit]=${limit}`),
+        this.apiRequest(`/searchresults/${encodeURIComponent(query)}/relationships/tracks?include=tracks&page[limit]=${limit}`),
+      ]);
+
+      const artists = artistsRes.status === 'fulfilled'
+        ? (artistsRes.value.included || []).filter((i: any) => i.type === 'artists').map((a: any) => this.mapArtist(a))
+        : [];
+      const albums = albumsRes.status === 'fulfilled'
+        ? (albumsRes.value.included || []).filter((i: any) => i.type === 'albums').map((a: any) => this.mapAlbum(a))
+        : [];
+      const tracks = tracksRes.status === 'fulfilled'
+        ? (tracksRes.value.included || []).filter((i: any) => i.type === 'tracks').map((t: any) => this.mapTrack(t))
+        : [];
+
+      return { artists, albums, tracks, playlists: [] };
+    } catch (err) {
+      logger.error(`Tidal search failed: ${err}`);
       return { artists: [], albums: [], tracks: [], playlists: [] };
     }
   }
@@ -389,38 +401,42 @@ export class TidalProvider implements AuthenticatedMusicProvider {
 
   // ─── Mappers ─────────────────────────────────────────────────
 
+  // JSON:API format: { id, type, attributes: { title, ... }, relationships: { ... } }
   private mapArtist(data: any): Artist {
+    const attrs = data.attributes || data;
     return {
       id: `tidal:${data.id}`,
-      name: data.name,
-      imageUrl: data.picture?.[0]?.url,
+      name: attrs.name,
+      imageUrl: attrs.imageLinks?.[0]?.href || attrs.picture?.[0]?.url,
       source: 'tidal',
     };
   }
 
   private mapAlbum(data: any): Album {
+    const attrs = data.attributes || data;
     return {
       id: `tidal:${data.id}`,
-      title: data.title,
-      artistId: `tidal:${data.artists?.[0]?.id || ''}`,
-      artistName: data.artists?.[0]?.name || 'Unknown',
-      year: data.releaseDate ? new Date(data.releaseDate).getFullYear() : undefined,
-      coverUrl: data.imageCover?.[0]?.url,
-      trackCount: data.numberOfTracks,
+      title: attrs.title,
+      artistId: '',
+      artistName: attrs.artistName || attrs.artists?.[0]?.name || 'Unknown',
+      year: attrs.releaseDate ? new Date(attrs.releaseDate).getFullYear() : undefined,
+      coverUrl: attrs.imageLinks?.[0]?.href || attrs.imageCover?.[0]?.url,
+      trackCount: attrs.numberOfItems || attrs.numberOfTracks,
       source: 'tidal',
     };
   }
 
   private mapTrack(data: any): Track {
+    const attrs = data.attributes || data;
     return {
       id: `tidal:${data.id}`,
-      title: data.title,
-      albumId: `tidal:${data.album?.id || ''}`,
-      albumTitle: data.album?.title || '',
-      artistId: `tidal:${data.artists?.[0]?.id || ''}`,
-      artistName: data.artists?.[0]?.name || 'Unknown',
-      trackNumber: data.trackNumber,
-      duration: data.duration,
+      title: attrs.title,
+      albumId: '',
+      albumTitle: attrs.albumName || attrs.album?.title || '',
+      artistId: '',
+      artistName: attrs.artistName || attrs.artists?.[0]?.name || 'Unknown',
+      trackNumber: attrs.trackNumber,
+      duration: attrs.duration ? attrs.duration / 1000 : undefined, // API returns ms
       source: 'tidal',
     };
   }
