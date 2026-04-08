@@ -241,10 +241,26 @@ export class TidalProvider implements AuthenticatedMusicProvider {
     if (!this.auth.isAuthenticated) return null;
     try {
       const rawId = id.replace('tidal:', '');
-      const data = await this.legacyApiRequest(`/albums/${rawId}`);
-      logger.info(`Tidal getAlbum raw response keys: ${Object.keys(data).join(', ')}`);
-      logger.info(`Tidal getAlbum raw: id=${data.id}, title=${data.title}, artist=${JSON.stringify(data.artist)?.slice(0,100)}`);
-      return this.mapLegacyAlbum(data);
+      // Use v2 API with include to get full album data + artists
+      const response = await this.apiRequest(`/albums/${rawId}?include=artists`);
+      const albumData = response.data || response;
+      logger.debug(`Tidal getAlbum v2: ${JSON.stringify(albumData).slice(0, 300)}`);
+
+      // Get artist name from included data
+      const included = response.included || [];
+      const artist = included.find((i: any) => i.type === 'artists');
+      const attrs = albumData.attributes || {};
+
+      return {
+        id: `tidal:${albumData.id}`,
+        title: attrs.title || 'Unknown',
+        artistId: artist ? `tidal:${artist.id}` : '',
+        artistName: artist?.attributes?.name || 'Unknown',
+        year: attrs.releaseDate ? new Date(attrs.releaseDate).getFullYear() : undefined,
+        coverUrl: attrs.imageLinks?.find((l: any) => l.meta?.width >= 320)?.href || attrs.imageLinks?.[0]?.href,
+        trackCount: attrs.numberOfItems,
+        source: 'tidal',
+      };
     } catch (err) {
       logger.error(`Tidal getAlbum failed: ${err}`);
       return null;
@@ -255,9 +271,11 @@ export class TidalProvider implements AuthenticatedMusicProvider {
     if (!this.auth.isAuthenticated) return [];
     try {
       const rawId = albumId.replace('tidal:', '');
-      // Use legacy API for reliable track data
-      const data = await this.legacyApiRequest(`/albums/${rawId}/tracks?limit=100`);
-      return (data.items || []).map((t: any) => this.mapLegacyTrack(t));
+      // Use v2 API relationships endpoint
+      const response = await this.apiRequest(`/albums/${rawId}/relationships/items?include=items&page[limit]=100`);
+      const tracks = (response.included || []).filter((i: any) => i.type === 'tracks');
+      logger.debug(`Tidal getAlbumTracks: found ${tracks.length} tracks`);
+      return tracks.map((t: any) => this.mapTrack(t));
     } catch (err) {
       logger.error(`Tidal getAlbumTracks failed: ${err}`);
       return [];
