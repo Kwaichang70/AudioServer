@@ -174,7 +174,9 @@ export class TidalProvider implements AuthenticatedMusicProvider {
       await this.refreshAccessToken();
     }
 
-    const res = await fetch(`${TIDAL_API_URL}${path}`, {
+    const url = `${TIDAL_API_URL}${path}`;
+    logger.debug(`Tidal API request: ${url}`);
+    const res = await fetch(url, {
       headers: {
         Authorization: `Bearer ${this.tokens.accessToken}`,
         'Content-Type': 'application/vnd.tidal.v1+json',
@@ -183,7 +185,8 @@ export class TidalProvider implements AuthenticatedMusicProvider {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`Tidal API error: ${res.status} ${err}`);
+      logger.error(`Tidal API ${res.status}: ${url} → ${err.slice(0, 300)}`);
+      throw new Error(`Tidal API error: ${res.status} ${err.slice(0, 100)}`);
     }
     return res.json();
   }
@@ -285,7 +288,7 @@ export class TidalProvider implements AuthenticatedMusicProvider {
 
       return { artists, albums, tracks, playlists: [] };
     } catch (err) {
-      logger.error(`Tidal search failed: ${err}`);
+      logger.error(`Tidal search failed: ${err instanceof Error ? err.stack : err}`);
       return { artists: [], albums: [], tracks: [], playlists: [] };
     }
   }
