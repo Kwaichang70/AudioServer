@@ -41,6 +41,7 @@ export default function AlbumPage() {
 
   const providerType = id?.startsWith('spotify:') ? 'spotify'
     : id?.startsWith('qobuz:') ? 'qobuz'
+    : id?.startsWith('tidal:') ? 'tidal'
     : 'local';
 
   useEffect(() => {
@@ -54,6 +55,10 @@ export default function AlbumPage() {
       const qobuzId = id.replace('qobuz:', '');
       api.getQobuzAlbum(qobuzId).then((res) => setAlbum(res.data)).catch(() => {});
       api.getQobuzAlbumTracks(qobuzId).then((res) => setTracks(res.data)).catch(() => {});
+    } else if (providerType === 'tidal') {
+      const tidalId = id.replace('tidal:', '');
+      api.getTidalAlbum(tidalId).then((res) => setAlbum(res.data)).catch(() => {});
+      api.getTidalAlbumTracks(tidalId).then((res) => setTracks(res.data)).catch(() => {});
     } else {
       api.getAlbum(id).then((res) => setAlbum(res.data));
       api.getAlbumTracks(id).then((res) => setTracks(res.data));
