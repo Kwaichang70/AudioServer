@@ -80,6 +80,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const [devicePosition, setDevicePosition] = useState(0);
   const [deviceDuration, setDeviceDuration] = useState(0);
   const [deviceIsPlaying, setDeviceIsPlaying] = useState(false);
+  const [deviceVolume, setDeviceVolume] = useState<number | null>(null);
   const { toast } = useToast();
 
   // Use refs so callbacks always see the latest values
@@ -105,9 +106,16 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       setDevicePosition(0);
       setDeviceDuration(0);
       setDeviceIsPlaying(false);
+      setDeviceVolume(null);
       return;
     }
     socket.subscribeDevice(selectedDeviceId);
+    // Fetch initial device status (volume etc.) so the slider reflects reality
+    api.getDeviceStatus(selectedDeviceId).then((res: any) => {
+      if (typeof res?.data?.volume === 'number') {
+        setDeviceVolume(res.data.volume / 100);
+      }
+    }).catch(() => {});
     return () => socket.unsubscribeDevice(selectedDeviceId);
   }, [selectedDeviceId]);
 
@@ -120,6 +128,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     setDevicePosition(u.position);
     setDeviceDuration(u.duration);
     setDeviceIsPlaying(u.state === 'playing');
+    if (typeof u.volume === 'number') setDeviceVolume(u.volume / 100);
 
     // Auto-advance: device was playing, now stopped → next track
     if (prevDeviceState.current === 'playing' && u.state === 'stopped') {
@@ -334,6 +343,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   }, [audio]);
 
   const playTrack = useCallback((track: TrackInfo) => {
+    // Always seed a queue so shuffle/repeat/next/prev have something to act on.
+    setQueue([track]);
+    setQueueIndex(0);
     startTrack(track);
   }, [startTrack]);
 
@@ -456,13 +468,20 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   }, [audio]);
 
   const deviceSetVolume = useCallback((v: number) => {
-    audio.setVolume(v);
     const deviceId = selectedDeviceRef.current;
     const isSpotify = currentTrackRef.current?.id.startsWith('spotify:');
 
+    if (deviceId === 'browser' && !isSpotify) {
+      audio.setVolume(v);
+      return;
+    }
+
+    // External device or Spotify Connect: update optimistic UI state,
+    // don't touch the browser audio element (its volume is unrelated).
+    setDeviceVolume(v);
     if (isSpotify) {
       api.spotifyConnectVolume(Math.round(v * 100)).catch(() => {});
-    } else if (deviceId !== 'browser') {
+    } else {
       api.deviceVolume(deviceId, Math.round(v * 100)).catch(() => {});
     }
   }, [audio]);
@@ -490,6 +509,94 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   // Auto-advance to next track when current ends
   audio.setOnEnded(playNext);
 
+  // --- Keep browser playback alive when the laptop locks / display sleeps ---
+  // Strategy:
+  //  1. Request a Screen Wake Lock while playing in the browser (prevents
+  //     the display from sleeping, which on many laptops triggers media pause).
+  //  2. Register Media Session action handlers so the OS media keys /
+  //     lock-screen controls hook into our transport and do not detach audio.
+  //  3. When the tab becomes visible again, re-acquire the wake lock and
+  //     resume playback if the UI state says we should be playing but the
+  //     underlying <audio> element got paused by the OS.
+  const wakeLockRef = useRef<any>(null);
+  const browserIsPlaying = selectedDeviceId === 'browser' && audio.isPlaying;
+
+  useEffect(() => {
+    const nav: any = navigator;
+    const requestWakeLock = async () => {
+      if (!browserIsPlaying) return;
+      try {
+        if (nav.wakeLock && !wakeLockRef.current) {
+          wakeLockRef.current = await nav.wakeLock.request('screen');
+          wakeLockRef.current.addEventListener?.('release', () => {
+            wakeLockRef.current = null;
+          });
+        }
+      } catch {
+        // Wake lock unsupported or denied — ignore.
+      }
+    };
+    const releaseWakeLock = async () => {
+      try { await wakeLockRef.current?.release?.(); } catch {}
+      wakeLockRef.current = null;
+    };
+
+    if (browserIsPlaying) {
+      requestWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        // Re-acquire wake lock (it auto-releases on hidden).
+        if (browserIsPlaying) requestWakeLock();
+        // If we think we're playing but the audio element got paused by
+        // the OS while the tab was hidden, resume it.
+        if (
+          selectedDeviceRef.current === 'browser' &&
+          currentTrackRef.current &&
+          !audio.isPlaying
+        ) {
+          audio.resume();
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      releaseWakeLock();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [browserIsPlaying]);
+
+  // Media Session API: hand playback transport to the OS so it doesn't
+  // try to pause/detach audio on lock screen.
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    const ms = navigator.mediaSession;
+    if (currentTrack) {
+      try {
+        ms.metadata = new MediaMetadata({
+          title: currentTrack.title,
+          artist: currentTrack.artistName,
+          album: currentTrack.albumTitle,
+          artwork: currentTrack.albumId
+            ? [{ src: api.getAlbumCoverUrl(currentTrack.albumId), sizes: '512x512', type: 'image/jpeg' }]
+            : [],
+        });
+      } catch {}
+      ms.setActionHandler?.('play', () => deviceResume());
+      ms.setActionHandler?.('pause', () => devicePause());
+      ms.setActionHandler?.('previoustrack', () => playPrevious());
+      ms.setActionHandler?.('nexttrack', () => playNext());
+      ms.playbackState = (selectedDeviceId === 'browser' ? audio.isPlaying : deviceIsPlaying) ? 'playing' : 'paused';
+    } else {
+      ms.metadata = null;
+      ms.playbackState = 'none';
+    }
+  }, [currentTrack, audio.isPlaying, deviceIsPlaying, selectedDeviceId, devicePause, deviceResume, playNext, playPrevious]);
+
   return (
     <AudioCtx.Provider
       value={{
@@ -498,7 +605,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         isLoading,
         currentTime: selectedDeviceId === 'browser' ? audio.currentTime : devicePosition,
         duration: selectedDeviceId === 'browser' ? audio.duration : deviceDuration,
-        volume: audio.volume,
+        volume: selectedDeviceId === 'browser' ? audio.volume : (deviceVolume ?? audio.volume),
         queue,
         queueIndex,
         shuffle,
