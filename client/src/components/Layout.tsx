@@ -11,6 +11,7 @@ const navItems = [
   { to: '/albums', label: 'Albums' },
   { to: '/artists', label: 'Artists' },
   { to: '/genres', label: 'Genres' },
+  { to: '/radio', label: 'Radio' },
   { to: '/favorites', label: 'Favorites' },
   { to: '/history', label: 'History' },
   { to: '/playlists', label: 'Playlists' },

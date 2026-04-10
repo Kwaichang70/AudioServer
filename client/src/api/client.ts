@@ -179,6 +179,20 @@ export const api = {
   getQobuzAlbumTracks: (id: string) => fetchApi<any>(`/providers/qobuz/albums/${id}/tracks`),
   getQobuzStreamUrl: (trackId: string) => fetchApi<any>(`/providers/qobuz/tracks/${trackId}/stream`),
 
+  // Radio (online stations)
+  getRadioFeatured: () => fetchApi<any>('/radio/featured'),
+  searchRadio: (q: string, country = 'NL', tag?: string) => {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (country) params.set('country', country);
+    if (tag) params.set('tag', tag);
+    return fetchApi<any>(`/radio/search?${params}`);
+  },
+  getRadioStation: (uuid: string) => fetchApi<any>(`/radio/stations/${uuid}`),
+  getRadioStream: (uuid: string) => fetchApi<any>(`/radio/stations/${uuid}/stream`),
+  cacheRadioStation: (station: any) =>
+    fetchApi<any>('/radio/stations/cache', { method: 'POST', body: JSON.stringify(station) }),
+
   // Lyrics
   getLyrics: (trackId: string) => fetchApi<any>(`/library/tracks/${trackId}/lyrics`),
 

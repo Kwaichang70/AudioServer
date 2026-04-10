@@ -125,7 +125,21 @@ export const scrobbleQueue = sqliteTable('scrobble_queue', {
 
 export const favorites = sqliteTable('favorites', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  itemType: text('item_type').notNull(), // 'track', 'album', 'artist'
+  itemType: text('item_type').notNull(), // 'track', 'album', 'artist', 'station'
   itemId: text('item_id').notNull(),
   createdAt: integer('created_at', { mode: 'timestamp' }),
+});
+
+export const radioStations = sqliteTable('radio_stations', {
+  uuid: text('uuid').primaryKey(), // raw station uuid / curated slug
+  name: text('name').notNull(),
+  streamUrl: text('stream_url').notNull(),
+  genre: text('genre'),
+  country: text('country'),
+  language: text('language'),
+  homepage: text('homepage'),
+  faviconUrl: text('favicon_url'),
+  bitrate: integer('bitrate'),
+  codec: text('codec'),
+  addedAt: integer('added_at', { mode: 'timestamp' }),
 });

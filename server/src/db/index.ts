@@ -190,6 +190,20 @@ export async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_tracks_title ON tracks(title COLLATE NOCASE);
     CREATE INDEX IF NOT EXISTS idx_play_history_played ON play_history(played_at DESC);
     CREATE INDEX IF NOT EXISTS idx_favorites_type ON favorites(item_type, item_id);
+
+    CREATE TABLE IF NOT EXISTS radio_stations (
+      uuid TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      stream_url TEXT NOT NULL,
+      genre TEXT,
+      country TEXT,
+      language TEXT,
+      homepage TEXT,
+      favicon_url TEXT,
+      bitrate INTEGER,
+      codec TEXT,
+      added_at INTEGER DEFAULT (unixepoch())
+    );
   `);
 
   logger.info(`Database initialized at ${dbPath}`);

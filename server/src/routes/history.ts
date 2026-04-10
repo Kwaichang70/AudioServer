@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
-import { playHistory, favorites, tracks, albums, artists } from '../db/schema.js';
+import { playHistory, favorites, tracks, albums, artists, radioStations } from '../db/schema.js';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { scrobbler } from '../services/scrobbler.js';
 
@@ -110,6 +110,26 @@ historyRouter.get('/favorites', (req, res) => {
     const enriched = favs.map((f) => {
       const artist = db.select().from(artists).where(eq(artists.id, f.itemId)).get();
       return artist ? { ...artist, favorited: true } : null;
+    }).filter(Boolean);
+    res.json({ data: enriched });
+  } else if (itemType === 'station') {
+    const enriched = favs.map((f) => {
+      const s = db.select().from(radioStations).where(eq(radioStations.uuid, f.itemId)).get();
+      if (!s) return null;
+      return {
+        id: `radio:${s.uuid}`,
+        uuid: s.uuid,
+        name: s.name,
+        streamUrl: s.streamUrl,
+        genre: s.genre ?? undefined,
+        country: s.country ?? undefined,
+        language: s.language ?? undefined,
+        homepage: s.homepage ?? undefined,
+        faviconUrl: s.faviconUrl ?? undefined,
+        bitrate: s.bitrate ?? undefined,
+        codec: s.codec ?? undefined,
+        favorited: true,
+      };
     }).filter(Boolean);
     res.json({ data: enriched });
   } else {

@@ -16,6 +16,7 @@ const PlaylistPage = lazy(() => import('./pages/PlaylistPage.js'));
 const FavoritesPage = lazy(() => import('./pages/FavoritesPage.js'));
 const HistoryPage = lazy(() => import('./pages/HistoryPage.js'));
 const GenresPage = lazy(() => import('./pages/GenresPage.js'));
+const RadioPage = lazy(() => import('./pages/RadioPage.js'));
 const SmartPlaylistsPage = lazy(() => import('./pages/SmartPlaylistsPage.js'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage.js'));
 const OAuthCallbackPage = lazy(() => import('./pages/OAuthCallbackPage.js'));
@@ -85,6 +86,7 @@ export default function App() {
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/genres" element={<GenresPage />} />
           <Route path="/genres/:genre" element={<GenresPage />} />
+          <Route path="/radio" element={<RadioPage />} />
           <Route path="/smart-playlists" element={<SmartPlaylistsPage />} />
           <Route path="/smart-playlists/:id" element={<SmartPlaylistsPage />} />
           <Route path="/playlists" element={<PlaylistsPage />} />

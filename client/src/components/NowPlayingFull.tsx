@@ -22,6 +22,7 @@ export default function NowPlayingFull({ onClose }: Props) {
   if (!currentTrack) return null;
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const isRadio = currentTrack.id.startsWith('radio:');
   const coverUrl = currentTrack.albumId
     ? api.getAlbumCoverUrl(currentTrack.albumId)
     : api.getTrackCoverUrl(currentTrack.id);
@@ -123,30 +124,39 @@ export default function NowPlayingFull({ onClose }: Props) {
 
       {/* Controls */}
       <div className="relative px-6 pb-8 pt-4">
-        {/* Progress bar */}
-        <div className="max-w-2xl mx-auto mb-4">
-          <div
-            className="relative h-1.5 bg-white/10 rounded-full cursor-pointer group"
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const pos = (e.clientX - rect.left) / rect.width;
-              seek(pos * duration);
-            }}
-          >
-            <div
-              className="absolute left-0 top-0 h-full bg-accent rounded-full transition-all"
-              style={{ width: `${progress}%` }}
-            />
-            <div
-              className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition"
-              style={{ left: `${progress}%`, marginLeft: '-6px' }}
-            />
+        {/* Progress bar / LIVE indicator */}
+        {isRadio ? (
+          <div className="max-w-2xl mx-auto mb-4 flex items-center justify-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-red-900/40 text-red-300 text-xs font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+              LIVE
+            </span>
           </div>
-          <div className="flex justify-between text-xs text-gray-500 mt-1">
-            <span>{formatTime(currentTime)}</span>
-            <span>{formatTime(duration)}</span>
+        ) : (
+          <div className="max-w-2xl mx-auto mb-4">
+            <div
+              className="relative h-1.5 bg-white/10 rounded-full cursor-pointer group"
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const pos = (e.clientX - rect.left) / rect.width;
+                seek(pos * duration);
+              }}
+            >
+              <div
+                className="absolute left-0 top-0 h-full bg-accent rounded-full transition-all"
+                style={{ width: `${progress}%` }}
+              />
+              <div
+                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition"
+                style={{ left: `${progress}%`, marginLeft: '-6px' }}
+              />
+            </div>
+            <div className="flex justify-between text-xs text-gray-500 mt-1">
+              <span>{formatTime(currentTime)}</span>
+              <span>{formatTime(duration)}</span>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Playback controls */}
         <div className="flex items-center justify-center gap-6">

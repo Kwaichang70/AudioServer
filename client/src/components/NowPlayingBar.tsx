@@ -30,6 +30,7 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
   }
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const isRadio = currentTrack.id.startsWith('radio:');
 
   return (
     <div className="relative h-20 bg-surface border-t border-white/10 flex items-center px-2 md:px-4 gap-2 md:gap-4 safe-bottom no-select">
@@ -118,22 +119,32 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
             Playing on external device
           </p>
         )}
-        <div className="w-full max-w-lg flex items-center gap-2 text-xs text-gray-400">
-          <span className="w-10 text-right">{formatTime(currentTime)}</span>
-          <div className="flex-1 relative h-1 bg-white/10 rounded group cursor-pointer"
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const pos = (e.clientX - rect.left) / rect.width;
-              seek(pos * duration);
-            }}
-          >
-            <div
-              className="absolute left-0 top-0 h-full bg-accent rounded"
-              style={{ width: `${progress}%` }}
-            />
+        {isRadio ? (
+          <div className="w-full max-w-lg flex items-center justify-center gap-2 text-xs">
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-red-900/40 text-red-300">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+              LIVE
+            </span>
+            <span className="text-gray-500 truncate">{currentTrack.albumTitle}</span>
           </div>
-          <span className="w-10">{formatTime(duration)}</span>
-        </div>
+        ) : (
+          <div className="w-full max-w-lg flex items-center gap-2 text-xs text-gray-400">
+            <span className="w-10 text-right">{formatTime(currentTime)}</span>
+            <div className="flex-1 relative h-1 bg-white/10 rounded group cursor-pointer"
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const pos = (e.clientX - rect.left) / rect.width;
+                seek(pos * duration);
+              }}
+            >
+              <div
+                className="absolute left-0 top-0 h-full bg-accent rounded"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <span className="w-10">{formatTime(duration)}</span>
+          </div>
+        )}
       </div>
 
       {/* Volume + Queue + Device */}

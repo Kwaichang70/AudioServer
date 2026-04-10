@@ -49,7 +49,22 @@ export interface Playlist {
 
 // ─── Enums & Utility Types ───────────────────────────────────────
 
-export type ProviderType = 'local' | 'tidal' | 'spotify' | 'qobuz';
+export type ProviderType = 'local' | 'tidal' | 'spotify' | 'qobuz' | 'radio';
+
+export interface RadioStation {
+  id: string;              // 'radio:<uuid>' — full track-id form for playback
+  uuid: string;            // raw identifier (radio-browser stationuuid or curated slug)
+  name: string;
+  streamUrl: string;
+  genre?: string;
+  country?: string;        // ISO code, 'NL' for Dutch
+  language?: string;
+  homepage?: string;
+  faviconUrl?: string;
+  bitrate?: number;
+  codec?: string;          // 'mp3' | 'aac' | 'ogg'
+  curated?: boolean;       // true for the hardcoded NL featured list
+}
 
 export type PlaybackState = 'stopped' | 'playing' | 'paused' | 'buffering';
 

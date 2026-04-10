@@ -273,6 +273,37 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    const isRadio = track.id.startsWith('radio:');
+
+    if (isRadio) {
+      const uuid = track.id.slice('radio:'.length);
+      (async () => {
+        try {
+          const res = await api.getRadioStream(uuid);
+          const streamUrl = res.data?.url;
+          if (!streamUrl) throw new Error('No stream URL for station');
+
+          if (deviceId === 'browser') {
+            audio.play(streamUrl);
+          } else {
+            await api.devicePlay(deviceId, streamUrl, {
+              title: track.title,
+              artist: 'Live Radio',
+              album: track.albumTitle,
+              // no duration — livestream
+            });
+          }
+          setIsLoading(false);
+          toastRef.current(`Tuned in: ${track.title}`, 'success');
+        } catch (err) {
+          setIsLoading(false);
+          setCurrentTrack(null);
+          toastRef.current(`Radio: ${(err as Error).message || err}`, 'error');
+        }
+      })();
+      return;
+    }
+
     const isTidal = track.id.startsWith('tidal:');
 
     if (isTidal) {
@@ -337,7 +368,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         });
     }
 
-    // Record in history
+    // Record in history (only reached for local tracks; all streaming
+    // providers return earlier in this function)
     api.play(track, deviceId).catch(() => {});
     api.recordPlay(track.id, track.albumId || '', '').catch(() => {});
   }, [audio]);
