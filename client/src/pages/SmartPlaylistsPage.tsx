@@ -39,13 +39,175 @@ const FIELDS = [
 ];
 
 const OPERATORS: Record<string, { value: string; label: string }[]> = {
-  genre: [{ value: 'equals', label: 'is' }, { value: 'contains', label: 'contains' }],
-  year: [{ value: 'equals', label: 'is' }, { value: 'greaterThan', label: 'after' }, { value: 'lessThan', label: 'before' }, { value: 'between', label: 'between' }],
-  format: [{ value: 'equals', label: 'is' }, { value: 'contains', label: 'contains' }],
-  sampleRate: [{ value: 'equals', label: 'is' }, { value: 'greaterThan', label: '>' }, { value: 'lessThan', label: '<' }],
-  bitDepth: [{ value: 'equals', label: 'is' }, { value: 'greaterThan', label: '>' }],
-  artistName: [{ value: 'equals', label: 'is' }, { value: 'contains', label: 'contains' }],
+  genre: [
+    { value: 'equals', label: 'is' },
+    { value: 'contains', label: 'contains' },
+  ],
+  year: [
+    { value: 'equals', label: 'is' },
+    { value: 'greaterThan', label: 'after' },
+    { value: 'lessThan', label: 'before' },
+    { value: 'between', label: 'between' },
+  ],
+  format: [
+    { value: 'equals', label: 'is' },
+    { value: 'contains', label: 'contains' },
+  ],
+  sampleRate: [
+    { value: 'equals', label: 'is' },
+    { value: 'greaterThan', label: '>' },
+    { value: 'lessThan', label: '<' },
+  ],
+  bitDepth: [
+    { value: 'equals', label: 'is' },
+    { value: 'greaterThan', label: '>' },
+  ],
+  artistName: [
+    { value: 'equals', label: 'is' },
+    { value: 'contains', label: 'contains' },
+  ],
 };
+
+const EMPTY_RULE: Rule = { field: 'genre', operator: 'equals', value: '' };
+
+// ─── Shared rule editor ──────────────────────────────────────────
+// Used by both the create-form (in the list page) and the edit-form
+// (in the detail page). Extracted so the two flows can't drift apart.
+
+interface RuleEditorProps {
+  name: string;
+  onNameChange: (name: string) => void;
+  rules: Rule[];
+  onRulesChange: (rules: Rule[]) => void;
+  onSave: () => void | Promise<void>;
+  onCancel: () => void;
+  saveLabel?: string;
+  saving?: boolean;
+}
+
+function RuleEditor({
+  name,
+  onNameChange,
+  rules,
+  onRulesChange,
+  onSave,
+  onCancel,
+  saveLabel = 'Save',
+  saving = false,
+}: RuleEditorProps) {
+  const updateRule = (index: number, updates: Partial<Rule>) => {
+    onRulesChange(rules.map((r, i) => (i === index ? { ...r, ...updates } : r)));
+  };
+
+  return (
+    <div className="bg-surface-light rounded-lg p-4 space-y-3">
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => onNameChange(e.target.value)}
+        placeholder="Smart playlist name..."
+        className="w-full px-4 py-2 bg-surface-dark border border-white/10 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent"
+      />
+
+      <p className="text-xs text-gray-400 uppercase tracking-wider">Rules</p>
+      {rules.map((rule, i) => (
+        <div key={i} className="flex gap-2 items-center flex-wrap">
+          <select
+            value={rule.field}
+            onChange={(e) =>
+              updateRule(i, {
+                field: e.target.value,
+                operator: OPERATORS[e.target.value]?.[0]?.value || 'equals',
+              })
+            }
+            className="px-3 py-1.5 bg-surface-dark border border-white/10 rounded text-sm text-white"
+          >
+            {FIELDS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={rule.operator}
+            onChange={(e) => updateRule(i, { operator: e.target.value })}
+            className="px-3 py-1.5 bg-surface-dark border border-white/10 rounded text-sm text-white"
+          >
+            {(OPERATORS[rule.field] || []).map((op) => (
+              <option key={op.value} value={op.value}>
+                {op.label}
+              </option>
+            ))}
+          </select>
+          <input
+            type="text"
+            value={rule.value}
+            onChange={(e) => updateRule(i, { value: e.target.value })}
+            placeholder="Value..."
+            className="flex-1 min-w-[120px] px-3 py-1.5 bg-surface-dark border border-white/10 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-accent"
+          />
+          {rule.operator === 'between' && (
+            <input
+              type="text"
+              value={rule.value2 || ''}
+              onChange={(e) => updateRule(i, { value2: e.target.value })}
+              placeholder="To..."
+              className="w-24 px-3 py-1.5 bg-surface-dark border border-white/10 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-accent"
+            />
+          )}
+          {rules.length > 1 && (
+            <button
+              onClick={() => onRulesChange(rules.filter((_, j) => j !== i))}
+              className="text-gray-500 hover:text-red-400 text-sm"
+              title="Remove rule"
+            >
+              &times;
+            </button>
+          )}
+        </div>
+      ))}
+
+      <div className="flex gap-2">
+        <button
+          onClick={() => onRulesChange([...rules, { ...EMPTY_RULE }])}
+          className="text-xs text-gray-400 hover:text-accent transition"
+        >
+          + Add rule
+        </button>
+      </div>
+
+      <div className="flex gap-2 pt-2">
+        <button
+          onClick={onSave}
+          disabled={saving}
+          className="px-4 py-2 bg-accent rounded hover:bg-accent-hover transition text-sm disabled:opacity-50"
+        >
+          {saving ? 'Saving...' : saveLabel}
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={saving}
+          className="px-4 py-2 text-gray-400 hover:text-white transition text-sm"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Defensive parse: rules column stores JSON. Bad data shouldn't crash the page.
+function parseRules(rulesJson: string): Rule[] {
+  try {
+    const parsed = JSON.parse(rulesJson);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed as Rule[];
+  } catch {
+    // fall through
+  }
+  return [{ ...EMPTY_RULE }];
+}
+
+// ─── Page entry ──────────────────────────────────────────────────
 
 export default function SmartPlaylistsPage() {
   const { id } = useParams<{ id?: string }>();
@@ -53,39 +215,49 @@ export default function SmartPlaylistsPage() {
   return <SmartPlaylistList />;
 }
 
+// ─── List + create ───────────────────────────────────────────────
+
 function SmartPlaylistList() {
   const [playlists, setPlaylists] = useState<SmartPlaylist[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
-  const [rules, setRules] = useState<Rule[]>([{ field: 'genre', operator: 'equals', value: '' }]);
+  const [rules, setRules] = useState<Rule[]>([{ ...EMPTY_RULE }]);
+  const [saving, setSaving] = useState(false);
   const { toast } = useToast();
 
   const load = () => {
-    api.getSmartPlaylists().then((res) => setPlaylists(res.data)).catch(() => {}).finally(() => setLoading(false));
+    api
+      .getSmartPlaylists()
+      .then((res) => setPlaylists(res.data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   const handleCreate = async () => {
     if (!newName.trim() || rules.some((r) => !r.value)) {
       toast('Fill in all fields', 'error');
       return;
     }
-    await api.createSmartPlaylist(newName.trim(), rules);
-    setNewName('');
-    setRules([{ field: 'genre', operator: 'equals', value: '' }]);
-    setShowCreate(false);
-    load();
+    setSaving(true);
+    try {
+      await api.createSmartPlaylist(newName.trim(), rules);
+      setNewName('');
+      setRules([{ ...EMPTY_RULE }]);
+      setShowCreate(false);
+      load();
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = async (id: string) => {
     await api.deleteSmartPlaylist(id);
     load();
-  };
-
-  const updateRule = (index: number, updates: Partial<Rule>) => {
-    setRules((prev) => prev.map((r, i) => i === index ? { ...r, ...updates } : r));
   };
 
   if (loading) return <p className="text-gray-400">Loading...</p>;
@@ -94,7 +266,8 @@ function SmartPlaylistList() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-2xl font-bold">
-          Smart Playlists <span className="text-sm font-normal text-gray-500">({playlists.length})</span>
+          Smart Playlists{' '}
+          <span className="text-sm font-normal text-gray-500">({playlists.length})</span>
         </h2>
         <button
           onClick={() => setShowCreate(!showCreate)}
@@ -105,90 +278,40 @@ function SmartPlaylistList() {
       </div>
 
       {showCreate && (
-        <div className="bg-surface-light rounded-lg p-4 mb-6 space-y-3">
-          <input
-            type="text"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="Smart playlist name..."
-            className="w-full px-4 py-2 bg-surface-dark border border-white/10 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent"
+        <div className="mb-6">
+          <RuleEditor
+            name={newName}
+            onNameChange={setNewName}
+            rules={rules}
+            onRulesChange={setRules}
+            onSave={handleCreate}
+            onCancel={() => {
+              setShowCreate(false);
+              setNewName('');
+              setRules([{ ...EMPTY_RULE }]);
+            }}
+            saveLabel="Create"
+            saving={saving}
           />
-
-          <p className="text-xs text-gray-400 uppercase tracking-wider">Rules</p>
-          {rules.map((rule, i) => (
-            <div key={i} className="flex gap-2 items-center flex-wrap">
-              <select
-                value={rule.field}
-                onChange={(e) => updateRule(i, { field: e.target.value, operator: OPERATORS[e.target.value]?.[0]?.value || 'equals' })}
-                className="px-3 py-1.5 bg-surface-dark border border-white/10 rounded text-sm text-white"
-              >
-                {FIELDS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
-              </select>
-              <select
-                value={rule.operator}
-                onChange={(e) => updateRule(i, { operator: e.target.value })}
-                className="px-3 py-1.5 bg-surface-dark border border-white/10 rounded text-sm text-white"
-              >
-                {(OPERATORS[rule.field] || []).map((op) => (
-                  <option key={op.value} value={op.value}>{op.label}</option>
-                ))}
-              </select>
-              <input
-                type="text"
-                value={rule.value}
-                onChange={(e) => updateRule(i, { value: e.target.value })}
-                placeholder="Value..."
-                className="flex-1 min-w-[120px] px-3 py-1.5 bg-surface-dark border border-white/10 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-accent"
-              />
-              {rule.operator === 'between' && (
-                <input
-                  type="text"
-                  value={rule.value2 || ''}
-                  onChange={(e) => updateRule(i, { value2: e.target.value })}
-                  placeholder="To..."
-                  className="w-24 px-3 py-1.5 bg-surface-dark border border-white/10 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-accent"
-                />
-              )}
-              {rules.length > 1 && (
-                <button
-                  onClick={() => setRules((prev) => prev.filter((_, j) => j !== i))}
-                  className="text-gray-500 hover:text-red-400 text-sm"
-                >
-                  &times;
-                </button>
-              )}
-            </div>
-          ))}
-
-          <div className="flex gap-2">
-            <button
-              onClick={() => setRules([...rules, { field: 'genre', operator: 'equals', value: '' }])}
-              className="text-xs text-gray-400 hover:text-accent transition"
-            >
-              + Add rule
-            </button>
-          </div>
-
-          <div className="flex gap-2 pt-2">
-            <button onClick={handleCreate} className="px-4 py-2 bg-accent rounded hover:bg-accent-hover transition text-sm">
-              Create
-            </button>
-            <button onClick={() => setShowCreate(false)} className="px-4 py-2 text-gray-400 hover:text-white transition text-sm">
-              Cancel
-            </button>
-          </div>
         </div>
       )}
 
       {playlists.length === 0 && !showCreate ? (
-        <p className="text-gray-500 text-center py-12">No smart playlists yet. Create one based on genre, year, format, or artist rules.</p>
+        <p className="text-gray-500 text-center py-12">
+          No smart playlists yet. Create one based on genre, year, format, or artist rules.
+        </p>
       ) : (
         <div className="space-y-1">
           {playlists.map((pl) => (
-            <div key={pl.id} className="flex items-center gap-4 px-4 py-3 rounded-lg hover:bg-surface-light transition group">
+            <div
+              key={pl.id}
+              className="flex items-center gap-4 px-4 py-3 rounded-lg hover:bg-surface-light transition group"
+            >
               <Link to={`/smart-playlists/${pl.id}`} className="flex-1 min-w-0">
                 <p className="text-sm font-medium group-hover:text-accent transition">{pl.name}</p>
-                <p className="text-xs text-gray-500">{pl.trackCount || 0} tracks (auto-generated)</p>
+                <p className="text-xs text-gray-500">
+                  {pl.trackCount || 0} tracks (auto-generated)
+                </p>
               </Link>
               <button
                 onClick={() => handleDelete(pl.id)}
@@ -204,30 +327,96 @@ function SmartPlaylistList() {
   );
 }
 
+// ─── Detail + edit ───────────────────────────────────────────────
+
 function SmartPlaylistDetail({ id }: { id: string }) {
   const [tracks, setTracks] = useState<Track[]>([]);
-  const [name, setName] = useState('');
+  const [playlist, setPlaylist] = useState<SmartPlaylist | null>(null);
   const [loading, setLoading] = useState(true);
   const { playTrack, playAlbum, currentTrack, isPlaying } = useAudioContext();
+  const { toast } = useToast();
+
+  // Edit-mode state. When `editing` is true, we render the RuleEditor in place
+  // of the track list. Saving re-loads both the playlist and its tracks.
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editRules, setEditRules] = useState<Rule[]>([{ ...EMPTY_RULE }]);
+  const [saving, setSaving] = useState(false);
+
+  const loadAll = () => {
+    setLoading(true);
+    api
+      .getSmartPlaylistTracks(id)
+      .then((res) => setTracks(res.data))
+      .catch(() => {});
+    api
+      .getSmartPlaylists()
+      .then((res) => {
+        const sp = res.data.find((p: SmartPlaylist) => p.id === id);
+        if (sp) setPlaylist(sp);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
-    api.getSmartPlaylistTracks(id).then((res) => setTracks(res.data)).catch(() => {}).finally(() => setLoading(false));
-    api.getSmartPlaylists().then((res) => {
-      const sp = res.data.find((p: SmartPlaylist) => p.id === id);
-      if (sp) setName(sp.name);
-    }).catch(() => {});
+    loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  if (loading) return <p className="text-gray-400">Loading...</p>;
+  const startEdit = () => {
+    if (!playlist) return;
+    setEditName(playlist.name);
+    setEditRules(parseRules(playlist.rules));
+    setEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    setEditName('');
+    setEditRules([{ ...EMPTY_RULE }]);
+  };
+
+  const saveEdit = async () => {
+    if (!editName.trim() || editRules.some((r) => !r.value)) {
+      toast('Fill in all fields', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.updateSmartPlaylist(id, { name: editName.trim(), rules: editRules });
+      toast('Smart playlist updated', 'success');
+      setEditing(false);
+      loadAll();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Save failed', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading && !playlist) return <p className="text-gray-400">Loading...</p>;
 
   return (
     <div>
-      <Link to="/smart-playlists" className="text-sm text-gray-400 hover:text-accent transition">&larr; Smart Playlists</Link>
+      <Link to="/smart-playlists" className="text-sm text-gray-400 hover:text-accent transition">
+        &larr; Smart Playlists
+      </Link>
       <div className="mt-2 mb-8">
         <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Smart Playlist</p>
-        <h2 className="text-3xl font-bold mb-2">{name}</h2>
+        <div className="flex items-baseline gap-3 mb-2">
+          <h2 className="text-3xl font-bold">{playlist?.name ?? ''}</h2>
+          {!editing && playlist && (
+            <button
+              onClick={startEdit}
+              className="text-xs text-gray-400 hover:text-accent transition"
+            >
+              Edit rules
+            </button>
+          )}
+        </div>
         <p className="text-sm text-gray-500">{tracks.length} tracks (auto-generated from rules)</p>
-        {tracks.length > 0 && (
+        {!editing && tracks.length > 0 && (
           <button
             onClick={() => playAlbum(tracks)}
             className="mt-4 px-6 py-2 bg-accent rounded-full hover:bg-accent-hover transition text-sm font-medium"
@@ -237,7 +426,18 @@ function SmartPlaylistDetail({ id }: { id: string }) {
         )}
       </div>
 
-      {tracks.length === 0 ? (
+      {editing ? (
+        <RuleEditor
+          name={editName}
+          onNameChange={setEditName}
+          rules={editRules}
+          onRulesChange={setEditRules}
+          onSave={saveEdit}
+          onCancel={cancelEdit}
+          saveLabel="Save changes"
+          saving={saving}
+        />
+      ) : tracks.length === 0 ? (
         <p className="text-gray-500 text-center py-8">No tracks match the rules.</p>
       ) : (
         <div className="space-y-0.5">
@@ -258,16 +458,24 @@ function SmartPlaylistDetail({ id }: { id: string }) {
                       src={api.getAlbumCoverUrl(track.albumId)}
                       alt=""
                       className="w-full h-full object-cover"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
                     />
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{track.title}</p>
-                  <p className="text-xs text-gray-500 truncate">{track.artistName} &middot; {track.albumTitle}</p>
+                  <p className="text-xs text-gray-500 truncate">
+                    {track.artistName} &middot; {track.albumTitle}
+                  </p>
                 </div>
-                {track.format && <span className="text-[10px] text-gray-600 shrink-0">{track.format}</span>}
-                <span className="text-sm text-gray-400 shrink-0">{formatDuration(track.duration)}</span>
+                {track.format && (
+                  <span className="text-[10px] text-gray-600 shrink-0">{track.format}</span>
+                )}
+                <span className="text-sm text-gray-400 shrink-0">
+                  {formatDuration(track.duration)}
+                </span>
               </button>
             );
           })}
