@@ -1,9 +1,13 @@
 # ── Simple build without librespot (add later) ──────────────────
 FROM node:22-slim
 
-# Install ffmpeg + curl (for healthcheck)
+# Install ffmpeg + curl (for healthcheck) + build toolchain for native deps.
+# better-sqlite3 ships prebuilt binaries but the download occasionally times
+# out (especially from NAS networks); python3/make/g++ let node-gyp fall back
+# to compiling from source so the build is reproducible offline.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg curl \
+    python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
