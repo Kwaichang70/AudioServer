@@ -43,7 +43,13 @@ app.use(
     crossOriginResourcePolicy: { policy: 'cross-origin' }, // allow <img src> from SPA origin
   }),
 );
+// CORS only on the API surface — static assets (the SPA bundle) live on the
+// same origin as the browser and don't need CORS at all. Applying cors()
+// globally caused 500s on /assets/*.js when the browser sent an Origin
+// header that wasn't in ALLOWED_ORIGINS, because the cors() error bubbled
+// up to errorHandler instead of being silently allowed.
 app.use(
+  '/api',
   cors({
     origin: (origin, callback) => {
       // Allow same-origin (no Origin header) and configured origins.
