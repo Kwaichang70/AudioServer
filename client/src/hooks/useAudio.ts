@@ -9,15 +9,26 @@ interface AudioState {
   volume: number;
 }
 
+export type ReplayGainMode = 'off' | 'track' | 'album';
+
+export interface ReplayGainData {
+  trackGain?: number | null; // dB
+  trackPeak?: number | null; // 0..1 ratio
+  albumGain?: number | null;
+  albumPeak?: number | null;
+}
+
 // timeupdate fires ~4x/sec; without a per-track guard the crossfade window
-// (remaining ∈ (crossfade-0.5, crossfade]) would fire onEnded multiple times
-// for the same track. We track which audio element has already fired so the
-// next track resets cleanly (vs. the previous timer-based guard which could
-// suppress the next track if the timer was still running).
+// (remaining ∈ (crossfade-0.5, crossfade]) would fire onEnded multiple times.
 function shouldTriggerCrossfade(audio: HTMLAudioElement, crossfade: number): boolean {
   if (crossfade <= 0 || !Number.isFinite(audio.duration) || audio.duration <= 0) return false;
   const remaining = audio.duration - audio.currentTime;
   return remaining > 0 && remaining <= crossfade;
+}
+
+// dB → linear amplitude. RG metadata uses dB; the Web Audio GainNode wants amp.
+function dbToAmp(db: number): number {
+  return Math.pow(10, db / 20);
 }
 
 export function useAudio() {
@@ -26,24 +37,90 @@ export function useAudio() {
   const onEndedRef = useRef<(() => void) | null>(null);
   const crossfadeDurationRef = useRef(0); // 0 = gapless, >0 = crossfade seconds
   const crossfadeFiredRef = useRef<WeakSet<HTMLAudioElement>>(new WeakSet());
-  const [state, setState] = useState<AudioState>({
-    isPlaying: false,
-    volume: 0.7,
-  });
-  // Mirror volume in a ref so callbacks that depend on the latest value can
-  // read it without becoming reactive to state.volume changes.
+  const [state, setState] = useState<AudioState>({ isPlaying: false, volume: 0.7 });
   const volumeRef = useRef(0.7);
 
-  // Attach standard listeners to an audio element (used for the initial element
-  // and for each fresh element created during a crossfade swap).
+  // ─── Web Audio + ReplayGain ────────────────────────────────────
+  // Lazily created the first time RG is requested. Once an HTMLAudioElement
+  // has been wired through createMediaElementSource, audio.volume is bypassed
+  // and the GainNode becomes the single volume control for that element.
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const gainMapRef = useRef<WeakMap<HTMLAudioElement, GainNode>>(new WeakMap());
+  const rgModeRef = useRef<ReplayGainMode>('off');
+  const rgPreampRef = useRef(0); // dB
+  const currentRGRef = useRef<ReplayGainData>({});
+
+  function ensureAudioCtx(): AudioContext | null {
+    if (audioCtxRef.current) return audioCtxRef.current;
+    try {
+      const Ctx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctx) return null;
+      audioCtxRef.current = new Ctx();
+      return audioCtxRef.current;
+    } catch {
+      return null;
+    }
+  }
+
+  function attachGain(audio: HTMLAudioElement): GainNode | null {
+    const existing = gainMapRef.current.get(audio);
+    if (existing) return existing;
+    const ctx = ensureAudioCtx();
+    if (!ctx) return null;
+    try {
+      const source = ctx.createMediaElementSource(audio);
+      const gain = ctx.createGain();
+      source.connect(gain).connect(ctx.destination);
+      gainMapRef.current.set(audio, gain);
+      // Once routed through Web Audio, GainNode is the volume control —
+      // pin element.volume to 1 and let GainNode multiply.
+      audio.volume = 1.0;
+      return gain;
+    } catch (err) {
+      // createMediaElementSource throws if Web Audio is unsupported or the
+      // element was already attached to a different context. Fall back to
+      // HTML5 volume in that case.
+
+      console.warn('[useAudio] Web Audio attach failed', err);
+      return null;
+    }
+  }
+
+  function computeReplayGainAmp(): number {
+    const mode = rgModeRef.current;
+    const preampDb = rgPreampRef.current;
+    if (mode === 'off') return dbToAmp(preampDb);
+
+    const data = currentRGRef.current;
+    const gain = mode === 'album' ? data.albumGain : data.trackGain;
+    const peak = mode === 'album' ? data.albumPeak : data.trackPeak;
+    if (gain == null) return dbToAmp(preampDb); // no RG tag → preamp only
+
+    let amp = dbToAmp(gain + preampDb);
+    // Prevent inter-sample peaks from clipping after gain is applied.
+    if (peak != null && peak > 0 && peak * amp > 1) amp = 1 / peak;
+    return amp;
+  }
+
+  function applyVolume(audio: HTMLAudioElement | null): void {
+    if (!audio) return;
+    const gain = gainMapRef.current.get(audio);
+    if (gain) {
+      gain.gain.value = volumeRef.current * computeReplayGainAmp();
+    } else {
+      audio.volume = volumeRef.current;
+    }
+  }
+
+  // Attach the standard event listeners to an audio element.
   const attachListeners = useCallback((audio: HTMLAudioElement) => {
     audio.addEventListener('loadedmetadata', () => {
-      // New track loaded → allow it to trigger crossfade once.
       crossfadeFiredRef.current.delete(audio);
     });
 
     audio.addEventListener('timeupdate', () => {
-      // Write to the external progress store — no React re-render triggered here.
       setProgress(audio.currentTime, audio.duration || 0);
       const crossfade = crossfadeDurationRef.current;
       if (shouldTriggerCrossfade(audio, crossfade) && !crossfadeFiredRef.current.has(audio)) {
@@ -53,15 +130,11 @@ export function useAudio() {
     });
 
     audio.addEventListener('durationchange', () => {
-      // duration becomes known *after* loadedmetadata for some formats; keep
-      // the store in sync without waiting for the next timeupdate.
       setProgress(audio.currentTime, audio.duration || 0);
     });
 
     audio.addEventListener('ended', () => {
       setState((s) => ({ ...s, isPlaying: false }));
-      // ended means the track finished naturally — gapless mode triggers the
-      // next track here. (Crossfade mode already fired onEnded from timeupdate.)
       if (crossfadeDurationRef.current === 0) {
         onEndedRef.current?.();
       }
@@ -80,71 +153,104 @@ export function useAudio() {
       audio.src = '';
       nextAudioRef.current?.pause();
       resetProgress();
+      // Don't close audioCtxRef — let the browser GC it. close() is permanent
+      // and would break the app if the component unmounts during HMR.
     };
   }, [attachListeners]);
+
+  // Set ramped gain via a Web Audio GainNode (preferred) or fall back to
+  // setting audio.volume on a tick. Returns a Promise<void> that resolves
+  // when the fade finishes so callers can clean up.
+  function fadeVia(audio: HTMLAudioElement, from: number, to: number, ms: number): Promise<void> {
+    const gain = gainMapRef.current.get(audio);
+    if (gain && audioCtxRef.current) {
+      const ctx = audioCtxRef.current;
+      const now = ctx.currentTime;
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(from, now);
+      gain.gain.linearRampToValueAtTime(to, now + ms / 1000);
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+    // HTML5 fallback: step every 50ms.
+    return new Promise((resolve) => {
+      const step = 50;
+      const steps = Math.max(1, Math.floor(ms / step));
+      const delta = (to - from) / steps;
+      let i = 0;
+      audio.volume = from;
+      const id = setInterval(() => {
+        i++;
+        audio.volume = Math.max(0, Math.min(1, from + delta * i));
+        if (i >= steps) {
+          clearInterval(id);
+          resolve();
+        }
+      }, step);
+    });
+  }
 
   const play = useCallback(
     (url: string) => {
       const audio = audioRef.current;
       if (!audio) return;
 
+      // iOS Safari starts the AudioContext suspended; resume it inside a user
+      // gesture (play click counts).
+      audioCtxRef.current?.resume().catch(() => {});
+
       const crossfade = crossfadeDurationRef.current;
       if (crossfade > 0 && audio.src && !audio.paused) {
         // Crossfade: fade out current, fade in new on a fresh element.
         const oldAudio = audio;
-        const startVol = oldAudio.volume;
-        const fadeStep = 50; // ms
-        const volStep = startVol / ((crossfade * 1000) / fadeStep);
-        const fadeInterval = setInterval(() => {
-          oldAudio.volume = Math.max(0, oldAudio.volume - volStep);
-          if (oldAudio.volume <= 0) {
-            clearInterval(fadeInterval);
-            oldAudio.pause();
-            oldAudio.src = '';
-            crossfadeFiredRef.current.delete(oldAudio);
-          }
-        }, fadeStep);
+        const fadeMs = crossfade * 1000;
+        fadeVia(oldAudio, volumeRef.current, 0, fadeMs).then(() => {
+          oldAudio.pause();
+          oldAudio.src = '';
+          crossfadeFiredRef.current.delete(oldAudio);
+        });
 
         const newAudio = new Audio();
-        newAudio.volume = 0;
         attachListeners(newAudio);
         newAudio.src = url;
+        // Attach gain *before* setting volume so volume goes through GainNode
+        // when Web Audio is active.
+        if (audioCtxRef.current) attachGain(newAudio);
+        if (gainMapRef.current.has(newAudio)) {
+          gainMapRef.current.get(newAudio)!.gain.value = 0;
+        } else {
+          newAudio.volume = 0;
+        }
         newAudio.play();
-
-        const fadeInInterval = setInterval(() => {
-          newAudio.volume = Math.min(state.volume, newAudio.volume + volStep);
-          if (newAudio.volume >= state.volume) clearInterval(fadeInInterval);
-        }, fadeStep);
+        fadeVia(newAudio, 0, volumeRef.current * computeReplayGainAmp(), fadeMs);
 
         audioRef.current = newAudio;
         nextAudioRef.current = oldAudio;
       } else {
-        // Gapless: swap src on the existing element so we don't leak listeners.
+        // Gapless: swap src on the existing element.
         crossfadeFiredRef.current.delete(audio);
         audio.src = url;
+        if (audioCtxRef.current) attachGain(audio);
+        applyVolume(audio);
         audio.play();
       }
 
       setState((s) => ({ ...s, isPlaying: true }));
     },
-    [state.volume, attachListeners],
+    [attachListeners],
   );
 
-  const preloadNext = useCallback(
-    (url: string) => {
-      // Pre-buffer next track for gapless playback
-      if (nextAudioRef.current) {
-        nextAudioRef.current.pause();
-        nextAudioRef.current.src = '';
-      }
-      const next = new Audio();
-      next.preload = 'auto';
-      next.src = url;
-      next.volume = state.volume;
-      nextAudioRef.current = next;
-    },
-    [state.volume],
-  );
+  const preloadNext = useCallback((url: string) => {
+    if (nextAudioRef.current) {
+      nextAudioRef.current.pause();
+      nextAudioRef.current.src = '';
+    }
+    const next = new Audio();
+    next.preload = 'auto';
+    next.src = url;
+    if (audioCtxRef.current) attachGain(next);
+    applyVolume(next);
+    nextAudioRef.current = next;
+  }, []);
 
   const pause = useCallback(() => {
     audioRef.current?.pause();
@@ -152,13 +258,14 @@ export function useAudio() {
   }, []);
 
   const resume = useCallback(() => {
+    audioCtxRef.current?.resume().catch(() => {});
     audioRef.current?.play();
     setState((s) => ({ ...s, isPlaying: true }));
   }, []);
 
   const setVolume = useCallback((v: number) => {
-    if (audioRef.current) audioRef.current.volume = v;
     volumeRef.current = v;
+    applyVolume(audioRef.current);
     setState((s) => ({ ...s, volume: v }));
   }, []);
 
@@ -166,7 +273,6 @@ export function useAudio() {
     const audio = audioRef.current;
     if (!audio) return;
     audio.currentTime = time;
-    // Seek backwards beyond the crossfade window should re-arm the trigger.
     if (audio.duration > 0 && audio.duration - time > crossfadeDurationRef.current) {
       crossfadeFiredRef.current.delete(audio);
     }
@@ -176,15 +282,33 @@ export function useAudio() {
     onEndedRef.current = cb;
   }, []);
 
-  // Imperative getter for handlers that need the live position without subscribing
-  // to ProgressStore re-renders (e.g. "previous track" needs the current time
-  // *at the moment of the button press*, not a subscription).
   const getCurrentTime = useCallback((): number => audioRef.current?.currentTime ?? 0, []);
   const getDuration = useCallback((): number => audioRef.current?.duration ?? 0, []);
 
   const setCrossfadeDuration = useCallback((seconds: number) => {
     crossfadeDurationRef.current = seconds;
   }, []);
+
+  /**
+   * Configure replay-gain. Mode and preamp are global; track/album RG comes
+   * from the current track's DB record. Call this from AudioContext on track
+   * change and when the user changes the Settings UI sliders.
+   */
+  const setReplayGain = useCallback(
+    (opts: { mode?: ReplayGainMode; preampDb?: number; data?: ReplayGainData }) => {
+      if (opts.mode != null) rgModeRef.current = opts.mode;
+      if (opts.preampDb != null) rgPreampRef.current = opts.preampDb;
+      if (opts.data) currentRGRef.current = opts.data;
+
+      // Activating RG → make sure Web Audio is wired up for the current track.
+      const needsWebAudio = rgModeRef.current !== 'off' || rgPreampRef.current !== 0;
+      if (needsWebAudio && audioRef.current && !gainMapRef.current.has(audioRef.current)) {
+        attachGain(audioRef.current);
+      }
+      applyVolume(audioRef.current);
+    },
+    [],
+  );
 
   return {
     ...state,
@@ -196,6 +320,7 @@ export function useAudio() {
     setOnEnded,
     preloadNext,
     setCrossfadeDuration,
+    setReplayGain,
     getCurrentTime,
     getDuration,
   };

@@ -54,6 +54,8 @@ export async function initDatabase(overridePath?: string) {
       cover_url TEXT,
       genre TEXT,
       track_count INTEGER DEFAULT 0,
+      replay_gain_album REAL,
+      replay_gain_album_peak REAL,
       source TEXT NOT NULL DEFAULT 'local',
       created_at INTEGER DEFAULT (unixepoch()),
       updated_at INTEGER DEFAULT (unixepoch())
@@ -74,6 +76,8 @@ export async function initDatabase(overridePath?: string) {
       bit_depth INTEGER,
       file_path TEXT,
       cover_url TEXT,
+      replay_gain_track REAL,
+      replay_gain_track_peak REAL,
       source TEXT NOT NULL DEFAULT 'local',
       created_at INTEGER DEFAULT (unixepoch()),
       updated_at INTEGER DEFAULT (unixepoch())
@@ -210,7 +214,28 @@ export async function initDatabase(overridePath?: string) {
     );
   `);
 
+  // ─── Lightweight migrations ──────────────────────────────────────
+  // CREATE TABLE IF NOT EXISTS won't add columns to a pre-existing table, so
+  // we add missing columns explicitly here. SQLite has no ALTER ... IF NOT
+  // EXISTS, so we introspect PRAGMA first.
+  runMigration(sqlite, 'tracks', 'replay_gain_track', 'REAL');
+  runMigration(sqlite, 'tracks', 'replay_gain_track_peak', 'REAL');
+  runMigration(sqlite, 'albums', 'replay_gain_album', 'REAL');
+  runMigration(sqlite, 'albums', 'replay_gain_album_peak', 'REAL');
+
   logger.info(`Database initialized at ${dbPath}`);
+}
+
+function runMigration(
+  sqlite: InstanceType<typeof Database>,
+  table: string,
+  column: string,
+  type: string,
+): void {
+  const cols = sqlite.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (cols.some((c) => c.name === column)) return;
+  sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  logger.info(`Migration: added ${table}.${column}`);
 }
 
 export { schema };

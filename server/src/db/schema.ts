@@ -12,12 +12,18 @@ export const artists = sqliteTable('artists', {
 export const albums = sqliteTable('albums', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
-  artistId: text('artist_id').notNull().references(() => artists.id),
+  artistId: text('artist_id')
+    .notNull()
+    .references(() => artists.id),
   artistName: text('artist_name').notNull(),
   year: integer('year'),
   coverUrl: text('cover_url'),
   genre: text('genre'),
   trackCount: integer('track_count').default(0),
+  // ReplayGain album-mode gain (dB) + peak (0..1 ratio). Computed from per-track
+  // metadata at scan time. NULL means "no replay-gain metadata available".
+  replayGainAlbum: real('replay_gain_album'),
+  replayGainAlbumPeak: real('replay_gain_album_peak'),
   source: text('source').notNull().default('local'),
   createdAt: integer('created_at', { mode: 'timestamp' }),
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
@@ -26,9 +32,13 @@ export const albums = sqliteTable('albums', {
 export const tracks = sqliteTable('tracks', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
-  albumId: text('album_id').notNull().references(() => albums.id),
+  albumId: text('album_id')
+    .notNull()
+    .references(() => albums.id),
   albumTitle: text('album_title').notNull(),
-  artistId: text('artist_id').notNull().references(() => artists.id),
+  artistId: text('artist_id')
+    .notNull()
+    .references(() => artists.id),
   artistName: text('artist_name').notNull(),
   trackNumber: integer('track_number'),
   discNumber: integer('disc_number').default(1),
@@ -38,6 +48,10 @@ export const tracks = sqliteTable('tracks', {
   bitDepth: integer('bit_depth'),
   filePath: text('file_path'),
   coverUrl: text('cover_url'),
+  // ReplayGain track-mode gain (dB) + peak (0..1 ratio). Read straight from
+  // ID3v2/Vorbis/MP4 tags by the scanner. NULL means the file has no RG tag.
+  replayGainTrack: real('replay_gain_track'),
+  replayGainTrackPeak: real('replay_gain_track_peak'),
   source: text('source').notNull().default('local'),
   createdAt: integer('created_at', { mode: 'timestamp' }),
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
@@ -54,15 +68,21 @@ export const playlists = sqliteTable('playlists', {
 
 export const playlistTracks = sqliteTable('playlist_tracks', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  playlistId: text('playlist_id').notNull().references(() => playlists.id),
-  trackId: text('track_id').notNull().references(() => tracks.id),
+  playlistId: text('playlist_id')
+    .notNull()
+    .references(() => playlists.id),
+  trackId: text('track_id')
+    .notNull()
+    .references(() => tracks.id),
   position: integer('position').notNull(),
   addedAt: integer('added_at', { mode: 'timestamp' }),
 });
 
 export const playHistory = sqliteTable('play_history', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  trackId: text('track_id').notNull().references(() => tracks.id),
+  trackId: text('track_id')
+    .notNull()
+    .references(() => tracks.id),
   albumId: text('album_id').notNull(),
   artistId: text('artist_id').notNull(),
   playedAt: integer('played_at', { mode: 'timestamp' }),

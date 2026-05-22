@@ -9,7 +9,15 @@ import { logger } from '../logger.js';
 import { eq } from 'drizzle-orm';
 
 const SUPPORTED_EXTENSIONS = new Set([
-  '.flac', '.mp3', '.m4a', '.aac', '.ogg', '.opus', '.wav', '.wma', '.aiff',
+  '.flac',
+  '.mp3',
+  '.m4a',
+  '.aac',
+  '.ogg',
+  '.opus',
+  '.wav',
+  '.wma',
+  '.aiff',
 ]);
 
 const artistCache = new Map<string, string>();
@@ -32,10 +40,17 @@ export interface ScanStatus {
 }
 
 let scanStatus: ScanStatus = {
-  isScanning: false, phase: 'idle',
-  processedFiles: 0, totalFiles: 0,
-  newTracks: 0, updatedTracks: 0, removedTracks: 0,
-  artists: 0, albums: 0, tracks: 0, errors: 0,
+  isScanning: false,
+  phase: 'idle',
+  processedFiles: 0,
+  totalFiles: 0,
+  newTracks: 0,
+  updatedTracks: 0,
+  removedTracks: 0,
+  artists: 0,
+  albums: 0,
+  tracks: 0,
+  errors: 0,
 };
 
 export function getScanStatus(): ScanStatus {
@@ -45,9 +60,11 @@ export function getScanStatus(): ScanStatus {
 function emitProgress(): void {
   try {
     // Dynamic import to avoid circular dependency
-    import('../socketio.js').then(({ getIO }) => {
-      getIO().emit('library:scan-progress' as any, scanStatus);
-    }).catch(() => {});
+    import('../socketio.js')
+      .then(({ getIO }) => {
+        getIO().emit('library:scan-progress' as any, scanStatus);
+      })
+      .catch(() => {});
   } catch {}
 }
 
@@ -55,10 +72,17 @@ export async function scanLibrary(libraryPaths: string[]): Promise<ScanStatus> {
   if (scanStatus.isScanning) return scanStatus;
 
   scanStatus = {
-    isScanning: true, phase: 'scanning',
-    processedFiles: 0, totalFiles: 0,
-    newTracks: 0, updatedTracks: 0, removedTracks: 0,
-    artists: 0, albums: 0, tracks: 0, errors: 0,
+    isScanning: true,
+    phase: 'scanning',
+    processedFiles: 0,
+    totalFiles: 0,
+    newTracks: 0,
+    updatedTracks: 0,
+    removedTracks: 0,
+    artists: 0,
+    albums: 0,
+    tracks: 0,
+    errors: 0,
   };
   artistCache.clear();
   albumCache.clear();
@@ -79,7 +103,9 @@ export async function scanLibrary(libraryPaths: string[]): Promise<ScanStatus> {
     scanStatus.phase = 'done';
     scanStatus.isScanning = false;
     emitProgress();
-    logger.info(`Scan complete: ${scanStatus.newTracks} new, ${scanStatus.updatedTracks} updated, ${scanStatus.removedTracks} removed, ${scanStatus.errors} errors`);
+    logger.info(
+      `Scan complete: ${scanStatus.newTracks} new, ${scanStatus.updatedTracks} updated, ${scanStatus.removedTracks} removed, ${scanStatus.errors} errors`,
+    );
   } catch (err) {
     logger.error(`Scan failed: ${err}`);
     scanStatus.isScanning = false;
@@ -117,7 +143,9 @@ async function scanDirectory(dir: string, seenFiles: Set<string>): Promise<void>
         try {
           const fileStat = await stat(filePath);
           const fileModTime = Math.floor(fileStat.mtimeMs / 1000);
-          const dbTime = existing.updatedAt ? Math.floor(new Date(existing.updatedAt as any).getTime() / 1000) : 0;
+          const dbTime = existing.updatedAt
+            ? Math.floor(new Date(existing.updatedAt as any).getTime() / 1000)
+            : 0;
 
           if (fileModTime <= dbTime) {
             // File unchanged, skip
@@ -145,7 +173,9 @@ async function scanDirectory(dir: string, seenFiles: Set<string>): Promise<void>
     scanStatus.processedFiles++;
 
     if (scanStatus.processedFiles % 100 === 0) {
-      logger.info(`Progress: ${scanStatus.processedFiles} files | ${scanStatus.newTracks} new | ${scanStatus.updatedTracks} updated | ${scanStatus.errors} errors`);
+      logger.info(
+        `Progress: ${scanStatus.processedFiles} files | ${scanStatus.newTracks} new | ${scanStatus.updatedTracks} updated | ${scanStatus.errors} errors`,
+      );
       emitProgress();
     }
   }
@@ -160,7 +190,9 @@ async function scanDirectory(dir: string, seenFiles: Set<string>): Promise<void>
 
 async function cleanOrphans(seenFiles: Set<string>): Promise<void> {
   const db = getRawDb();
-  const allTracks = db.prepare('SELECT id, file_path, album_id, artist_id FROM tracks WHERE source = ?').all('local') as any[];
+  const allTracks = db
+    .prepare('SELECT id, file_path, album_id, artist_id FROM tracks WHERE source = ?')
+    .all('local') as any[];
 
   const orphanTrackIds: string[] = [];
   const affectedAlbumIds = new Set<string>();
@@ -188,7 +220,9 @@ async function cleanOrphans(seenFiles: Set<string>): Promise<void> {
 
   // Clean empty albums
   for (const albumId of affectedAlbumIds) {
-    const count = (db.prepare('SELECT COUNT(*) as c FROM tracks WHERE album_id = ?').get(albumId) as any)?.c ?? 0;
+    const count =
+      (db.prepare('SELECT COUNT(*) as c FROM tracks WHERE album_id = ?').get(albumId) as any)?.c ??
+      0;
     if (count === 0) {
       db.prepare('DELETE FROM albums WHERE id = ?').run(albumId);
     } else {
@@ -198,7 +232,9 @@ async function cleanOrphans(seenFiles: Set<string>): Promise<void> {
 
   // Clean empty artists
   for (const artistId of affectedArtistIds) {
-    const count = (db.prepare('SELECT COUNT(*) as c FROM albums WHERE artist_id = ?').get(artistId) as any)?.c ?? 0;
+    const count =
+      (db.prepare('SELECT COUNT(*) as c FROM albums WHERE artist_id = ?').get(artistId) as any)
+        ?.c ?? 0;
     if (count === 0) {
       db.prepare('DELETE FROM artists WHERE id = ?').run(artistId);
     }
@@ -237,7 +273,9 @@ async function processFile(filePath: string): Promise<void> {
     albumId = uuid();
     albumCache.set(albumKey, albumId);
     const db = getDb();
-    const existing = db.select().from(albums)
+    const existing = db
+      .select()
+      .from(albums)
       .where(eq(albums.title, albumTitle))
       .all()
       .find((a) => a.artistId === artistId);
@@ -245,35 +283,80 @@ async function processFile(filePath: string): Promise<void> {
       albumId = existing.id;
       albumCache.set(albumKey, albumId);
     } else {
-      db.insert(albums).values({
-        id: albumId, title: albumTitle, artistId, artistName,
-        year: common.year, genre: common.genre?.[0], source: 'local',
-      }).run();
+      db.insert(albums)
+        .values({
+          id: albumId,
+          title: albumTitle,
+          artistId,
+          artistName,
+          year: common.year,
+          genre: common.genre?.[0],
+          source: 'local',
+        })
+        .run();
       scanStatus.albums++;
     }
   }
+
+  // ReplayGain (per-track). music-metadata returns IRatio { ratio, dB }.
+  // We store the dB value (player applies 10^(dB/20)) and the peak ratio
+  // (used to clamp the gain so we don't clip when the track has hot peaks).
+  const rgTrackGain = (common as { replaygain_track_gain?: { dB?: number } }).replaygain_track_gain
+    ?.dB;
+  const rgTrackPeak = (common as { replaygain_track_peak?: { ratio?: number } })
+    .replaygain_track_peak?.ratio;
+  const rgAlbumGain = (common as { replaygain_album_gain?: { dB?: number } }).replaygain_album_gain
+    ?.dB;
+  const rgAlbumPeak = (common as { replaygain_album_peak?: { ratio?: number } })
+    .replaygain_album_peak?.ratio;
 
   // Upsert track (insert or update)
   const db = getDb();
   const existingTrack = db.select().from(tracks).where(eq(tracks.filePath, filePath)).get();
   const trackData = {
-    title: trackTitle, albumId, albumTitle, artistId, artistName,
+    title: trackTitle,
+    albumId,
+    albumTitle,
+    artistId,
+    artistName,
     trackNumber: common.track?.no ?? undefined,
     discNumber: common.disk?.no ?? 1,
     duration: format.duration,
     format: extname(filePath).slice(1).toLowerCase(),
     sampleRate: format.sampleRate,
     bitDepth: format.bitsPerSample,
-    filePath, source: 'local' as const,
+    replayGainTrack: rgTrackGain ?? null,
+    replayGainTrackPeak: rgTrackPeak ?? null,
+    filePath,
+    source: 'local' as const,
   };
 
   if (existingTrack) {
     db.update(tracks).set(trackData).where(eq(tracks.id, existingTrack.id)).run();
   } else {
-    db.insert(tracks).values({ id: uuid(), ...trackData }).run();
+    db.insert(tracks)
+      .values({ id: uuid(), ...trackData })
+      .run();
+  }
+
+  // Album-level RG: prefer the value embedded in the file (every track on the
+  // same album should carry the identical album_gain tag). We write it every
+  // time so the latest-scanned track wins — fine because the value is the
+  // same across the album.
+  if (rgAlbumGain !== undefined || rgAlbumPeak !== undefined) {
+    db.update(albums)
+      .set({
+        replayGainAlbum: rgAlbumGain ?? null,
+        replayGainAlbumPeak: rgAlbumPeak ?? null,
+      })
+      .where(eq(albums.id, albumId))
+      .run();
   }
 
   // Update album track count
   const trackCountResult = db.select().from(tracks).where(eq(tracks.albumId, albumId)).all();
-  db.update(albums).set({ trackCount: trackCountResult.length }).where(eq(albums.id, albumId)).run();
+  db.update(albums)
+    .set({ trackCount: trackCountResult.length })
+    .where(eq(albums.id, albumId))
+    .run();
 }

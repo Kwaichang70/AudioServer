@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { useToast } from '../components/Toast.js';
+import { useAudioContext, type ReplayGainMode } from '../context/AudioContext.js';
 
 interface ProviderStatus {
   available: boolean;
@@ -30,9 +31,12 @@ export default function SettingsPage() {
   const [lanAddress, setLanAddress] = useState<string | null>(null);
   useEffect(() => {
     loadStatus();
-    fetch('/api/health').then(r => r.json()).then(d => {
-      if (d.lanAddress) setLanAddress(d.lanAddress);
-    }).catch(() => {});
+    fetch('/api/health')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.lanAddress) setLanAddress(d.lanAddress);
+      })
+      .catch(() => {});
   }, []);
 
   const connectProvider = async (provider: 'spotify' | 'tidal' | 'qobuz') => {
@@ -73,7 +77,9 @@ export default function SettingsPage() {
     const interval = setInterval(async () => {
       const res = await api.getScanStatus();
       const s = res.data;
-      setScanInfo(`${s.processedFiles} files | ${s.artists} artists | ${s.albums} albums | ${s.tracks} tracks`);
+      setScanInfo(
+        `${s.processedFiles} files | ${s.artists} artists | ${s.albums} albums | ${s.tracks} tracks`,
+      );
       if (!s.isScanning) {
         clearInterval(interval);
         setScanning(false);
@@ -83,9 +89,70 @@ export default function SettingsPage() {
     }, 2000);
   };
 
+  const { replayGainMode, setReplayGainMode, replayGainPreamp, setReplayGainPreamp } =
+    useAudioContext();
+
   return (
     <div className="max-w-2xl">
       <h2 className="text-2xl font-bold mb-8">Settings</h2>
+
+      {/* Playback — ReplayGain volume normalisation */}
+      <section className="mb-10">
+        <h3 className="text-lg font-semibold mb-4 text-gray-300">Playback</h3>
+        <div className="bg-surface-light rounded-lg p-4 space-y-4">
+          <div>
+            <p className="text-sm font-medium mb-1">ReplayGain mode</p>
+            <p className="text-xs text-gray-500 mb-2">
+              Normalise volume across tracks using metadata tags. Track-mode levels every song
+              individually; album-mode preserves intentional loudness differences within an album.
+              Off disables normalisation entirely.
+            </p>
+            <div className="flex gap-2">
+              {(['off', 'track', 'album'] as ReplayGainMode[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setReplayGainMode(m)}
+                  className={`px-3 py-1.5 text-sm rounded border transition ${
+                    replayGainMode === m
+                      ? 'bg-accent border-accent text-white'
+                      : 'bg-surface-dark border-white/10 hover:border-accent'
+                  }`}
+                >
+                  {m === 'off' ? 'Off' : m === 'track' ? 'Track' : 'Album'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="pt-3 border-t border-white/5">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-sm font-medium">Preamp</p>
+              <span className="text-xs text-gray-400 tabular-nums">
+                {replayGainPreamp > 0 ? '+' : ''}
+                {replayGainPreamp.toFixed(1)} dB
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mb-2">
+              Global gain offset applied on top of ReplayGain. Use +6&nbsp;dB if normalised tracks
+              sound too quiet, &minus;3&nbsp;dB if they clip on aggressive masters.
+            </p>
+            <input
+              type="range"
+              min={-15}
+              max={15}
+              step={0.5}
+              value={replayGainPreamp}
+              onChange={(e) => setReplayGainPreamp(Number(e.target.value))}
+              className="w-full accent-accent"
+            />
+            <div className="flex justify-between text-xs text-gray-500 mt-1">
+              <span>&minus;15 dB</span>
+              <span>0</span>
+              <span>+15 dB</span>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* Library */}
       <section className="mb-10">
@@ -112,7 +179,9 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between pt-2 border-t border-white/5">
             <div>
               <p className="text-sm font-medium">Fetch Missing Cover Art</p>
-              <p className="text-xs text-gray-500">Download covers from MusicBrainz for albums without embedded art</p>
+              <p className="text-xs text-gray-500">
+                Download covers from MusicBrainz for albums without embedded art
+              </p>
             </div>
             <button
               onClick={async () => {
@@ -121,7 +190,9 @@ export default function SettingsPage() {
                 toast(data.message || 'Cover fetch started', 'info');
                 // Poll status
                 const interval = setInterval(async () => {
-                  const statusRes = await fetch('/api/library/covers/fetch/status').then(r => r.json());
+                  const statusRes = await fetch('/api/library/covers/fetch/status').then((r) =>
+                    r.json(),
+                  );
                   const s = statusRes.data;
                   if (s.isRunning) {
                     toast(`Covers: ${s.processed}/${s.total} (${s.found} found)`, 'info');
@@ -141,7 +212,9 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between pt-2 border-t border-white/5">
             <div>
               <p className="text-sm font-medium">Fetch Artist Images</p>
-              <p className="text-xs text-gray-500">Download artist photos from Spotify (requires Spotify connection)</p>
+              <p className="text-xs text-gray-500">
+                Download artist photos from Spotify (requires Spotify connection)
+              </p>
             </div>
             <button
               onClick={async () => {
@@ -149,7 +222,9 @@ export default function SettingsPage() {
                 const data = await res.json();
                 toast(data.message || 'Artist image fetch started', 'info');
                 const interval = setInterval(async () => {
-                  const statusRes = await fetch('/api/library/artists/images/fetch/status').then(r => r.json());
+                  const statusRes = await fetch('/api/library/artists/images/fetch/status').then(
+                    (r) => r.json(),
+                  );
                   const s = statusRes.data;
                   if (s.isRunning) {
                     toast(`Artists: ${s.processed}/${s.total} (${s.found} found)`, 'info');
@@ -198,24 +273,27 @@ export default function SettingsPage() {
 
       {/* Librespot */}
       <section className="mb-10">
-        <h3 className="text-lg font-semibold mb-4 text-gray-300">Librespot (Spotify to any device)</h3>
+        <h3 className="text-lg font-semibold mb-4 text-gray-300">
+          Librespot (Spotify to any device)
+        </h3>
         <div className="bg-surface-light rounded-lg p-4 space-y-3">
           <p className="text-xs text-gray-500">
             Librespot acts as a Spotify Connect receiver on this server, decoding audio and
             streaming it to any DLNA/Volumio device. Requires librespot + ffmpeg installed.
           </p>
           <p className="text-xs text-gray-500">
-            Install: <code className="text-gray-400">cargo install librespot</code> and <code className="text-gray-400">ffmpeg</code>
+            Install: <code className="text-gray-400">cargo install librespot</code> and{' '}
+            <code className="text-gray-400">ffmpeg</code>
           </p>
           <button
             onClick={async () => {
-              const res = await fetch('/api/librespot/status').then(r => r.json());
+              const res = await fetch('/api/librespot/status').then((r) => r.json());
               const d = res.data;
               toast(
                 d.librespotInstalled
                   ? `Librespot: ${d.isRunning ? 'running' : 'stopped'}, ffmpeg: ${d.ffmpegInstalled ? 'yes' : 'no'}`
                   : 'Librespot not installed',
-                d.librespotInstalled ? 'info' : 'error'
+                d.librespotInstalled ? 'info' : 'error',
               );
             }}
             className="px-3 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-accent transition"
@@ -238,9 +316,7 @@ export default function SettingsPage() {
       <section>
         <h3 className="text-lg font-semibold mb-4 text-gray-300">About</h3>
         <div className="bg-surface-light rounded-lg p-4">
-          <p className="text-sm text-gray-400">
-            AudioServer &mdash; Self-hosted music streamer
-          </p>
+          <p className="text-sm text-gray-400">AudioServer &mdash; Self-hosted music streamer</p>
           <p className="text-xs text-gray-500 mt-1">
             Local library + Tidal + Spotify + Multi-room DLNA/Sonos output
           </p>
@@ -250,7 +326,13 @@ export default function SettingsPage() {
   );
 }
 
-function QobuzCard({ status, onStatusChange }: { status?: ProviderStatus; onStatusChange: () => void }) {
+function QobuzCard({
+  status,
+  onStatusChange,
+}: {
+  status?: ProviderStatus;
+  onStatusChange: () => void;
+}) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -304,7 +386,10 @@ function QobuzCard({ status, onStatusChange }: { status?: ProviderStatus; onStat
         <div className="flex items-center gap-2">
           {authenticated && <span className="w-2 h-2 rounded-full bg-green-500" />}
           {authenticated && (
-            <button onClick={handleLogout} className="px-3 py-1.5 text-xs text-gray-500 hover:text-red-400 transition">
+            <button
+              onClick={handleLogout}
+              className="px-3 py-1.5 text-xs text-gray-500 hover:text-red-400 transition"
+            >
               Disconnect
             </button>
           )}
@@ -393,12 +478,18 @@ function UserManagementSection() {
   const { toast } = useToast();
 
   useEffect(() => {
-    api.getMe().then((res) => {
-      if (res.data?.role === 'admin') {
-        setIsAdmin(true);
-        api.getUsers().then((r) => setUsers(r.data)).catch(() => {});
-      }
-    }).catch(() => {});
+    api
+      .getMe()
+      .then((res) => {
+        if (res.data?.role === 'admin') {
+          setIsAdmin(true);
+          api
+            .getUsers()
+            .then((r) => setUsers(r.data))
+            .catch(() => {});
+        }
+      })
+      .catch(() => {});
   }, []);
 
   if (!isAdmin) return null;
@@ -411,7 +502,10 @@ function UserManagementSection() {
       setNewUsername('');
       setNewPassword('');
       setShowCreate(false);
-      api.getUsers().then((r) => setUsers(r.data)).catch(() => {});
+      api
+        .getUsers()
+        .then((r) => setUsers(r.data))
+        .catch(() => {});
     } catch (err: any) {
       toast(err.message || 'Failed to create user', 'error');
     }
@@ -465,7 +559,10 @@ function UserManagementSection() {
               <option value="user">User</option>
               <option value="admin">Admin</option>
             </select>
-            <button onClick={handleCreate} className="px-4 py-1.5 text-sm bg-accent rounded hover:bg-accent-hover transition">
+            <button
+              onClick={handleCreate}
+              className="px-4 py-1.5 text-sm bg-accent rounded hover:bg-accent-hover transition"
+            >
               Create
             </button>
           </div>
@@ -475,9 +572,11 @@ function UserManagementSection() {
           <div key={user.id} className="flex items-center justify-between py-1">
             <div>
               <span className="text-sm">{user.username}</span>
-              <span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded ${
-                user.role === 'admin' ? 'bg-accent/20 text-accent' : 'bg-white/5 text-gray-500'
-              }`}>
+              <span
+                className={`ml-2 text-[10px] px-1.5 py-0.5 rounded ${
+                  user.role === 'admin' ? 'bg-accent/20 text-accent' : 'bg-white/5 text-gray-500'
+                }`}
+              >
                 {user.role}
               </span>
             </div>
@@ -503,10 +602,15 @@ function ScrobblingSection() {
   const { toast } = useToast();
 
   const loadConfig = () => {
-    api.getScrobbleConfig().then((res) => setConfig(res.data)).catch(() => {});
+    api
+      .getScrobbleConfig()
+      .then((res) => setConfig(res.data))
+      .catch(() => {});
   };
 
-  useEffect(() => { loadConfig(); }, []);
+  useEffect(() => {
+    loadConfig();
+  }, []);
 
   const connectLastfm = async () => {
     if (lastfmToken) {
@@ -565,7 +669,11 @@ function ScrobblingSection() {
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-green-500" />
                 <button
-                  onClick={async () => { await api.disconnectLastfm(); toast('Last.fm disconnected', 'info'); loadConfig(); }}
+                  onClick={async () => {
+                    await api.disconnectLastfm();
+                    toast('Last.fm disconnected', 'info');
+                    loadConfig();
+                  }}
                   className="text-xs text-gray-500 hover:text-red-400 transition"
                 >
                   Disconnect
@@ -582,7 +690,10 @@ function ScrobblingSection() {
                 placeholder="Paste Last.fm token after authorizing..."
                 className="flex-1 px-3 py-1.5 text-sm bg-surface-dark border border-white/10 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent"
               />
-              <button onClick={connectLastfm} className="px-4 py-1.5 text-sm bg-accent rounded hover:bg-accent-hover transition">
+              <button
+                onClick={connectLastfm}
+                className="px-4 py-1.5 text-sm bg-accent rounded hover:bg-accent-hover transition"
+              >
                 {lastfmToken ? 'Submit Token' : 'Authorize'}
               </button>
             </div>
@@ -597,7 +708,9 @@ function ScrobblingSection() {
               <div>
                 <p className="text-sm font-medium">ListenBrainz</p>
                 <p className="text-xs text-gray-500">
-                  {config?.listenbrainz?.enabled ? 'Connected' : 'Paste your user token from listenbrainz.org/settings'}
+                  {config?.listenbrainz?.enabled
+                    ? 'Connected'
+                    : 'Paste your user token from listenbrainz.org/settings'}
                 </p>
               </div>
             </div>
@@ -605,7 +718,11 @@ function ScrobblingSection() {
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-green-500" />
                 <button
-                  onClick={async () => { await api.disconnectListenbrainz(); toast('ListenBrainz disconnected', 'info'); loadConfig(); }}
+                  onClick={async () => {
+                    await api.disconnectListenbrainz();
+                    toast('ListenBrainz disconnected', 'info');
+                    loadConfig();
+                  }}
                   className="text-xs text-gray-500 hover:text-red-400 transition"
                 >
                   Disconnect
@@ -638,7 +755,14 @@ function ScrobblingSection() {
   );
 }
 
-function ProviderCard({ name, icon, status, onConnect, onDisconnect, envVars }: {
+function ProviderCard({
+  name,
+  icon,
+  status,
+  onConnect,
+  onDisconnect,
+  envVars,
+}: {
   name: string;
   icon: string;
   status?: ProviderStatus;

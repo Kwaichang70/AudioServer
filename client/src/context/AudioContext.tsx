@@ -26,7 +26,16 @@ interface TrackInfo {
   format?: string;
   sampleRate?: number;
   bitDepth?: number;
+  // Optional ReplayGain tags (dB + 0..1 peak ratio). Backend returns these
+  // from /library/tracks/:id and /library/albums/:id. If the file has no RG
+  // metadata they're undefined and the player falls back to preamp-only.
+  replayGainTrack?: number | null;
+  replayGainTrackPeak?: number | null;
+  replayGainAlbum?: number | null;
+  replayGainAlbumPeak?: number | null;
 }
+
+export type ReplayGainMode = 'off' | 'track' | 'album';
 
 interface AudioContextValue {
   currentTrack: TrackInfo | null;
@@ -42,6 +51,10 @@ interface AudioContextValue {
   repeat: 'off' | 'all' | 'one';
   crossfade: number;
   setCrossfade: (seconds: number) => void;
+  replayGainMode: ReplayGainMode;
+  setReplayGainMode: (mode: ReplayGainMode) => void;
+  replayGainPreamp: number; // dB
+  setReplayGainPreamp: (db: number) => void;
   selectedDeviceId: string;
   playTrack: (track: TrackInfo) => void;
   playAlbum: (tracks: TrackInfo[]) => void;
@@ -84,6 +97,41 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     const saved = localStorage.getItem('audioserver_crossfade');
     return saved ? Number(saved) : 0;
   });
+  // ReplayGain: mode (off/track/album) + preamp in dB. Persisted across sessions.
+  const [replayGainMode, setReplayGainModeState] = useState<ReplayGainMode>(() => {
+    const saved = localStorage.getItem('audioserver_replaygain_mode');
+    return saved === 'track' || saved === 'album' ? saved : 'off';
+  });
+  const [replayGainPreamp, setReplayGainPreampState] = useState(() => {
+    const saved = localStorage.getItem('audioserver_replaygain_preamp');
+    return saved ? Number(saved) : 0;
+  });
+
+  const setReplayGainMode = useCallback(
+    (mode: ReplayGainMode) => {
+      setReplayGainModeState(mode);
+      localStorage.setItem('audioserver_replaygain_mode', mode);
+      audio.setReplayGain({ mode });
+    },
+    [audio],
+  );
+
+  const setReplayGainPreamp = useCallback(
+    (db: number) => {
+      setReplayGainPreampState(db);
+      localStorage.setItem('audioserver_replaygain_preamp', String(db));
+      audio.setReplayGain({ preampDb: db });
+    },
+    [audio],
+  );
+
+  // Apply persisted RG settings to the player on mount so the first play()
+  // already has them set.
+  useEffect(() => {
+    audio.setReplayGain({ mode: replayGainMode, preampDb: replayGainPreamp });
+    // Only on mount — subsequent changes flow through setReplayGainMode/Preamp.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const setCrossfade = useCallback(
     (seconds: number) => {
@@ -194,6 +242,18 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     (track: TrackInfo) => {
       setCurrentTrack(track);
       setIsLoading(true);
+
+      // Push the new track's RG data into the player. Mode/preamp are already
+      // set globally via the Settings UI; here we update the per-track values
+      // so the next play() picks the right gain.
+      audio.setReplayGain({
+        data: {
+          trackGain: track.replayGainTrack ?? null,
+          trackPeak: track.replayGainTrackPeak ?? null,
+          albumGain: track.replayGainAlbum ?? null,
+          albumPeak: track.replayGainAlbumPeak ?? null,
+        },
+      });
 
       const deviceId = selectedDeviceRef.current;
       const isSpotify = track.id.startsWith('spotify:');
@@ -734,6 +794,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         repeat,
         crossfade,
         setCrossfade,
+        replayGainMode,
+        setReplayGainMode,
+        replayGainPreamp,
+        setReplayGainPreamp,
         selectedDeviceId,
         playTrack,
         playAlbum,
