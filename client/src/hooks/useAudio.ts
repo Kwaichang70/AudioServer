@@ -31,6 +31,20 @@ function dbToAmp(db: number): number {
   return Math.pow(10, db / 20);
 }
 
+// Cross-origin sources fed to a Web Audio MediaElementSourceNode produce zeros
+// (silent output) unless the remote server sends CORS Access-Control-Allow-Origin.
+// Tidal/Spotify CDNs don't. So we only route same-origin audio through Web Audio;
+// cross-origin URLs play via plain HTML5 <audio> with audio.volume (no ReplayGain).
+function isSameOriginUrl(url: string): boolean {
+  if (!url) return false;
+  if (url.startsWith('/') && !url.startsWith('//')) return true; // root-relative
+  try {
+    return new URL(url, window.location.href).origin === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 export function useAudio() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const nextAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -191,12 +205,26 @@ export function useAudio() {
 
   const play = useCallback(
     (url: string) => {
-      const audio = audioRef.current;
+      let audio = audioRef.current;
       if (!audio) return;
 
       // iOS Safari starts the AudioContext suspended; resume it inside a user
       // gesture (play click counts).
       audioCtxRef.current?.resume().catch(() => {});
+
+      const sameOrigin = isSameOriginUrl(url);
+
+      // If the current audio element has been routed through Web Audio (from a
+      // prior local play) but the next URL is cross-origin, the MediaElementSource
+      // would silence the output. Swap in a fresh element that bypasses Web Audio.
+      if (!sameOrigin && gainMapRef.current.has(audio)) {
+        audio.pause();
+        audio.src = '';
+        const fresh = new Audio();
+        attachListeners(fresh);
+        audioRef.current = fresh;
+        audio = fresh;
+      }
 
       const crossfade = crossfadeDurationRef.current;
       if (crossfade > 0 && audio.src && !audio.paused) {
@@ -212,9 +240,9 @@ export function useAudio() {
         const newAudio = new Audio();
         attachListeners(newAudio);
         newAudio.src = url;
-        // Attach gain *before* setting volume so volume goes through GainNode
-        // when Web Audio is active.
-        if (audioCtxRef.current) attachGain(newAudio);
+        // Only route same-origin sources through Web Audio (CORS would zero
+        // out cross-origin streams like Tidal/Spotify CDNs).
+        if (audioCtxRef.current && sameOrigin) attachGain(newAudio);
         if (gainMapRef.current.has(newAudio)) {
           gainMapRef.current.get(newAudio)!.gain.value = 0;
         } else {
@@ -229,7 +257,7 @@ export function useAudio() {
         // Gapless: swap src on the existing element.
         crossfadeFiredRef.current.delete(audio);
         audio.src = url;
-        if (audioCtxRef.current) attachGain(audio);
+        if (audioCtxRef.current && sameOrigin) attachGain(audio);
         applyVolume(audio);
         audio.play();
       }
@@ -247,7 +275,8 @@ export function useAudio() {
     const next = new Audio();
     next.preload = 'auto';
     next.src = url;
-    if (audioCtxRef.current) attachGain(next);
+    // Same caveat as in play(): skip Web Audio for cross-origin (would silence).
+    if (audioCtxRef.current && isSameOriginUrl(url)) attachGain(next);
     applyVolume(next);
     nextAudioRef.current = next;
   }, []);
