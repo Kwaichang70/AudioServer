@@ -22,8 +22,8 @@ export default function SettingsPage() {
   const { toast } = useToast();
 
   const loadStatus = () => {
-    fetch('/api/providers/status')
-      .then((r) => r.json())
+    api
+      .getProviderStatus()
       .then((r) => setStatus(r.data))
       .catch(() => {});
   };
@@ -31,8 +31,8 @@ export default function SettingsPage() {
   const [lanAddress, setLanAddress] = useState<string | null>(null);
   useEffect(() => {
     loadStatus();
-    fetch('/api/health')
-      .then((r) => r.json())
+    api
+      .getHealth()
       .then((d) => {
         if (d.lanAddress) setLanAddress(d.lanAddress);
       })
@@ -49,12 +49,7 @@ export default function SettingsPage() {
         origin = origin.replace('localhost', '127.0.0.1');
       }
       const redirectUri = `${origin}/settings/callback/${provider}`;
-      const res = await fetch(`/api/providers/${provider}/auth/init`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ redirectUri }),
-      });
-      const data = await res.json();
+      const data = await api.providerAuthInit(provider, redirectUri);
       if (data.data?.authUrl) {
         window.location.href = data.data.authUrl;
       } else {
@@ -66,7 +61,7 @@ export default function SettingsPage() {
   };
 
   const disconnectProvider = async (provider: 'spotify' | 'tidal' | 'qobuz') => {
-    await fetch(`/api/providers/${provider}/auth/logout`, { method: 'POST' });
+    await api.providerAuthLogout(provider);
     toast(`${provider} disconnected`, 'info');
     loadStatus();
   };
@@ -185,14 +180,12 @@ export default function SettingsPage() {
             </div>
             <button
               onClick={async () => {
-                const res = await fetch('/api/library/covers/fetch', { method: 'POST' });
-                const data = await res.json();
+                // Use the api client so the Bearer token is attached — requireAuth
+                // would otherwise 401 these /api/* calls.
+                const data = await api.fetchCovers();
                 toast(data.message || 'Cover fetch started', 'info');
-                // Poll status
                 const interval = setInterval(async () => {
-                  const statusRes = await fetch('/api/library/covers/fetch/status').then((r) =>
-                    r.json(),
-                  );
+                  const statusRes = await api.getCoverFetchStatus();
                   const s = statusRes.data;
                   if (s.isRunning) {
                     toast(`Covers: ${s.processed}/${s.total} (${s.found} found)`, 'info');
@@ -218,13 +211,10 @@ export default function SettingsPage() {
             </div>
             <button
               onClick={async () => {
-                const res = await fetch('/api/library/artists/images/fetch', { method: 'POST' });
-                const data = await res.json();
+                const data = await api.fetchArtistImages();
                 toast(data.message || 'Artist image fetch started', 'info');
                 const interval = setInterval(async () => {
-                  const statusRes = await fetch('/api/library/artists/images/fetch/status').then(
-                    (r) => r.json(),
-                  );
+                  const statusRes = await api.getArtistImageFetchStatus();
                   const s = statusRes.data;
                   if (s.isRunning) {
                     toast(`Artists: ${s.processed}/${s.total} (${s.found} found)`, 'info');
@@ -287,7 +277,7 @@ export default function SettingsPage() {
           </p>
           <button
             onClick={async () => {
-              const res = await fetch('/api/librespot/status').then((r) => r.json());
+              const res = await api.librespotStatus();
               const d = res.data;
               toast(
                 d.librespotInstalled
@@ -345,12 +335,7 @@ function QobuzCard({
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/providers/qobuz/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-      const data = await res.json();
+      const data = await api.qobuzLogin(username, password);
       if (data.data?.authenticated) {
         toast('Qobuz connected', 'success');
         setUsername('');
@@ -366,7 +351,7 @@ function QobuzCard({
   };
 
   const handleLogout = async () => {
-    await fetch('/api/providers/qobuz/auth/logout', { method: 'POST' });
+    await api.providerAuthLogout('qobuz');
     toast('Qobuz disconnected', 'info');
     onStatusChange();
   };

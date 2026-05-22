@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { api } from '../api/client.js';
 
 export default function OAuthCallbackPage() {
   const { provider } = useParams<{ provider: string }>();
@@ -27,12 +28,8 @@ export default function OAuthCallbackPage() {
     // Use origin as-is (we were redirected here from Spotify with the correct URL)
     const redirectUri = `${window.location.origin}/settings/callback/${provider}`;
 
-    fetch(`/api/providers/${provider}/auth/callback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, redirectUri }),
-    })
-      .then((res) => res.json())
+    api
+      .providerAuthCallback(provider, code, redirectUri)
       .then((data) => {
         if (data.data?.authenticated) {
           setStatus('success');
