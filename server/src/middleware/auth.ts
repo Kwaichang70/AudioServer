@@ -50,6 +50,14 @@ export function attachUser(req: Request, _res: Response, next: NextFunction): vo
  * First-run (no users in DB) is allowed without auth so the operator can register.
  */
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  // Static assets (the bundled SPA, /assets/*, /sw.js, /manifest.json, /) are
+  // served by express.static in production. Auth only applies to /api/* —
+  // gating the assets would break the page load entirely (no JS, no CSS).
+  if (!req.path.startsWith('/api/')) {
+    next();
+    return;
+  }
+
   if (isPublicPath(req.path)) {
     next();
     return;
