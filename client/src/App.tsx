@@ -2,7 +2,7 @@ import { useState, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout.js';
 import LoginPage from './pages/LoginPage.js';
-import { api } from './api/client.js';
+import { api, ensureStreamToken, clearStreamToken } from './api/client.js';
 
 // Lazy-loaded pages (code splitting)
 const HomePage = lazy(() => import('./pages/HomePage.js'));
@@ -22,11 +22,7 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage.js'));
 const OAuthCallbackPage = lazy(() => import('./pages/OAuthCallbackPage.js'));
 
 function PageLoader() {
-  return (
-    <div className="flex items-center justify-center py-20 text-gray-400">
-      Loading...
-    </div>
-  );
+  return <div className="flex items-center justify-center py-20 text-gray-400">Loading...</div>;
 }
 
 export default function App() {
@@ -34,30 +30,29 @@ export default function App() {
   const [needsAuth, setNeedsAuth] = useState(false);
 
   useEffect(() => {
-    api.getStats()
-      .then(() => {
-        setAuthChecked(true);
+    // Run auth-check and stream-token fetch in parallel so the first render
+    // already has a token for <img>/<audio> tags.
+    Promise.allSettled([api.getStats(), ensureStreamToken()]).then(([statsResult]) => {
+      if (statsResult.status === 'fulfilled') {
         setNeedsAuth(false);
-      })
-      .catch((err) => {
-        if (err.message?.includes('Unauthorized') || err.message?.includes('401')) {
-          const token = localStorage.getItem('audioserver_token');
-          if (token) {
-            setAuthChecked(true);
-            setNeedsAuth(false);
-          } else {
-            setNeedsAuth(true);
-            setAuthChecked(true);
-          }
-        } else {
-          setAuthChecked(true);
-          setNeedsAuth(false);
-        }
-      });
+        setAuthChecked(true);
+        return;
+      }
+      const err = statsResult.reason;
+      if (err?.message?.includes('Unauthorized') || err?.message?.includes('401')) {
+        const token = localStorage.getItem('audioserver_token');
+        setNeedsAuth(!token);
+      } else {
+        setNeedsAuth(false);
+      }
+      setAuthChecked(true);
+    });
   }, []);
 
   const handleAuth = (token: string) => {
     localStorage.setItem('audioserver_token', token);
+    clearStreamToken();
+    ensureStreamToken().catch(() => {});
     setNeedsAuth(false);
   };
 

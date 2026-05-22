@@ -1,10 +1,28 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
 import { getDb, getRawDb } from '../db/index.js';
 import { smartPlaylists } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
+import { validate } from '../utils/validate.js';
 
 export const smartPlaylistsRouter = Router();
+
+const ruleSchema = z.object({
+  field: z.enum(['genre', 'year', 'format', 'sampleRate', 'bitDepth', 'artistName']),
+  operator: z.enum(['equals', 'contains', 'greaterThan', 'lessThan', 'between']),
+  value: z.string(),
+  value2: z.string().optional(),
+});
+const rulesField = z.union([z.array(ruleSchema), z.string()]);
+const createSmartSchema = z.object({
+  name: z.string().min(1).max(200),
+  rules: rulesField,
+});
+const updateSmartSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  rules: rulesField.optional(),
+});
 
 interface Rule {
   field: 'genre' | 'year' | 'format' | 'sampleRate' | 'bitDepth' | 'artistName';
@@ -63,7 +81,9 @@ function executeSmartPlaylist(rules: Rule[], limit = 200): any[] {
   const raw = getRawDb();
   const { sql: where, params } = buildWhereClause(rules);
 
-  return raw.prepare(`
+  return raw
+    .prepare(
+      `
     SELECT DISTINCT t.id, t.title, t.artist_name as artistName, t.album_title as albumTitle,
       t.album_id as albumId, t.duration, t.format, t.sample_rate as sampleRate,
       t.bit_depth as bitDepth, t.track_number as trackNumber
@@ -72,7 +92,9 @@ function executeSmartPlaylist(rules: Rule[], limit = 200): any[] {
     WHERE ${where}
     ORDER BY t.artist_name, t.album_title, t.disc_number, t.track_number
     LIMIT ?
-  `).all(...params, limit);
+  `,
+    )
+    .all(...params, limit);
 }
 
 // List all smart playlists
@@ -83,21 +105,21 @@ smartPlaylistsRouter.get('/', (_req, res) => {
 });
 
 // Create a smart playlist
-smartPlaylistsRouter.post('/', (req, res) => {
+smartPlaylistsRouter.post('/', validate({ body: createSmartSchema }), (req, res) => {
   const { name, rules } = req.body;
-  if (!name || !rules) return res.status(400).json({ error: 'name and rules required' });
-
   const db = getDb();
   const id = uuid();
   const parsedRules: Rule[] = typeof rules === 'string' ? JSON.parse(rules) : rules;
   const tracks = executeSmartPlaylist(parsedRules);
 
-  db.insert(smartPlaylists).values({
-    id,
-    name,
-    rules: JSON.stringify(parsedRules),
-    trackCount: tracks.length,
-  }).run();
+  db.insert(smartPlaylists)
+    .values({
+      id,
+      name,
+      rules: JSON.stringify(parsedRules),
+      trackCount: tracks.length,
+    })
+    .run();
 
   const created = db.select().from(smartPlaylists).where(eq(smartPlaylists.id, id)).get();
   res.status(201).json({ data: created });
@@ -113,17 +135,27 @@ smartPlaylistsRouter.get('/:id/tracks', (req, res) => {
   const tracks = executeSmartPlaylist(rules);
 
   // Update track count
-  db.update(smartPlaylists).set({ trackCount: tracks.length }).where(eq(smartPlaylists.id, sp.id)).run();
+  db.update(smartPlaylists)
+    .set({ trackCount: tracks.length })
+    .where(eq(smartPlaylists.id, sp.id))
+    .run();
 
   res.json({ data: tracks, meta: { total: tracks.length } });
 });
 
 // Update a smart playlist
 smartPlaylistsRouter.patch('/:id', (req, res) => {
-  const { name, rules } = req.body;
+  const parsed = updateSmartSchema.safeParse(req.body);
+  if (!parsed.success)
+    return res.status(400).json({ error: 'ValidationError', issues: parsed.error.issues });
+  const { name, rules } = parsed.data;
   const db = getDb();
 
-  const existing = db.select().from(smartPlaylists).where(eq(smartPlaylists.id, req.params.id)).get();
+  const existing = db
+    .select()
+    .from(smartPlaylists)
+    .where(eq(smartPlaylists.id, req.params.id))
+    .get();
   if (!existing) return res.status(404).json({ error: 'Smart playlist not found' });
 
   const updates: Record<string, any> = {};
@@ -138,7 +170,11 @@ smartPlaylistsRouter.patch('/:id', (req, res) => {
     db.update(smartPlaylists).set(updates).where(eq(smartPlaylists.id, req.params.id)).run();
   }
 
-  const updated = db.select().from(smartPlaylists).where(eq(smartPlaylists.id, req.params.id)).get();
+  const updated = db
+    .select()
+    .from(smartPlaylists)
+    .where(eq(smartPlaylists.id, req.params.id))
+    .get();
   res.json({ data: updated });
 });
 

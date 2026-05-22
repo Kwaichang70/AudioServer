@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import { createServer } from 'http';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -28,16 +29,37 @@ import { startWatcher, stopWatcher } from './services/watcher.js';
 import { deviceMonitor } from './services/device-monitor.js';
 import { globalLimiter } from './middleware/rateLimiter.js';
 import { requestLogger } from './middleware/requestLogger.js';
+import { attachUser, requireAuth } from './middleware/auth.js';
 
 const app = express();
 const httpServer = createServer(app);
 initSocketIO(httpServer);
 
 // Middleware
-app.use(cors());
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // SPA inline scripts; tighten in a later phase
+    crossOriginResourcePolicy: { policy: 'cross-origin' }, // allow <img src> from SPA origin
+  }),
+);
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow same-origin (no Origin header) and configured origins.
+      if (!origin || config.allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
+    credentials: true,
+  }),
+);
 app.use(express.json());
 app.use(globalLimiter);
 app.use(requestLogger);
+app.use(attachUser);
+app.use(requireAuth);
 
 // Routes
 app.use('/api/auth', authRouter);
@@ -98,10 +120,18 @@ function shutdown(signal: string) {
     logger.info('HTTP server closed');
   });
 
-  try { getIO().close(); } catch {}
-  try { deviceMonitor.stopAll(); } catch {}
-  try { stopWatcher(); } catch {}
-  try { stopLibrespot(); } catch {}
+  try {
+    getIO().close();
+  } catch {}
+  try {
+    deviceMonitor.stopAll();
+  } catch {}
+  try {
+    stopWatcher();
+  } catch {}
+  try {
+    stopLibrespot();
+  } catch {}
 
   clearTimeout(timeout);
   logger.info('Shutdown complete');

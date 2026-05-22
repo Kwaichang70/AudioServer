@@ -9,7 +9,13 @@ import { createReadStream, existsSync, statSync } from 'fs';
 import { extname } from 'path';
 // ApiResponse type removed — using inline format with buildMeta
 import { getCoverForAlbum, getCoverForTrack } from '../services/coverart.js';
-import { fetchMissingCovers, getCoverFetchStatus, readCachedArtistImage, fetchMissingArtistImages, getArtistFetchStatus } from '../services/coverart-fetch.js';
+import {
+  fetchMissingCovers,
+  getCoverFetchStatus,
+  readCachedArtistImage,
+  fetchMissingArtistImages,
+  getArtistFetchStatus,
+} from '../services/coverart-fetch.js';
 import { parsePagination, buildMeta } from '../utils/pagination.js';
 
 export const libraryRouter = Router();
@@ -30,10 +36,14 @@ libraryRouter.get('/artists', (req, res) => {
   const { page, limit, offset } = parsePagination(req, 50);
   const raw = getRawDb();
   const total = (raw.prepare('SELECT COUNT(*) as count FROM artists').get() as any).count;
-  const data = raw.prepare(`
+  const data = raw
+    .prepare(
+      `
     SELECT id, name, image_url as imageUrl, source, created_at as createdAt, updated_at as updatedAt
     FROM artists ORDER BY name COLLATE NOCASE LIMIT ? OFFSET ?
-  `).all(limit, offset);
+  `,
+    )
+    .all(limit, offset);
   res.json({ data, meta: buildMeta(page, limit, total) });
 });
 
@@ -56,12 +66,16 @@ libraryRouter.get('/albums', (req, res) => {
   const { page, limit, offset } = parsePagination(req, 50);
   const raw = getRawDb();
   const total = (raw.prepare('SELECT COUNT(*) as count FROM albums').get() as any).count;
-  const data = raw.prepare(`
+  const data = raw
+    .prepare(
+      `
     SELECT id, title, artist_id as artistId, artist_name as artistName, year,
       cover_url as coverUrl, genre, track_count as trackCount, source,
       created_at as createdAt, updated_at as updatedAt
     FROM albums ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?
-  `).all(limit, offset);
+  `,
+    )
+    .all(limit, offset);
   res.json({ data, meta: buildMeta(page, limit, total) });
 });
 
@@ -82,7 +96,9 @@ libraryRouter.get('/albums/:id', (req, res) => {
 
 libraryRouter.get('/albums/:id/tracks', (req, res) => {
   const db = getDb();
-  const result = db.select().from(tracks)
+  const result = db
+    .select()
+    .from(tracks)
     .where(eq(tracks.albumId, req.params.id))
     .orderBy(tracks.discNumber, tracks.trackNumber)
     .all();
@@ -151,9 +167,39 @@ libraryRouter.get('/tracks/:id/stream', (req, res) => {
   // Handle Range requests (required by DLNA renderers)
   const range = req.headers.range;
   if (range) {
-    const parts = range.replace('bytes=', '').split('-');
-    const start = parseInt(parts[0], 10);
-    const end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+    const m = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+    if (!m) {
+      res.status(416).setHeader('Content-Range', `bytes */${totalSize}`).end();
+      return;
+    }
+    const startStr = m[1];
+    const endStr = m[2];
+    let start: number;
+    let end: number;
+    if (startStr === '' && endStr !== '') {
+      // suffix range: last N bytes
+      const suffix = parseInt(endStr, 10);
+      if (!Number.isFinite(suffix) || suffix <= 0) {
+        res.status(416).setHeader('Content-Range', `bytes */${totalSize}`).end();
+        return;
+      }
+      start = Math.max(totalSize - suffix, 0);
+      end = totalSize - 1;
+    } else {
+      start = parseInt(startStr, 10);
+      end = endStr ? parseInt(endStr, 10) : totalSize - 1;
+    }
+    if (
+      !Number.isFinite(start) ||
+      !Number.isFinite(end) ||
+      start < 0 ||
+      end < start ||
+      start >= totalSize
+    ) {
+      res.status(416).setHeader('Content-Range', `bytes */${totalSize}`).end();
+      return;
+    }
+    if (end >= totalSize) end = totalSize - 1;
     const chunkSize = end - start + 1;
 
     res.status(206);
@@ -168,7 +214,10 @@ libraryRouter.get('/tracks/:id/stream', (req, res) => {
     res.setHeader('Content-Length', totalSize);
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('transferMode.dlna.org', 'Streaming');
-    res.setHeader('contentFeatures.dlna.org', 'DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000');
+    res.setHeader(
+      'contentFeatures.dlna.org',
+      'DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000',
+    );
     createReadStream(track.filePath).pipe(res);
   }
 });
@@ -177,13 +226,17 @@ libraryRouter.get('/tracks/:id/stream', (req, res) => {
 
 libraryRouter.get('/genres', (_req, res) => {
   const raw = getRawDb();
-  const data = raw.prepare(`
+  const data = raw
+    .prepare(
+      `
     SELECT genre, COUNT(*) as albumCount, SUM(track_count) as trackCount
     FROM albums
     WHERE genre IS NOT NULL AND genre != ''
     GROUP BY genre
     ORDER BY albumCount DESC
-  `).all();
+  `,
+    )
+    .all();
   res.json({ data });
 });
 
@@ -191,8 +244,12 @@ libraryRouter.get('/genres/:genre/albums', (req, res) => {
   const { page, limit, offset } = parsePagination(req, 50);
   const genre = decodeURIComponent(req.params.genre);
   const raw = getRawDb();
-  const total = (raw.prepare('SELECT COUNT(*) as count FROM albums WHERE genre = ?').get(genre) as any).count;
-  const data = raw.prepare('SELECT * FROM albums WHERE genre = ? ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?').all(genre, limit, offset);
+  const total = (
+    raw.prepare('SELECT COUNT(*) as count FROM albums WHERE genre = ?').get(genre) as any
+  ).count;
+  const data = raw
+    .prepare('SELECT * FROM albums WHERE genre = ? ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?')
+    .all(genre, limit, offset);
   res.json({ data, meta: buildMeta(page, limit, total) });
 });
 
@@ -219,18 +276,31 @@ libraryRouter.get('/tracks/:id/lyrics', async (req, res) => {
 // ─── Search ──────────────────────────────────────────────────────
 
 libraryRouter.get('/search', (req, res) => {
-  const query = (req.query.q as string || '').trim();
+  const query = ((req.query.q as string) || '').trim();
   const limit = Math.min(50, parseInt(req.query.limit as string) || 20);
   if (!query) return res.json({ data: { artists: [], albums: [], tracks: [] } });
 
   const db = getDb();
   const pattern = `%${query}%`;
 
-  const matchedArtists = db.select().from(artists).where(like(artists.name, pattern)).limit(limit).all();
-  const matchedAlbums = db.select().from(albums).where(like(albums.title, pattern)).limit(limit).all();
-  const matchedTracks = db.select().from(tracks).where(
-    or(like(tracks.title, pattern), like(tracks.artistName, pattern))
-  ).limit(limit).all();
+  const matchedArtists = db
+    .select()
+    .from(artists)
+    .where(like(artists.name, pattern))
+    .limit(limit)
+    .all();
+  const matchedAlbums = db
+    .select()
+    .from(albums)
+    .where(like(albums.title, pattern))
+    .limit(limit)
+    .all();
+  const matchedTracks = db
+    .select()
+    .from(tracks)
+    .where(or(like(tracks.title, pattern), like(tracks.artistName, pattern)))
+    .limit(limit)
+    .all();
 
   res.json({
     data: {

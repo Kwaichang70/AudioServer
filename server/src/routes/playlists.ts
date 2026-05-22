@@ -1,10 +1,24 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../db/index.js';
 import { playlists, playlistTracks, tracks } from '../db/schema.js';
 import { eq, asc } from 'drizzle-orm';
+import { validate } from '../utils/validate.js';
 
 export const playlistsRouter = Router();
+
+const createPlaylistSchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().max(2000).optional(),
+});
+const updatePlaylistSchema = createPlaylistSchema.partial();
+const addTrackSchema = z.object({ trackId: z.string().min(1) });
+const reorderSchema = z.object({ trackIds: z.array(z.string().min(1)) });
+const importSchema = z.object({
+  name: z.string().min(1).max(200),
+  content: z.string().min(1).max(5_000_000),
+});
 
 // List all playlists
 playlistsRouter.get('/', (_req, res) => {
@@ -22,10 +36,8 @@ playlistsRouter.get('/:id', (req, res) => {
 });
 
 // Create a playlist
-playlistsRouter.post('/', (req, res) => {
+playlistsRouter.post('/', validate({ body: createPlaylistSchema }), (req, res) => {
   const { name, description } = req.body;
-  if (!name) return res.status(400).json({ error: 'Name is required' });
-
   const db = getDb();
   const id = uuid();
   db.insert(playlists).values({ id, name, description }).run();
@@ -35,7 +47,10 @@ playlistsRouter.post('/', (req, res) => {
 
 // Update a playlist
 playlistsRouter.patch('/:id', (req, res) => {
-  const { name, description } = req.body;
+  const parsed = updatePlaylistSchema.safeParse(req.body);
+  if (!parsed.success)
+    return res.status(400).json({ error: 'ValidationError', issues: parsed.error.issues });
+  const { name, description } = parsed.data;
   const db = getDb();
 
   const existing = db.select().from(playlists).where(eq(playlists.id, req.params.id)).get();
@@ -64,44 +79,53 @@ playlistsRouter.delete('/:id', (req, res) => {
 // Get tracks in a playlist
 playlistsRouter.get('/:id/tracks', (req, res) => {
   const db = getDb();
-  const items = db.select()
+  const items = db
+    .select()
     .from(playlistTracks)
     .where(eq(playlistTracks.playlistId, req.params.id))
     .orderBy(asc(playlistTracks.position))
     .all();
 
   // Enrich with track data
-  const enriched = items.map((item) => {
-    const track = db.select().from(tracks).where(eq(tracks.id, item.trackId)).get();
-    return track ? { ...track, playlistPosition: item.position } : null;
-  }).filter(Boolean);
+  const enriched = items
+    .map((item) => {
+      const track = db.select().from(tracks).where(eq(tracks.id, item.trackId)).get();
+      return track ? { ...track, playlistPosition: item.position } : null;
+    })
+    .filter(Boolean);
 
   res.json({ data: enriched, meta: { total: enriched.length } });
 });
 
 // Add a track to a playlist
 playlistsRouter.post('/:id/tracks', (req, res) => {
-  const { trackId } = req.body;
-  if (!trackId) return res.status(400).json({ error: 'trackId required' });
-
+  const parsed = addTrackSchema.safeParse(req.body);
+  if (!parsed.success)
+    return res.status(400).json({ error: 'ValidationError', issues: parsed.error.issues });
+  const { trackId } = parsed.data;
   const db = getDb();
   // Get next position
-  const existing = db.select().from(playlistTracks)
+  const existing = db
+    .select()
+    .from(playlistTracks)
     .where(eq(playlistTracks.playlistId, req.params.id))
     .all();
-  const nextPos = existing.length > 0
-    ? Math.max(...existing.map((e) => e.position)) + 1
-    : 0;
+  const nextPos = existing.length > 0 ? Math.max(...existing.map((e) => e.position)) + 1 : 0;
 
-  db.insert(playlistTracks).values({
-    playlistId: req.params.id,
-    trackId,
-    position: nextPos,
-  }).run();
+  db.insert(playlistTracks)
+    .values({
+      playlistId: req.params.id,
+      trackId,
+      position: nextPos,
+    })
+    .run();
 
   // Update track count
-  const count = db.select().from(playlistTracks)
-    .where(eq(playlistTracks.playlistId, req.params.id)).all().length;
+  const count = db
+    .select()
+    .from(playlistTracks)
+    .where(eq(playlistTracks.playlistId, req.params.id))
+    .all().length;
   db.update(playlists).set({ trackCount: count }).where(eq(playlists.id, req.params.id)).run();
 
   res.json({ data: { ok: true, trackCount: count } });
@@ -109,18 +133,24 @@ playlistsRouter.post('/:id/tracks', (req, res) => {
 
 // Reorder tracks in a playlist
 playlistsRouter.post('/:id/reorder', (req, res) => {
-  const { trackIds } = req.body;
-  if (!Array.isArray(trackIds)) return res.status(400).json({ error: 'trackIds array required' });
-
+  const parsed = reorderSchema.safeParse(req.body);
+  if (!parsed.success)
+    return res.status(400).json({ error: 'ValidationError', issues: parsed.error.issues });
+  const { trackIds } = parsed.data;
   const db = getDb();
   // Update each track's position based on the new order
   trackIds.forEach((trackId: string, index: number) => {
-    const item = db.select().from(playlistTracks)
+    const item = db
+      .select()
+      .from(playlistTracks)
       .where(eq(playlistTracks.playlistId, req.params.id))
       .all()
       .find((i) => i.trackId === trackId);
     if (item) {
-      db.update(playlistTracks).set({ position: index }).where(eq(playlistTracks.id, item.id)).run();
+      db.update(playlistTracks)
+        .set({ position: index })
+        .where(eq(playlistTracks.id, item.id))
+        .run();
     }
   });
 
@@ -133,15 +163,18 @@ playlistsRouter.get('/:id/export', (req, res) => {
   const playlist = db.select().from(playlists).where(eq(playlists.id, req.params.id)).get();
   if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
 
-  const items = db.select()
+  const items = db
+    .select()
     .from(playlistTracks)
     .where(eq(playlistTracks.playlistId, req.params.id))
     .orderBy(asc(playlistTracks.position))
     .all();
 
-  const enriched = items.map((item) => {
-    return db.select().from(tracks).where(eq(tracks.id, item.trackId)).get();
-  }).filter(Boolean);
+  const enriched = items
+    .map((item) => {
+      return db.select().from(tracks).where(eq(tracks.id, item.trackId)).get();
+    })
+    .filter(Boolean);
 
   let m3u = '#EXTM3U\n';
   m3u += `#PLAYLIST:${playlist.name}\n`;
@@ -157,16 +190,17 @@ playlistsRouter.get('/:id/export', (req, res) => {
 });
 
 // Import M3U playlist
-playlistsRouter.post('/import', (req, res) => {
+playlistsRouter.post('/import', validate({ body: importSchema }), (req, res) => {
   const { name, content } = req.body;
-  if (!name || !content) return res.status(400).json({ error: 'name and content required' });
-
   const db = getDb();
   const id = uuid();
   db.insert(playlists).values({ id, name }).run();
 
   // Parse M3U
-  const lines = (content as string).split('\n').map((l: string) => l.trim()).filter((l: string) => l && !l.startsWith('#'));
+  const lines = (content as string)
+    .split('\n')
+    .map((l: string) => l.trim())
+    .filter((l: string) => l && !l.startsWith('#'));
   let position = 0;
 
   for (const line of lines) {
@@ -196,7 +230,9 @@ playlistsRouter.post('/import', (req, res) => {
 // Remove a track from a playlist
 playlistsRouter.delete('/:id/tracks/:trackId', (req, res) => {
   const db = getDb();
-  const items = db.select().from(playlistTracks)
+  const items = db
+    .select()
+    .from(playlistTracks)
     .where(eq(playlistTracks.playlistId, req.params.id))
     .all();
 
@@ -206,8 +242,11 @@ playlistsRouter.delete('/:id/tracks/:trackId', (req, res) => {
   }
 
   // Update count
-  const count = db.select().from(playlistTracks)
-    .where(eq(playlistTracks.playlistId, req.params.id)).all().length;
+  const count = db
+    .select()
+    .from(playlistTracks)
+    .where(eq(playlistTracks.playlistId, req.params.id))
+    .all().length;
   db.update(playlists).set({ trackCount: count }).where(eq(playlists.id, req.params.id)).run();
 
   res.json({ data: { ok: true, trackCount: count } });
