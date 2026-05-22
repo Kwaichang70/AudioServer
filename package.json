@@ -17,7 +17,7 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc -b",
     "test": "npm test --workspace=server && npm test --workspace=client",
-    "prepare": "husky"
+    "prepare": "husky || true"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
