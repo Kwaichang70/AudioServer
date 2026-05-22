@@ -30,6 +30,7 @@ import { deviceMonitor } from './services/device-monitor.js';
 import { globalLimiter } from './middleware/rateLimiter.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { attachUser, requireAuth } from './middleware/auth.js';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -87,6 +88,12 @@ if (config.nodeEnv === 'production') {
     logger.info(`Serving client from ${clientDist}`);
   }
 }
+
+// 404 for unmatched /api/* paths (must come after all routes, before errorHandler)
+app.use('/api', notFoundHandler);
+
+// Global error handler — must be LAST (Express recognises it by 4-arity)
+app.use(errorHandler);
 
 // ─── Startup ─────────────────────────────────────────────────────
 

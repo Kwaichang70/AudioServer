@@ -1,5 +1,5 @@
 import { useState, lazy, Suspense } from 'react';
-import { useAudioContext } from '../context/AudioContext.js';
+import { useAudioContext, useProgress } from '../context/AudioContext.js';
 import { api } from '../api/client.js';
 import { formatTime } from '../utils/format.js';
 
@@ -11,11 +11,26 @@ interface Props {
 
 export default function NowPlayingFull({ onClose }: Props) {
   const {
-    currentTrack, isPlaying, isLoading, currentTime, duration, volume,
-    pause, resume, setVolume, seek, playNext, playPrevious,
-    queue, queueIndex, shuffle, repeat, toggleShuffle, toggleRepeat,
-    crossfade, setCrossfade,
+    currentTrack,
+    isPlaying,
+    isLoading,
+    volume,
+    pause,
+    resume,
+    setVolume,
+    seek,
+    playNext,
+    playPrevious,
+    queue,
+    queueIndex,
+    shuffle,
+    repeat,
+    toggleShuffle,
+    toggleRepeat,
+    crossfade,
+    setCrossfade,
   } = useAudioContext();
+  const { currentTime, duration } = useProgress();
 
   const [showLyrics, setShowLyrics] = useState(false);
 
@@ -35,7 +50,9 @@ export default function NowPlayingFull({ onClose }: Props) {
           src={coverUrl}
           alt=""
           className="w-full h-full object-cover scale-110 blur-3xl opacity-20"
-          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.display = 'none';
+          }}
         />
         <div className="absolute inset-0 bg-gradient-to-b from-surface-dark/60 via-surface-dark/80 to-surface-dark" />
       </div>
@@ -76,7 +93,9 @@ export default function NowPlayingFull({ onClose }: Props) {
         {/* Track info + queue sidebar */}
         <div className="flex flex-col items-center md:items-start gap-4 min-w-0 max-w-md">
           <div className="text-center md:text-left">
-            <h2 className="text-2xl sm:text-3xl font-bold truncate max-w-md">{currentTrack.title}</h2>
+            <h2 className="text-2xl sm:text-3xl font-bold truncate max-w-md">
+              {currentTrack.title}
+            </h2>
             <p className="text-lg text-gray-400 truncate">{currentTrack.artistName}</p>
             <p className="text-sm text-gray-500 truncate">{currentTrack.albumTitle}</p>
             {currentTrack.format && (
@@ -85,7 +104,9 @@ export default function NowPlayingFull({ onClose }: Props) {
                   {currentTrack.format.toUpperCase()}
                 </span>
                 {currentTrack.sampleRate && (
-                  <span className="text-xs text-gray-500">{(currentTrack.sampleRate / 1000).toFixed(1)} kHz</span>
+                  <span className="text-xs text-gray-500">
+                    {(currentTrack.sampleRate / 1000).toFixed(1)} kHz
+                  </span>
                 )}
                 {currentTrack.bitDepth && (
                   <span className="text-xs text-gray-500">{currentTrack.bitDepth}-bit</span>
@@ -107,10 +128,15 @@ export default function NowPlayingFull({ onClose }: Props) {
               <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Up Next</p>
               <div className="space-y-1 max-h-48 overflow-y-auto">
                 {queue.slice(queueIndex + 1, queueIndex + 6).map((track, i) => (
-                  <div key={`fn-${i}`} className="flex items-center gap-3 text-sm text-gray-400 py-1">
+                  <div
+                    key={`fn-${i}`}
+                    className="flex items-center gap-3 text-sm text-gray-400 py-1"
+                  >
                     <span className="text-xs text-gray-600 w-4">{queueIndex + i + 2}</span>
                     <span className="truncate">{track.title}</span>
-                    <span className="text-xs text-gray-600 ml-auto shrink-0">{track.artistName}</span>
+                    <span className="text-xs text-gray-600 ml-auto shrink-0">
+                      {track.artistName}
+                    </span>
                   </div>
                 ))}
                 {queue.length - queueIndex - 1 > 5 && (
@@ -166,14 +192,19 @@ export default function NowPlayingFull({ onClose }: Props) {
           >
             &#128256;
           </button>
-          <button onClick={playPrevious} className="text-gray-400 hover:text-white transition text-2xl">
+          <button
+            onClick={playPrevious}
+            className="text-gray-400 hover:text-white transition text-2xl"
+          >
             &#9198;
           </button>
           <button
             onClick={isLoading ? undefined : isPlaying ? pause : resume}
             disabled={isLoading}
             className={`w-14 h-14 rounded-full flex items-center justify-center transition text-lg ${
-              isLoading ? 'bg-gray-500 text-surface animate-pulse' : 'bg-white text-surface hover:scale-105'
+              isLoading
+                ? 'bg-gray-500 text-surface animate-pulse'
+                : 'bg-white text-surface hover:scale-105'
             }`}
           >
             {isLoading ? '\u23F3' : isPlaying ? '\u23F8' : '\u25B6'}

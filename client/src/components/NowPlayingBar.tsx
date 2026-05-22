@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAudioContext } from '../context/AudioContext.js';
+import { useAudioContext, useProgress } from '../context/AudioContext.js';
 import { api } from '../api/client.js';
 import DeviceSelector from './DeviceSelector.js';
 import { formatTime } from '../utils/format.js';
@@ -13,11 +13,29 @@ interface NowPlayingBarProps {
 export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
   const navigate = useNavigate();
   const {
-    currentTrack, isPlaying, isLoading, currentTime, duration, volume,
-    pause, resume, setVolume, seek, playNext, playPrevious, queue, queueIndex,
-    selectedDeviceId, setSelectedDeviceId, shuffle, repeat, toggleShuffle, toggleRepeat,
-    removeFromQueue, moveInQueue, clearQueue,
+    currentTrack,
+    isPlaying,
+    isLoading,
+    volume,
+    pause,
+    resume,
+    setVolume,
+    seek,
+    playNext,
+    playPrevious,
+    queue,
+    queueIndex,
+    selectedDeviceId,
+    setSelectedDeviceId,
+    shuffle,
+    repeat,
+    toggleShuffle,
+    toggleRepeat,
+    removeFromQueue,
+    moveInQueue,
+    clearQueue,
   } = useAudioContext();
+  const { currentTime, duration } = useProgress();
   const [showQueue, setShowQueue] = useState(false);
 
   if (!currentTrack) {
@@ -42,19 +60,30 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
           title="Fullscreen view"
         >
           <img
-            src={currentTrack.albumId ? api.getAlbumCoverUrl(currentTrack.albumId) : api.getTrackCoverUrl(currentTrack.id)}
+            src={
+              currentTrack.albumId
+                ? api.getAlbumCoverUrl(currentTrack.albumId)
+                : api.getTrackCoverUrl(currentTrack.id)
+            }
             alt=""
             className="w-full h-full object-cover"
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
           />
         </div>
-        <div className="min-w-0 cursor-pointer" onClick={() => {
-          if (currentTrack.albumId) navigate(`/albums/${currentTrack.albumId}`);
-        }}>
+        <div
+          className="min-w-0 cursor-pointer"
+          onClick={() => {
+            if (currentTrack.albumId) navigate(`/albums/${currentTrack.albumId}`);
+          }}
+        >
           <p className="text-sm font-medium truncate hover:text-accent transition">
             {currentTrack.title}
             {currentTrack.id.startsWith('spotify:') && (
-              <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-green-900/50 text-green-300">spotify</span>
+              <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-green-900/50 text-green-300">
+                spotify
+              </span>
             )}
           </p>
           <p className="text-xs text-gray-400 truncate">
@@ -65,7 +94,9 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
             {currentTrack.format && (
               <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-gray-500">
                 {currentTrack.format.toUpperCase()}
-                {currentTrack.sampleRate ? `/${(currentTrack.sampleRate / 1000).toFixed(1)}kHz` : ''}
+                {currentTrack.sampleRate
+                  ? `/${(currentTrack.sampleRate / 1000).toFixed(1)}kHz`
+                  : ''}
                 {currentTrack.bitDepth ? `/${currentTrack.bitDepth}bit` : ''}
               </span>
             )}
@@ -94,7 +125,9 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
             onClick={isLoading ? undefined : isPlaying ? pause : resume}
             disabled={isLoading}
             className={`w-9 h-9 rounded-full flex items-center justify-center transition text-sm ${
-              isLoading ? 'bg-gray-500 text-surface animate-pulse' : 'bg-white text-surface hover:scale-105'
+              isLoading
+                ? 'bg-gray-500 text-surface animate-pulse'
+                : 'bg-white text-surface hover:scale-105'
             }`}
           >
             {isLoading ? '\u23F3' : isPlaying ? '\u23F8' : '\u25B6'}
@@ -115,9 +148,7 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
           </button>
         </div>
         {selectedDeviceId !== 'browser' && (
-          <p className="text-[10px] text-gray-500 mb-0.5">
-            Playing on external device
-          </p>
+          <p className="text-[10px] text-gray-500 mb-0.5">Playing on external device</p>
         )}
         {isRadio ? (
           <div className="w-full max-w-lg flex items-center justify-center gap-2 text-xs">
@@ -130,7 +161,8 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
         ) : (
           <div className="w-full max-w-lg flex items-center gap-2 text-xs text-gray-400">
             <span className="w-10 text-right">{formatTime(currentTime)}</span>
-            <div className="flex-1 relative h-1 bg-white/10 rounded group cursor-pointer"
+            <div
+              className="flex-1 relative h-1 bg-white/10 rounded group cursor-pointer"
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const pos = (e.clientX - rect.left) / rect.width;
@@ -169,17 +201,16 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
             className="flex-1 h-1 accent-accent"
           />
         </div>
-        <DeviceSelector
-          selectedDeviceId={selectedDeviceId}
-          onSelect={setSelectedDeviceId}
-        />
+        <DeviceSelector selectedDeviceId={selectedDeviceId} onSelect={setSelectedDeviceId} />
       </div>
 
       {/* Queue panel */}
       {showQueue && queue.length > 0 && (
         <div className="absolute bottom-full right-4 mb-2 w-96 max-h-96 overflow-y-auto bg-surface border border-white/10 rounded-lg shadow-xl z-50">
           <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
-            <p className="text-xs text-gray-400 uppercase tracking-wider">Queue ({queue.length} tracks)</p>
+            <p className="text-xs text-gray-400 uppercase tracking-wider">
+              Queue ({queue.length} tracks)
+            </p>
             <div className="flex items-center gap-2">
               <button
                 onClick={clearQueue}
@@ -188,7 +219,12 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
               >
                 Clear
               </button>
-              <button onClick={() => setShowQueue(false)} className="text-gray-500 hover:text-white text-sm">&times;</button>
+              <button
+                onClick={() => setShowQueue(false)}
+                className="text-gray-500 hover:text-white text-sm"
+              >
+                &times;
+              </button>
             </div>
           </div>
           <SortableList
@@ -198,9 +234,11 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
               const idx = item._index;
               const isCurrent = idx === queueIndex;
               return (
-                <div className={`group px-2 py-1.5 text-sm flex items-center gap-2 ${
-                  isCurrent ? 'text-accent bg-accent/10 rounded' : 'text-gray-400'
-                }`}>
+                <div
+                  className={`group px-2 py-1.5 text-sm flex items-center gap-2 ${
+                    isCurrent ? 'text-accent bg-accent/10 rounded' : 'text-gray-400'
+                  }`}
+                >
                   <span className="w-5 text-xs text-right shrink-0">
                     {isCurrent && isPlaying ? '\u25B6' : idx + 1}
                   </span>

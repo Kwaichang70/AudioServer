@@ -10,6 +10,46 @@ type ApiResult = any;
 
 const API_BASE = '/api';
 
+/**
+ * Thrown by fetchApi on non-2xx responses. Carries the HTTP status and the
+ * server's structured error payload (when available) so callers can react
+ * differently to 401/403/404 vs. generic 5xx.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number,
+    public code?: string,
+    public requestId?: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+
+  get isUnauthorized(): boolean {
+    return this.statusCode === 401;
+  }
+
+  get isForbidden(): boolean {
+    return this.statusCode === 403;
+  }
+
+  get isNotFound(): boolean {
+    return this.statusCode === 404;
+  }
+}
+
+// Listeners that get notified of every ApiError. NowPlayingBar / a toast
+// provider can subscribe to show a unified UI without each call site adding
+// its own try/catch.
+type ErrorListener = (err: ApiError) => void;
+const errorListeners = new Set<ErrorListener>();
+
+export function onApiError(listener: ErrorListener): () => void {
+  errorListeners.add(listener);
+  return () => errorListeners.delete(listener);
+}
+
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem('audioserver_token');
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -20,8 +60,25 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error(error.message || `API error: ${res.status}`);
+    const body = (await res.json().catch(() => null)) as {
+      error?: string;
+      message?: string;
+      requestId?: string;
+    } | null;
+    const err = new ApiError(
+      body?.message || body?.error || res.statusText || `API error ${res.status}`,
+      res.status,
+      body?.error,
+      body?.requestId,
+    );
+    for (const l of errorListeners) {
+      try {
+        l(err);
+      } catch {
+        // swallow listener errors so one bad subscriber doesn't poison the rest
+      }
+    }
+    throw err;
   }
   return res.json();
 }

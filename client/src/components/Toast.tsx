@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { onApiError, type ApiError } from '../api/client.js';
 
 interface ToastMessage {
   id: number;
@@ -24,6 +25,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       setMessages((prev) => prev.filter((m) => m.id !== id));
     }, 3000);
   }, []);
+
+  // Auto-toast API errors so callers don't need to wire up try/catch + toast on
+  // every fetch. 401s are deliberately silent — App.tsx redirects to login on
+  // those, and a toast on every protected request during reauth is noise.
+  useEffect(() => {
+    return onApiError((err: ApiError) => {
+      if (err.isUnauthorized) return;
+      toast(err.message, 'error');
+    });
+  }, [toast]);
 
   const colors = {
     info: 'bg-surface-light border-white/20',

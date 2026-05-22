@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../api/client.js';
-import { useAudioContext } from '../context/AudioContext.js';
+import { useAudioContext, useProgress } from '../context/AudioContext.js';
 
 interface SyncedLine {
   time: number;
@@ -14,7 +14,8 @@ interface LyricsData {
 }
 
 export default function LyricsDisplay() {
-  const { currentTrack, currentTime } = useAudioContext();
+  const { currentTrack } = useAudioContext();
+  const { currentTime } = useProgress();
   const [lyrics, setLyrics] = useState<LyricsData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -22,16 +23,26 @@ export default function LyricsDisplay() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!currentTrack) { setLyrics(null); return; }
+    if (!currentTrack) {
+      setLyrics(null);
+      return;
+    }
     // Don't fetch for streaming tracks without local IDs
-    if (currentTrack.id.startsWith('spotify:')) { setLyrics(null); return; }
+    if (currentTrack.id.startsWith('spotify:')) {
+      setLyrics(null);
+      return;
+    }
 
     setLoading(true);
     setError(false);
     const trackId = currentTrack.id.replace('tidal:', '').replace('qobuz:', '');
-    api.getLyrics(trackId)
+    api
+      .getLyrics(trackId)
       .then((res) => setLyrics(res.data))
-      .catch(() => { setError(true); setLyrics(null); })
+      .catch(() => {
+        setError(true);
+        setLyrics(null);
+      })
       .finally(() => setLoading(false));
   }, [currentTrack?.id]);
 

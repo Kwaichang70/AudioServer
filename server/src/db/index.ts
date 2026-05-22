@@ -19,8 +19,12 @@ export function getRawDb(): InstanceType<typeof Database> {
   return rawDb;
 }
 
-export async function initDatabase() {
-  const dbPath = config.databasePath;
+/**
+ * Initialise the database. Accepts an optional path override for tests so they
+ * can spin up a throwaway sqlite file per suite without mutating process.env.
+ */
+export async function initDatabase(overridePath?: string) {
+  const dbPath = overridePath ?? config.databasePath;
   mkdirSync(dirname(dbPath), { recursive: true });
 
   rawDb = new Database(dbPath);

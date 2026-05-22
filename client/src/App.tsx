@@ -2,6 +2,7 @@ import { useState, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout.js';
 import LoginPage from './pages/LoginPage.js';
+import ErrorBoundary from './components/ErrorBoundary.js';
 import { api, ensureStreamToken, clearStreamToken } from './api/client.js';
 
 // Lazy-loaded pages (code splitting)
@@ -69,28 +70,30 @@ export default function App() {
   }
 
   return (
-    <Suspense fallback={<PageLoader />}>
-      <Routes>
-        <Route element={<Layout />}>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/artists" element={<ArtistsPage />} />
-          <Route path="/artists/:id" element={<ArtistPage />} />
-          <Route path="/albums" element={<AlbumsPage />} />
-          <Route path="/albums/:id" element={<AlbumPage />} />
-          <Route path="/favorites" element={<FavoritesPage />} />
-          <Route path="/history" element={<HistoryPage />} />
-          <Route path="/genres" element={<GenresPage />} />
-          <Route path="/genres/:genre" element={<GenresPage />} />
-          <Route path="/radio" element={<RadioPage />} />
-          <Route path="/smart-playlists" element={<SmartPlaylistsPage />} />
-          <Route path="/smart-playlists/:id" element={<SmartPlaylistsPage />} />
-          <Route path="/playlists" element={<PlaylistsPage />} />
-          <Route path="/playlists/:id" element={<PlaylistPage />} />
-          <Route path="/search" element={<SearchPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-        </Route>
-        <Route path="/settings/callback/:provider" element={<OAuthCallbackPage />} />
-      </Routes>
-    </Suspense>
+    <ErrorBoundary>
+      <Suspense fallback={<PageLoader />}>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/artists" element={<ArtistsPage />} />
+            <Route path="/artists/:id" element={<ArtistPage />} />
+            <Route path="/albums" element={<AlbumsPage />} />
+            <Route path="/albums/:id" element={<AlbumPage />} />
+            <Route path="/favorites" element={<FavoritesPage />} />
+            <Route path="/history" element={<HistoryPage />} />
+            <Route path="/genres" element={<GenresPage />} />
+            <Route path="/genres/:genre" element={<GenresPage />} />
+            <Route path="/radio" element={<RadioPage />} />
+            <Route path="/smart-playlists" element={<SmartPlaylistsPage />} />
+            <Route path="/smart-playlists/:id" element={<SmartPlaylistsPage />} />
+            <Route path="/playlists" element={<PlaylistsPage />} />
+            <Route path="/playlists/:id" element={<PlaylistPage />} />
+            <Route path="/search" element={<SearchPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+          </Route>
+          <Route path="/settings/callback/:provider" element={<OAuthCallbackPage />} />
+        </Routes>
+      </Suspense>
+    </ErrorBoundary>
   );
 }

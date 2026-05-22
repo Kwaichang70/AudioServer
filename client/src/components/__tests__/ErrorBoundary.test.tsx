@@ -10,14 +10,18 @@ function ThrowingComponent({ shouldThrow }: { shouldThrow: boolean }) {
 describe('ErrorBoundary', () => {
   // Suppress console.error for expected errors
   const originalError = console.error;
-  beforeEach(() => { console.error = vi.fn(); });
-  afterEach(() => { console.error = originalError; });
+  beforeEach(() => {
+    console.error = vi.fn();
+  });
+  afterEach(() => {
+    console.error = originalError;
+  });
 
   it('renders children when no error', () => {
     render(
       <ErrorBoundary>
         <div>Child content</div>
-      </ErrorBoundary>
+      </ErrorBoundary>,
     );
     expect(screen.getByText('Child content')).toBeInTheDocument();
   });
@@ -26,10 +30,12 @@ describe('ErrorBoundary', () => {
     render(
       <ErrorBoundary>
         <ThrowingComponent shouldThrow={true} />
-      </ErrorBoundary>
+      </ErrorBoundary>,
     );
     expect(screen.getByText('Something went wrong')).toBeInTheDocument();
     expect(screen.getByText('Test error')).toBeInTheDocument();
-    expect(screen.getByText('Reload')).toBeInTheDocument();
+    // The fallback exposes two recovery paths: in-place reset and full page reload.
+    expect(screen.getByText('Try again')).toBeInTheDocument();
+    expect(screen.getByText('Reload page')).toBeInTheDocument();
   });
 });
