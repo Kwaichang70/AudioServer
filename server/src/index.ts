@@ -43,23 +43,34 @@ app.use(
     crossOriginResourcePolicy: { policy: 'cross-origin' }, // allow <img src> from SPA origin
   }),
 );
-// CORS only on the API surface — static assets (the SPA bundle) live on the
-// same origin as the browser and don't need CORS at all. Applying cors()
-// globally caused 500s on /assets/*.js when the browser sent an Origin
-// header that wasn't in ALLOWED_ORIGINS, because the cors() error bubbled
-// up to errorHandler instead of being silently allowed.
+// CORS only on the API surface. Two important details:
+//  1. Same-origin requests (Origin's host equals the server's Host header)
+//     are always allowed. Browsers send Origin for non-safe methods even when
+//     same-origin, and we don't want our own SPA to be blocked just because
+//     the LAN hostname (e.g. http://diskstation:3001) isn't in the allowlist.
+//  2. Disallowed cross-origin requests get { origin: false } instead of a
+//     thrown Error. With Error(), the failure bubbles to errorHandler and
+//     returns 500 BEFORE requestLogger / route handlers run. With
+//     { origin: false } the server still answers the request (without CORS
+//     headers); the browser blocks the response, but our server logs cleanly.
 app.use(
   '/api',
-  cors({
-    origin: (origin, callback) => {
-      // Allow same-origin (no Origin header) and configured origins.
-      if (!origin || config.allowedOrigins.includes(origin)) {
-        callback(null, true);
-        return;
+  cors((req, callback) => {
+    const origin = req.headers.origin;
+    const host = req.headers.host;
+    let sameOrigin = false;
+    if (origin && host) {
+      try {
+        sameOrigin = new URL(origin).host === host;
+      } catch {
+        sameOrigin = false;
       }
-      callback(new Error(`Origin ${origin} not allowed by CORS`));
-    },
-    credentials: true,
+    }
+    if (!origin || sameOrigin || config.allowedOrigins.includes(origin)) {
+      callback(null, { origin: true, credentials: true });
+      return;
+    }
+    callback(null, { origin: false });
   }),
 );
 app.use(express.json());
