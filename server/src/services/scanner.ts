@@ -37,6 +37,9 @@ export interface ScanStatus {
   errors: number;
   currentDir?: string;
   currentFile?: string;
+  successfulRoots: string[];
+  failedRoots: Array<{ path: string; error: string; failedDirs: string[] }>;
+  orphanCleanupSkipped: boolean;
 }
 
 let scanStatus: ScanStatus = {
@@ -51,6 +54,9 @@ let scanStatus: ScanStatus = {
   albums: 0,
   tracks: 0,
   errors: 0,
+  successfulRoots: [],
+  failedRoots: [],
+  orphanCleanupSkipped: false,
 };
 
 export function getScanStatus(): ScanStatus {
@@ -83,6 +89,9 @@ export async function scanLibrary(libraryPaths: string[]): Promise<ScanStatus> {
     albums: 0,
     tracks: 0,
     errors: 0,
+    successfulRoots: [],
+    failedRoots: [],
+    orphanCleanupSkipped: false,
   };
   artistCache.clear();
   albumCache.clear();
@@ -92,13 +101,30 @@ export async function scanLibrary(libraryPaths: string[]): Promise<ScanStatus> {
   try {
     for (const libPath of libraryPaths) {
       logger.info(`Scanning: ${libPath}`);
-      await scanDirectory(libPath, seenFilePaths);
+      const result = await scanDirectory(libPath, seenFilePaths);
+      if (result.ok) {
+        scanStatus.successfulRoots.push(libPath);
+      } else {
+        scanStatus.failedRoots.push({
+          path: libPath,
+          error: result.error,
+          failedDirs: result.failedDirs,
+        });
+        logger.warn(`Scan root skipped for orphan cleanup: ${libPath} (${result.error})`);
+      }
+      emitProgress();
     }
 
-    // Orphan cleanup: remove tracks whose files no longer exist
+    // Orphan cleanup only runs for roots that were fully readable. This avoids
+    // deleting database rows when a NAS share is temporarily offline.
     scanStatus.phase = 'cleaning';
     emitProgress();
-    await cleanOrphans(seenFilePaths);
+    if (scanStatus.successfulRoots.length === 0) {
+      scanStatus.orphanCleanupSkipped = true;
+      logger.warn('Skipping orphan cleanup: no configured music roots were scanned successfully');
+    } else {
+      await cleanOrphans(seenFilePaths, scanStatus.successfulRoots);
+    }
 
     scanStatus.phase = 'done';
     scanStatus.isScanning = false;
@@ -117,12 +143,42 @@ export async function scanLibrary(libraryPaths: string[]): Promise<ScanStatus> {
   return scanStatus;
 }
 
-async function scanDirectory(dir: string, seenFiles: Set<string>): Promise<void> {
+interface DirectoryScanResult {
+  ok: boolean;
+  error: string;
+  failedDirs: string[];
+}
+
+interface LocalTrackRow {
+  id: string;
+  file_path: string | null;
+  album_id: string;
+  artist_id: string;
+}
+
+function describeFsError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+function normalizeScanPath(value: string): string {
+  return value.replace(/\\/g, '/').replace(/\/+$/, '');
+}
+
+function isPathUnderRoot(filePath: string, normalizedRoot: string): boolean {
+  const normalizedFile = normalizeScanPath(filePath);
+  return normalizedFile === normalizedRoot || normalizedFile.startsWith(`${normalizedRoot}/`);
+}
+
+async function scanDirectory(dir: string, seenFiles: Set<string>): Promise<DirectoryScanResult> {
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return;
+  } catch (err) {
+    const error = describeFsError(err);
+    scanStatus.errors++;
+    logger.warn(`Cannot read music directory ${dir}: ${error}`);
+    return { ok: false, error, failedDirs: [dir] };
   }
 
   scanStatus.currentDir = dir.split('/').pop() || dir;
@@ -181,25 +237,43 @@ async function scanDirectory(dir: string, seenFiles: Set<string>): Promise<void>
   }
 
   // Recurse into subdirectories
+  const failedDirs: string[] = [];
   for (const entry of entries) {
     if (entry.isDirectory()) {
-      await scanDirectory(dir + '/' + entry.name, seenFiles);
+      const result = await scanDirectory(dir + '/' + entry.name, seenFiles);
+      if (!result.ok) failedDirs.push(...result.failedDirs);
     }
   }
+
+  if (failedDirs.length > 0) {
+    return {
+      ok: false,
+      error: `Failed to read ${failedDirs.length} director${failedDirs.length === 1 ? 'y' : 'ies'}`,
+      failedDirs,
+    };
+  }
+
+  return { ok: true, error: '', failedDirs: [] };
 }
 
-async function cleanOrphans(seenFiles: Set<string>): Promise<void> {
+async function cleanOrphans(seenFiles: Set<string>, successfulRoots: string[]): Promise<void> {
   const db = getRawDb();
   const allTracks = db
     .prepare('SELECT id, file_path, album_id, artist_id FROM tracks WHERE source = ?')
-    .all('local') as any[];
+    .all('local') as LocalTrackRow[];
+  const normalizedSeenFiles = new Set(Array.from(seenFiles, normalizeScanPath));
+  const normalizedRoots = successfulRoots.map(normalizeScanPath);
 
   const orphanTrackIds: string[] = [];
   const affectedAlbumIds = new Set<string>();
   const affectedArtistIds = new Set<string>();
 
   for (const track of allTracks) {
-    if (track.file_path && !seenFiles.has(track.file_path)) {
+    const filePath = track.file_path;
+    if (!filePath) continue;
+    if (!normalizedRoots.some((root) => isPathUnderRoot(filePath, root))) continue;
+
+    if (!normalizedSeenFiles.has(normalizeScanPath(filePath))) {
       orphanTrackIds.push(track.id);
       affectedAlbumIds.add(track.album_id);
       affectedArtistIds.add(track.artist_id);
