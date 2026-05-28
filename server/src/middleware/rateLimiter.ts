@@ -1,9 +1,9 @@
 import rateLimit from 'express-rate-limit';
 
-// Global: 1000 req/min, skip covers/images/streams (those are heavy on page load)
+// Global: 100 req/min, skip covers/images/streams (those are heavy on page load)
 export const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 1000,
+  max: 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later' },

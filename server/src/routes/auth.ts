@@ -37,7 +37,9 @@ interface UserRow {
   role: string;
 }
 
-// Register (first user becomes admin, subsequent users need admin invite)
+// Register is first-run only. After the first user exists, admins must use
+// /users/create so public registration cannot become a second user creation
+// path by accident.
 authRouter.post(
   '/register',
   registerLimiter,
@@ -49,21 +51,9 @@ authRouter.post(
     const isFirstUser = row.count === 0;
     const role = isFirstUser ? 'admin' : 'user';
 
-    // If not first user, require admin auth
     if (!isFirstUser) {
-      if (!req.userId) {
-        res
-          .status(403)
-          .json({ error: 'Registration requires admin invite. Use /users/create as admin.' });
-        return;
-      }
-      const admin = db.prepare('SELECT role FROM users WHERE id = ?').get(req.userId) as
-        | { role: string }
-        | undefined;
-      if (!admin || admin.role !== 'admin') {
-        res.status(403).json({ error: 'Only admins can create new users' });
-        return;
-      }
+      res.status(403).json({ error: 'Registration is closed. Admins must use /users/create.' });
+      return;
     }
 
     const id = uuid();
@@ -159,46 +149,41 @@ authRouter.get('/users', (req, res) => {
 });
 
 // Create a new user (admin only)
-authRouter.post(
-  '/users/create',
-  registerLimiter,
-  validate({ body: createUserSchema }),
-  async (req, res) => {
-    const { username, password, role } = req.body;
-    if (!req.userId) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return;
-    }
+authRouter.post('/users/create', validate({ body: createUserSchema }), async (req, res) => {
+  const { username, password, role } = req.body;
+  if (!req.userId) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
 
-    const db = getRawDb();
-    const admin = db.prepare('SELECT role FROM users WHERE id = ?').get(req.userId) as
-      | { role: string }
-      | undefined;
-    if (!admin || admin.role !== 'admin') {
-      res.status(403).json({ error: 'Admin required' });
-      return;
-    }
+  const db = getRawDb();
+  const admin = db.prepare('SELECT role FROM users WHERE id = ?').get(req.userId) as
+    | { role: string }
+    | undefined;
+  if (!admin || admin.role !== 'admin') {
+    res.status(403).json({ error: 'Admin required' });
+    return;
+  }
 
-    const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
-    if (existing) {
-      res.status(409).json({ error: 'Username already taken' });
-      return;
-    }
+  const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
+  if (existing) {
+    res.status(409).json({ error: 'Username already taken' });
+    return;
+  }
 
-    const id = uuid();
-    const passwordHash = await hashPassword(password);
-    const userRole = role === 'admin' ? 'admin' : 'user';
-    db.prepare('INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)').run(
-      id,
-      username,
-      passwordHash,
-      userRole,
-    );
+  const id = uuid();
+  const passwordHash = await hashPassword(password);
+  const userRole = role === 'admin' ? 'admin' : 'user';
+  db.prepare('INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)').run(
+    id,
+    username,
+    passwordHash,
+    userRole,
+  );
 
-    logger.info(`Admin created user: ${username} (${userRole})`);
-    res.status(201).json({ data: { id, username, role: userRole } });
-  },
-);
+  logger.info(`Admin created user: ${username} (${userRole})`);
+  res.status(201).json({ data: { id, username, role: userRole } });
+});
 
 // Delete a user (admin only, cannot delete self)
 authRouter.delete('/users/:id', (req, res) => {

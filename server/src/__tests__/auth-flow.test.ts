@@ -12,6 +12,7 @@ import { createTestApp } from './helpers/testApp.js';
 describe('Auth flow', () => {
   let app: Express;
   let teardown: () => void;
+  let adminToken: string;
 
   beforeAll(async () => {
     const ctx = await createTestApp();
@@ -39,6 +40,27 @@ describe('Auth flow', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.user).toMatchObject({ username: 'admin', role: 'admin' });
     expect(res.body.data.token).toBeTruthy();
+    adminToken = res.body.data.token;
+  });
+
+  it('closes public registration after first-run', async () => {
+    const res = await request(app)
+      .post('/api/auth/register')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ username: 'second-user', password: 'changeme123' });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('Registration is closed. Admins must use /users/create.');
+  });
+
+  it('lets admins create additional users through /users/create', async () => {
+    const res = await request(app)
+      .post('/api/auth/users/create')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ username: 'second-user', password: 'changeme123' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data).toMatchObject({ username: 'second-user', role: 'user' });
   });
 
   it('rejects protected requests without a token once users exist', async () => {

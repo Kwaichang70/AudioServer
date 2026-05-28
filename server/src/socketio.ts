@@ -9,6 +9,16 @@ import type { ServerToClientEvents, ClientToServerEvents } from './types/socket-
 
 let io: SocketServer<ClientToServerEvents, ServerToClientEvents>;
 
+export function isValidSocketToken(token: unknown): boolean {
+  if (typeof token !== 'string' || token.length === 0) return false;
+  try {
+    jwt.verify(token, config.jwtSecret);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function initSocketIO(httpServer: HttpServer): SocketServer {
   io = new SocketServer<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     cors: {
@@ -21,16 +31,18 @@ export function initSocketIO(httpServer: HttpServer): SocketServer {
   io.use((socket, next) => {
     try {
       const db = getRawDb();
-      const row = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number } | undefined;
+      const row = db.prepare('SELECT COUNT(*) as count FROM users').get() as
+        | { count: number }
+        | undefined;
       if (!row || row.count === 0) return next();
 
       const token = socket.handshake.auth?.token || socket.handshake.query?.token;
       if (!token) return next(new Error('Authentication required'));
 
-      jwt.verify(token as string, config.jwtSecret);
+      if (!isValidSocketToken(token)) return next(new Error('Authentication failed'));
       next();
     } catch {
-      next();
+      next(new Error('Authentication failed'));
     }
   });
 
