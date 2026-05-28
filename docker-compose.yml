@@ -12,8 +12,11 @@ services:
       - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
       - TIDAL_CLIENT_ID=${TIDAL_CLIENT_ID:-}
       - TIDAL_CLIENT_SECRET=${TIDAL_CLIENT_SECRET:-}
+      - QOBUZ_APP_ID=${QOBUZ_APP_ID:-}
+      - QOBUZ_APP_SECRET=${QOBUZ_APP_SECRET:-}
       - QOBUZ_USERNAME=${QOBUZ_USERNAME:-}
       - QOBUZ_PASSWORD=${QOBUZ_PASSWORD:-}
+      - QOBUZ_AUDIO_FORMAT=${QOBUZ_AUDIO_FORMAT:-5}
       - DLNA_DEVICES=${DLNA_DEVICES:-}
       - VOLUMIO_DEVICES=${VOLUMIO_DEVICES:-}
       - SPOTIFY_USERNAME=${SPOTIFY_USERNAME:-}
@@ -22,7 +25,7 @@ services:
       - audioserver-data:/data
       # On Synology: /volume1/music is the typical path for a "music" shared folder
       - ${MUSIC_PATH:-/volume1/music}:/music:ro
-    network_mode: host  # Required for DLNA/SSDP multicast discovery
+    network_mode: host # Required for DLNA/SSDP multicast discovery
     restart: unless-stopped
 
 volumes:

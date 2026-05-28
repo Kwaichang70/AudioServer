@@ -331,7 +331,13 @@ export function useAudio() {
 
       // Activating RG → make sure Web Audio is wired up for the current track.
       const needsWebAudio = rgModeRef.current !== 'off' || rgPreampRef.current !== 0;
-      if (needsWebAudio && audioRef.current && !gainMapRef.current.has(audioRef.current)) {
+      const currentUrl = audioRef.current?.currentSrc || audioRef.current?.src || '';
+      if (
+        needsWebAudio &&
+        audioRef.current &&
+        isSameOriginUrl(currentUrl) &&
+        !gainMapRef.current.has(audioRef.current)
+      ) {
         attachGain(audioRef.current);
       }
       applyVolume(audioRef.current);

@@ -7,6 +7,10 @@ interface ProviderStatus {
   available: boolean;
   authenticated: boolean;
   configured?: boolean;
+  streamingAvailable?: boolean;
+  reason?: string;
+  formatId?: string;
+  accountName?: string;
 }
 
 interface AllStatus {
@@ -254,6 +258,7 @@ export default function SettingsPage() {
             onConnect={() => connectProvider('tidal')}
             onDisconnect={() => disconnectProvider('tidal')}
             envVars={['TIDAL_CLIENT_ID', 'TIDAL_CLIENT_SECRET']}
+            note="Catalog and preview only. Use Qobuz or local NAS playback for full tracks."
           />
 
           {/* Qobuz (username/password) */}
@@ -329,9 +334,12 @@ function QobuzCard({
   const [error, setError] = useState('');
   const { toast } = useToast();
   const authenticated = status?.authenticated ?? false;
+  const configured = status?.configured ?? false;
+  const streamingAvailable = status?.streamingAvailable ?? false;
+  const formatId = status?.formatId || '5';
 
   const handleLogin = async () => {
-    if (!username || !password) return;
+    if (!configured || !username || !password) return;
     setLoading(true);
     setError('');
     try {
@@ -364,12 +372,21 @@ function QobuzCard({
           <div>
             <p className="text-sm font-medium">Qobuz</p>
             <p className="text-xs text-gray-500">
-              {authenticated ? 'Connected' : 'Login with your Qobuz account'}
+              {!configured
+                ? 'Set QOBUZ_APP_ID and QOBUZ_APP_SECRET on the server'
+                : authenticated
+                  ? `External playback source connected${status?.accountName ? ` as ${status.accountName}` : ''}`
+                  : 'Login with your Qobuz account'}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {authenticated && <span className="w-2 h-2 rounded-full bg-green-500" />}
+          {configured && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-900/40 text-purple-300">
+              format {formatId}
+            </span>
+          )}
+          {streamingAvailable && <span className="w-2 h-2 rounded-full bg-green-500" />}
           {authenticated && (
             <button
               onClick={handleLogout}
@@ -380,7 +397,13 @@ function QobuzCard({
           )}
         </div>
       </div>
-      {!authenticated && (
+      {!configured && (
+        <p className="text-xs text-amber-400">
+          Qobuz streaming is disabled until app credentials are configured. User login alone is not
+          enough for full-track playback.
+        </p>
+      )}
+      {configured && !authenticated && (
         <div className="space-y-2">
           <input
             type="text"
@@ -747,6 +770,7 @@ function ProviderCard({
   onConnect,
   onDisconnect,
   envVars,
+  note,
 }: {
   name: string;
   icon: string;
@@ -754,6 +778,7 @@ function ProviderCard({
   onConnect: () => void;
   onDisconnect: () => void;
   envVars: string[];
+  note?: string;
 }) {
   const configured = status?.configured ?? status?.available ?? false;
   const authenticated = status?.authenticated ?? false;
@@ -772,6 +797,7 @@ function ProviderCard({
                   ? 'Connected'
                   : 'Not connected'}
             </p>
+            {note && <p className="text-xs text-amber-400 mt-1">{note}</p>}
           </div>
         </div>
         <div className="flex items-center gap-2">

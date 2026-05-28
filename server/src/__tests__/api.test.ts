@@ -133,7 +133,7 @@ describe('Playback API', () => {
     });
     const { data } = await res.json();
     expect(data.length).toBe(1);
-    expect(data[0].track.id).toBe('q-1');
+    expect(data[0].trackId).toBe('q-1');
   });
 
   it('can clear queue', async () => {

@@ -1,4 +1,9 @@
-import type { DeviceController, OutputDevice, DevicePlaybackStatus, TrackMetadata } from '@audioserver/shared';
+import type {
+  DeviceController,
+  OutputDevice,
+  DevicePlaybackStatus,
+  TrackMetadata,
+} from '@audioserver/shared';
 import { DlnaController } from './dlna.js';
 import { SonosController } from './sonos.js';
 import { VolumioController } from './volumio.js';
@@ -22,7 +27,11 @@ export class DeviceManager {
 
   async getDevices(forceRefresh = false): Promise<OutputDevice[]> {
     const now = Date.now();
-    if (!forceRefresh && this.cachedDevices.length > 0 && now - this.lastDiscovery < this.CACHE_TTL) {
+    if (
+      !forceRefresh &&
+      this.cachedDevices.length > 0 &&
+      now - this.lastDiscovery < this.CACHE_TTL
+    ) {
       return this.cachedDevices;
     }
 
@@ -35,6 +44,15 @@ export class DeviceManager {
     };
 
     const discovered: OutputDevice[] = [browser];
+
+    if (
+      process.env.NODE_ENV === 'test' &&
+      process.env.AUDIOSERVER_DISCOVER_DEVICES_IN_TESTS !== 'true'
+    ) {
+      this.cachedDevices = discovered;
+      this.lastDiscovery = now;
+      return discovered;
+    }
 
     for (const controller of this.controllers) {
       try {

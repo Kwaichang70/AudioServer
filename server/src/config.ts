@@ -33,8 +33,11 @@ const envSchema = z.object({
   SPOTIFY_CLIENT_SECRET: z.string().optional(),
   TIDAL_CLIENT_ID: z.string().optional(),
   TIDAL_CLIENT_SECRET: z.string().optional(),
+  QOBUZ_APP_ID: z.string().optional(),
+  QOBUZ_APP_SECRET: z.string().optional(),
   QOBUZ_USERNAME: z.string().optional(),
   QOBUZ_PASSWORD: z.string().optional(),
+  QOBUZ_AUDIO_FORMAT: z.enum(['5', '6', '7', '27']).default('5'),
   LASTFM_API_KEY: z.string().optional(),
   LASTFM_API_SECRET: z.string().optional(),
   LISTENBRAINZ_TOKEN: z.string().optional(),
@@ -112,7 +115,9 @@ export function validateConfig(): void {
   console.log(`  Allowed origins: ${config.allowedOrigins.join(', ') || '(none)'}`);
   console.log(`  Spotify: ${env.SPOTIFY_CLIENT_ID ? 'configured' : 'not configured'}`);
   console.log(`  Tidal: ${env.TIDAL_CLIENT_ID ? 'configured' : 'not configured'}`);
-  console.log(`  Qobuz: ${env.QOBUZ_USERNAME ? 'configured' : 'not configured'}`);
+  console.log(
+    `  Qobuz: ${env.QOBUZ_APP_ID && env.QOBUZ_APP_SECRET ? `configured (format ${env.QOBUZ_AUDIO_FORMAT})` : 'not configured'}`,
+  );
   console.log(`  Last.fm: ${env.LASTFM_API_KEY ? 'configured' : 'not configured'}`);
   console.log(`  ListenBrainz: ${env.LISTENBRAINZ_TOKEN ? 'configured' : 'not configured'}`);
   console.log(`  DLNA devices: ${env.DLNA_DEVICES || 'auto-discover'}`);

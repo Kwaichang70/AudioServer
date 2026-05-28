@@ -1,28 +1,90 @@
 import type { AuthenticatedMusicProvider, ProviderAuth } from '@audioserver/shared';
 import type { Artist, Album, Track, SearchResults, Playlist } from '@audioserver/shared';
+import { createHash } from 'crypto';
 import { logger } from '../logger.js';
-import { getRawDb } from '../db/index.js';
+import { deleteTokens, loadTokens, saveTokens } from '../services/tokenstore.js';
 
 const QOBUZ_API_URL = 'https://www.qobuz.com/api.json/0.2';
-// App ID + secret from the Qobuz web player (public, used by open-source projects)
-const QOBUZ_APP_ID = '798273057';
-// App secret kept for future stream URL signing when Qobuz changes are reverse-engineered
-// const QOBUZ_APP_SECRET = 'f686f063cb0841079d48495d4dea7cf2';
+const QOBUZ_DEFAULT_FORMAT_ID = '5';
+const QOBUZ_SUPPORTED_FORMAT_IDS = new Set(['5', '6', '7', '27']);
+
+export type QobuzErrorCode =
+  | 'qobuz_not_configured'
+  | 'qobuz_not_authenticated'
+  | 'qobuz_invalid_credentials'
+  | 'qobuz_stream_unavailable'
+  | 'qobuz_geo_or_subscription_blocked';
+
+export interface QobuzStatus {
+  available: boolean;
+  configured: boolean;
+  authenticated: boolean;
+  streamingAvailable: boolean;
+  reason: 'ready' | QobuzErrorCode;
+  formatId: string;
+  accountName?: string;
+}
+
+export interface QobuzStreamInfo {
+  url: string;
+  formatId: string;
+  expiresAt?: number;
+}
+
+interface StoredQobuzSession {
+  userId: number | null;
+  displayName: string | null;
+  storedAt: number;
+}
+
+export class QobuzProviderError extends Error {
+  constructor(
+    public code: QobuzErrorCode,
+    message: string,
+    public statusCode = 400,
+  ) {
+    super(message);
+    this.name = 'QobuzProviderError';
+  }
+}
+
+export function createQobuzStreamSignature(
+  trackId: string,
+  formatId: string,
+  requestTs: string,
+  appSecret: string,
+): string {
+  const payload = `trackgetFileUrlformat_id${formatId}intentstreamtrack_id${trackId}${requestTs}${appSecret}`;
+  return createHash('md5').update(payload).digest('hex');
+}
+
+function env(name: string): string {
+  return process.env[name]?.trim() || '';
+}
+
+function normalizeFormatId(value: string | undefined): string {
+  const candidate = value?.trim() || QOBUZ_DEFAULT_FORMAT_ID;
+  return QOBUZ_SUPPORTED_FORMAT_IDS.has(candidate) ? candidate : QOBUZ_DEFAULT_FORMAT_ID;
+}
 
 /**
  * Qobuz provider using the unofficial API (username/password login).
  * Same approach as qobuz-dl, Volumio's Qobuz plugin, and other open-source players.
  *
- * Setup: set QOBUZ_USERNAME and QOBUZ_PASSWORD in .env
- * Or login via the Settings page.
+ * Robust mode: streaming requires explicit QOBUZ_APP_ID and QOBUZ_APP_SECRET.
+ * User auth can come from QOBUZ_USERNAME/QOBUZ_PASSWORD or from the Settings UI.
  */
 export class QobuzProvider implements AuthenticatedMusicProvider {
   readonly type = 'qobuz' as const;
   readonly name = 'Qobuz';
   isAvailable = false;
 
+  private appId = '';
+  private appSecret = '';
+  private formatId = QOBUZ_DEFAULT_FORMAT_ID;
   private userAuthToken: string | null = null;
   private userId: number | null = null;
+  private accountName: string | null = null;
 
   auth: ProviderAuth = {
     isAuthenticated: false,
@@ -32,27 +94,27 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
     logout: async () => {
       this.userAuthToken = null;
       this.userId = null;
+      this.accountName = null;
       this.auth.isAuthenticated = false;
-      this.deleteStoredCredentials();
+      deleteTokens('qobuz');
     },
     refreshToken: async () => {
-      // Re-login with stored credentials
-      const creds = this.loadStoredCredentials();
-      if (creds) await this.loginWithPassword(creds.username, creds.password);
+      await this.reauthenticateWithEnvCredentials();
     },
   };
 
   constructor() {
-    const username = process.env.QOBUZ_USERNAME || '';
-    const password = process.env.QOBUZ_PASSWORD || '';
-    this.isAvailable = !!(username || this.loadStoredCredentials());
+    this.reloadConfig();
   }
 
   async initialize(): Promise<void> {
-    // Try env vars first
-    const username = process.env.QOBUZ_USERNAME;
-    const password = process.env.QOBUZ_PASSWORD;
+    this.reloadConfig();
+    if (!this.hasAppCredentials()) {
+      logger.info('Qobuz: Missing QOBUZ_APP_ID/QOBUZ_APP_SECRET, streaming disabled');
+      return;
+    }
 
+    const { username, password } = this.getEnvCredentials();
     if (username && password) {
       try {
         await this.loginWithPassword(username, password);
@@ -62,18 +124,14 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
       }
     }
 
-    // Try stored credentials
-    const stored = this.loadStoredCredentials();
-    if (stored) {
-      try {
-        await this.loginWithPassword(stored.username, stored.password);
-        return;
-      } catch (err) {
-        logger.warn(`Qobuz: Login with stored credentials failed: ${err}`);
-      }
+    if (this.loadStoredSession()) {
+      logger.info('Qobuz: Restored user auth token from database');
+      return;
     }
 
-    logger.info('Qobuz: No credentials configured. Login via Settings or set QOBUZ_USERNAME/QOBUZ_PASSWORD.');
+    logger.info(
+      'Qobuz: App configured, awaiting user login via Settings or QOBUZ_USERNAME/QOBUZ_PASSWORD.',
+    );
   }
 
   async dispose(): Promise<void> {
@@ -87,104 +145,232 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
 
   // ─── Auth ────────────────────────────────────────────────────
 
+  getStatus(): QobuzStatus {
+    this.reloadConfig();
+    const configured = this.hasAppCredentials();
+    const authenticated = this.auth.isAuthenticated && !!this.userAuthToken;
+    let reason: QobuzStatus['reason'] = 'ready';
+    if (!configured) reason = 'qobuz_not_configured';
+    else if (!authenticated) reason = 'qobuz_not_authenticated';
+
+    return {
+      available: this.isAvailable,
+      configured,
+      authenticated,
+      streamingAvailable: configured && authenticated,
+      reason,
+      formatId: this.formatId,
+      accountName: this.accountName || undefined,
+    };
+  }
+
+  private reloadConfig(): void {
+    this.appId = env('QOBUZ_APP_ID');
+    this.appSecret = env('QOBUZ_APP_SECRET');
+    this.formatId = normalizeFormatId(process.env.QOBUZ_AUDIO_FORMAT);
+    this.isAvailable = this.hasAppCredentials();
+  }
+
+  private hasAppCredentials(): boolean {
+    return !!(this.appId && this.appSecret);
+  }
+
+  private getEnvCredentials(): { username: string; password: string } {
+    return { username: env('QOBUZ_USERNAME'), password: env('QOBUZ_PASSWORD') };
+  }
+
+  private requireConfigured(): void {
+    this.reloadConfig();
+    if (!this.hasAppCredentials()) {
+      throw new QobuzProviderError(
+        'qobuz_not_configured',
+        'Qobuz streaming requires QOBUZ_APP_ID and QOBUZ_APP_SECRET.',
+        400,
+      );
+    }
+  }
+
+  private requireAuthenticated(): void {
+    if (!this.userAuthToken) {
+      this.auth.isAuthenticated = false;
+      throw new QobuzProviderError(
+        'qobuz_not_authenticated',
+        'Qobuz is not authenticated. Login in Settings or set QOBUZ_USERNAME/QOBUZ_PASSWORD.',
+        401,
+      );
+    }
+  }
+
   private async loginWithPassword(username: string, password: string): Promise<void> {
-    // Qobuz web player sends app_id as X-App-Id header + credentials as form body
+    this.requireConfigured();
+    if (!username || !password) {
+      throw new QobuzProviderError(
+        'qobuz_invalid_credentials',
+        'Qobuz username and password are required.',
+        400,
+      );
+    }
+
     const res = await fetch(`${QOBUZ_API_URL}/user/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'X-App-Id': QOBUZ_APP_ID,
+        'X-App-Id': this.appId,
       },
       body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`,
     });
 
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Qobuz login failed: ${text}`);
+      throw new QobuzProviderError('qobuz_invalid_credentials', `Qobuz login failed: ${text}`, 401);
     }
 
-    const data = await res.json() as any;
+    const data = (await res.json()) as any;
     if (!data.user_auth_token) {
-      throw new Error('Qobuz login failed: no auth token in response');
+      throw new QobuzProviderError(
+        'qobuz_invalid_credentials',
+        'Qobuz login failed: no auth token in response',
+        401,
+      );
     }
 
     this.userAuthToken = data.user_auth_token;
     this.userId = data.user?.id;
+    this.accountName = data.user?.display_name || data.user?.login || username;
     this.auth.isAuthenticated = true;
     this.isAvailable = true;
 
-    // Store credentials for persistence across restarts
-    this.saveCredentials(username, password);
+    this.saveSession();
 
-    logger.info(`Qobuz: Logged in as ${data.user?.display_name || username}`);
+    logger.info(`Qobuz: Logged in as ${this.accountName || username}`);
   }
 
-  private saveCredentials(username: string, password: string): void {
-    try {
-      const db = getRawDb();
-      db.prepare(`
-        INSERT OR REPLACE INTO provider_tokens (provider, access_token, refresh_token, expires_at)
-        VALUES ('qobuz', ?, ?, ?)
-      `).run(this.userAuthToken || '', `${username}:${Buffer.from(password).toString('base64')}`, 0);
-    } catch {}
+  private saveSession(): void {
+    if (!this.userAuthToken) return;
+    const metadata: StoredQobuzSession = {
+      userId: this.userId,
+      displayName: this.accountName,
+      storedAt: Date.now(),
+    };
+    saveTokens('qobuz', {
+      accessToken: this.userAuthToken,
+      refreshToken: JSON.stringify(metadata),
+      expiresAt: 0,
+    });
   }
 
-  private loadStoredCredentials(): { username: string; password: string } | null {
+  private loadStoredSession(): boolean {
+    const stored = loadTokens('qobuz');
+    if (!stored?.accessToken) return false;
     try {
-      const db = getRawDb();
-      const row = db.prepare('SELECT * FROM provider_tokens WHERE provider = ?').get('qobuz') as any;
-      if (!row || !row.refresh_token) return null;
-      const [username, passwordB64] = row.refresh_token.split(':');
-      if (!username || !passwordB64) return null;
-      return { username, password: Buffer.from(passwordB64, 'base64').toString() };
+      const metadata = JSON.parse(stored.refreshToken) as Partial<StoredQobuzSession>;
+      this.userAuthToken = stored.accessToken;
+      this.userId = typeof metadata.userId === 'number' ? metadata.userId : null;
+      this.accountName = typeof metadata.displayName === 'string' ? metadata.displayName : null;
+      this.auth.isAuthenticated = true;
+      return true;
     } catch {
-      return null;
+      // Legacy builds stored username:base64(password) in refresh_token. Remove
+      // that row so credentials are no longer persisted in the database.
+      deleteTokens('qobuz');
+      return false;
     }
   }
 
-  private deleteStoredCredentials(): void {
-    try {
-      const db = getRawDb();
-      db.prepare('DELETE FROM provider_tokens WHERE provider = ?').run('qobuz');
-    } catch {}
+  private async reauthenticateWithEnvCredentials(): Promise<void> {
+    const { username, password } = this.getEnvCredentials();
+    if (!username || !password) {
+      this.userAuthToken = null;
+      this.userId = null;
+      this.accountName = null;
+      this.auth.isAuthenticated = false;
+      throw new QobuzProviderError(
+        'qobuz_not_authenticated',
+        'Qobuz token expired. Login again in Settings or set QOBUZ_USERNAME/QOBUZ_PASSWORD.',
+        401,
+      );
+    }
+    await this.loginWithPassword(username, password);
   }
 
   // ─── API ─────────────────────────────────────────────────────
 
   private async apiRequest(endpoint: string, params: Record<string, string> = {}): Promise<any> {
-    if (!this.userAuthToken) throw new Error('Not authenticated');
+    this.requireConfigured();
+    this.requireAuthenticated();
 
+    return this.withAuthRetry(() => this.rawApiRequest(endpoint, params));
+  }
+
+  private async rawApiRequest(endpoint: string, params: Record<string, string> = {}): Promise<any> {
     const url = new URL(`${QOBUZ_API_URL}/${endpoint}`);
-    url.searchParams.set('app_id', QOBUZ_APP_ID);
+    url.searchParams.set('app_id', this.appId);
     for (const [k, v] of Object.entries(params)) {
       url.searchParams.set(k, v);
     }
 
     const res = await fetch(url.toString(), {
-      headers: { 'X-User-Auth-Token': this.userAuthToken },
+      headers: { 'X-User-Auth-Token': this.userAuthToken! },
     });
 
+    const text = await res.text();
+    let data: any = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { message: text };
+    }
     if (res.status === 401) {
-      // Token expired — try re-login
-      logger.info('Qobuz: Token expired, re-authenticating...');
-      try {
-        await this.auth.refreshToken!();
-        // Retry the request
-        const retryRes = await fetch(url.toString(), {
-          headers: { 'X-User-Auth-Token': this.userAuthToken! },
-        });
-        if (retryRes.ok) return retryRes.json();
-      } catch {}
-      throw new Error('Qobuz: Re-authentication failed');
+      throw new QobuzProviderError(
+        'qobuz_not_authenticated',
+        'Qobuz token expired or is invalid.',
+        401,
+      );
+    }
+    if (!res.ok || data?.status === 'error') {
+      const err = this.mapApiError(endpoint, res.status, data);
+      logger.error(`Qobuz API ${res.status}: ${endpoint} → ${err.message.slice(0, 200)}`);
+      throw err;
     }
 
-    if (!res.ok) {
-      const text = await res.text();
-      logger.error(`Qobuz API ${res.status}: ${endpoint} → ${text.slice(0, 200)}`);
-      throw new Error(`Qobuz API error: ${res.status}`);
-    }
+    return data;
+  }
 
-    return res.json();
+  private async withAuthRetry<T>(request: () => Promise<T>): Promise<T> {
+    try {
+      return await request();
+    } catch (err) {
+      if (err instanceof QobuzProviderError && err.code === 'qobuz_not_authenticated') {
+        logger.info('Qobuz: Token expired, attempting env credential re-login');
+        await this.reauthenticateWithEnvCredentials();
+        return request();
+      }
+      throw err;
+    }
+  }
+
+  private mapApiError(endpoint: string, status: number, data: any): QobuzProviderError {
+    const message = String(
+      data?.message || data?.error?.message || data?.error || `Qobuz API error: ${status}`,
+    );
+    const lower = message.toLowerCase();
+    if (lower.includes('app') && lower.includes('secret')) {
+      return new QobuzProviderError('qobuz_not_configured', message, 400);
+    }
+    if (
+      status === 403 ||
+      lower.includes('subscription') ||
+      lower.includes('geo') ||
+      lower.includes('not available') ||
+      lower.includes('not streamable') ||
+      lower.includes('right')
+    ) {
+      return new QobuzProviderError('qobuz_geo_or_subscription_blocked', message, 403);
+    }
+    if (endpoint === 'track/getFileUrl') {
+      return new QobuzProviderError('qobuz_stream_unavailable', message, status || 404);
+    }
+    return new QobuzProviderError('qobuz_stream_unavailable', message, status || 500);
   }
 
   // ─── MusicProvider ───────────────────────────────────────────
@@ -192,10 +378,15 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
   async getArtists(_page?: number, _pageSize?: number) {
     if (!this.auth.isAuthenticated) return { items: [] as Artist[], total: 0 };
     try {
-      const data = await this.apiRequest('favorite/getUserFavorites', { type: 'artists', limit: '50' });
+      const data = await this.apiRequest('favorite/getUserFavorites', {
+        type: 'artists',
+        limit: '50',
+      });
       const artists = (data.artists?.items || []).map((a: any) => this.mapArtist(a));
       return { items: artists, total: data.artists?.total || 0 };
-    } catch { return { items: [] as Artist[], total: 0 }; }
+    } catch {
+      return { items: [] as Artist[], total: 0 };
+    }
   }
 
   async getArtist(id: string): Promise<Artist | null> {
@@ -204,16 +395,23 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
       const qobuzId = id.replace('qobuz:', '');
       const data = await this.apiRequest('artist/get', { artist_id: qobuzId });
       return this.mapArtist(data);
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   }
 
   async getAlbums(_page?: number, _pageSize?: number) {
     if (!this.auth.isAuthenticated) return { items: [] as Album[], total: 0 };
     try {
-      const data = await this.apiRequest('favorite/getUserFavorites', { type: 'albums', limit: '50' });
+      const data = await this.apiRequest('favorite/getUserFavorites', {
+        type: 'albums',
+        limit: '50',
+      });
       const albums = (data.albums?.items || []).map((a: any) => this.mapAlbum(a));
       return { items: albums, total: data.albums?.total || 0 };
-    } catch { return { items: [] as Album[], total: 0 }; }
+    } catch {
+      return { items: [] as Album[], total: 0 };
+    }
   }
 
   async getAlbum(id: string): Promise<Album | null> {
@@ -222,7 +420,9 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
       const qobuzId = id.replace('qobuz:', '');
       const data = await this.apiRequest('album/get', { album_id: qobuzId });
       return this.mapAlbum(data);
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   }
 
   async getAlbumTracks(albumId: string): Promise<Track[]> {
@@ -231,16 +431,24 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
       const qobuzId = albumId.replace('qobuz:', '');
       const data = await this.apiRequest('album/get', { album_id: qobuzId });
       return (data.tracks?.items || []).map((t: any) => this.mapTrack(t, data));
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   }
 
   async getArtistAlbums(artistId: string): Promise<Album[]> {
     if (!this.auth.isAuthenticated) return [];
     try {
       const qobuzId = artistId.replace('qobuz:', '');
-      const data = await this.apiRequest('artist/get', { artist_id: qobuzId, extra: 'albums', limit: '50' });
+      const data = await this.apiRequest('artist/get', {
+        artist_id: qobuzId,
+        extra: 'albums',
+        limit: '50',
+      });
       return (data.albums?.items || []).map((a: any) => this.mapAlbum(a));
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   }
 
   async search(query: string, limit = 10): Promise<SearchResults> {
@@ -248,9 +456,15 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
     try {
       const data = await this.apiRequest('catalog/search', { query, limit: String(limit) });
       return {
-        artists: (data.artists?.items || []).filter((a: any) => a?.id).map((a: any) => this.mapArtist(a)),
-        albums: (data.albums?.items || []).filter((a: any) => a?.id).map((a: any) => this.mapAlbum(a)),
-        tracks: (data.tracks?.items || []).filter((t: any) => t?.id).map((t: any) => this.mapTrack(t)),
+        artists: (data.artists?.items || [])
+          .filter((a: any) => a?.id)
+          .map((a: any) => this.mapArtist(a)),
+        albums: (data.albums?.items || [])
+          .filter((a: any) => a?.id)
+          .map((a: any) => this.mapAlbum(a)),
+        tracks: (data.tracks?.items || [])
+          .filter((t: any) => t?.id)
+          .map((t: any) => this.mapTrack(t)),
         playlists: [],
       };
     } catch (err) {
@@ -260,11 +474,44 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
   }
 
   async getStreamUrl(trackId: string): Promise<string | null> {
-    // Qobuz stream URLs require a signed request with a runtime-derived secret
-    // (HKDF key derivation + SHA-256). This is Qobuz's anti-piracy measure.
-    // Streaming is not yet supported — browse and search work fine.
-    logger.debug(`Qobuz: Stream URL requested for ${trackId} (not yet supported)`);
-    return null;
+    const stream = await this.getStreamInfo(trackId);
+    return stream.url;
+  }
+
+  async getStreamInfo(trackId: string): Promise<QobuzStreamInfo> {
+    this.requireConfigured();
+    this.requireAuthenticated();
+
+    const qobuzId = trackId.replace('qobuz:', '');
+    const requestTs = Math.floor(Date.now() / 1000).toString();
+    const requestSig = createQobuzStreamSignature(
+      qobuzId,
+      this.formatId,
+      requestTs,
+      this.appSecret,
+    );
+
+    const data = await this.apiRequest('track/getFileUrl', {
+      track_id: qobuzId,
+      format_id: this.formatId,
+      intent: 'stream',
+      request_ts: requestTs,
+      request_sig: requestSig,
+    });
+
+    if (!data?.url || typeof data.url !== 'string') {
+      throw new QobuzProviderError(
+        'qobuz_stream_unavailable',
+        'Qobuz did not return a stream URL for this track.',
+        404,
+      );
+    }
+
+    return {
+      url: data.url,
+      formatId: this.formatId,
+      expiresAt: typeof data.expires_at === 'number' ? data.expires_at : undefined,
+    };
   }
 
   async getPlaylists(): Promise<Playlist[]> {
@@ -272,16 +519,24 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
     try {
       const data = await this.apiRequest('playlist/getUserPlaylists', { limit: '50' });
       return (data.playlists?.items || []).map((p: any) => this.mapPlaylist(p));
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   }
 
   async getPlaylistTracks(playlistId: string): Promise<Track[]> {
     if (!this.auth.isAuthenticated) return [];
     try {
       const qobuzId = playlistId.replace('qobuz:', '');
-      const data = await this.apiRequest('playlist/get', { playlist_id: qobuzId, extra: 'tracks', limit: '100' });
+      const data = await this.apiRequest('playlist/get', {
+        playlist_id: qobuzId,
+        extra: 'tracks',
+        limit: '100',
+      });
       return (data.tracks?.items || []).map((t: any) => this.mapTrack(t));
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   }
 
   // ─── Mappers ─────────────────────────────────────────────────

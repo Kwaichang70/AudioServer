@@ -2,18 +2,17 @@ import type { MusicProvider } from '@audioserver/shared';
 import { LocalProvider } from './local.js';
 import { TidalProvider } from './tidal.js';
 import { SpotifyProvider } from './spotify.js';
-// import { QobuzProvider } from './qobuz.js'; // Disabled: Qobuz blocked external API access
+import { QobuzProvider } from './qobuz.js';
 import { logger } from '../logger.js';
 
 class ProviderRegistry {
   readonly local = new LocalProvider();
   readonly tidal = new TidalProvider();
   readonly spotify = new SpotifyProvider();
-  // readonly qobuz = new QobuzProvider(); // Disabled: Qobuz blocked external API access
-  readonly qobuz = { type: 'qobuz', name: 'Qobuz', isAvailable: false, auth: { isAuthenticated: false } } as any;
+  readonly qobuz = new QobuzProvider();
 
   getAllProviders(): MusicProvider[] {
-    return [this.local, this.tidal, this.spotify];
+    return [this.local, this.qobuz, this.tidal, this.spotify];
   }
 
   getActiveProviders(): MusicProvider[] {
@@ -33,10 +32,15 @@ class ProviderRegistry {
 
   async searchAll(query: string, limit = 20) {
     const results = await Promise.allSettled(
-      this.getActiveProviders().map((p) => p.search(query, limit))
+      this.getActiveProviders().map((p) => p.search(query, limit)),
     );
 
-    const merged = { artists: [] as any[], albums: [] as any[], tracks: [] as any[], playlists: [] as any[] };
+    const merged = {
+      artists: [] as any[],
+      albums: [] as any[],
+      tracks: [] as any[],
+      playlists: [] as any[],
+    };
 
     for (const result of results) {
       if (result.status === 'fulfilled') {

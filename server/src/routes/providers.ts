@@ -1,10 +1,23 @@
 import { Router } from 'express';
 import { providers } from '../providers/registry.js';
+import { QobuzProviderError } from '../providers/qobuz.js';
 import { logger } from '../logger.js';
 
 export const providersRouter = Router();
 
 const { tidal, spotify, qobuz } = providers;
+
+function qobuzStatus() {
+  return qobuz.getStatus();
+}
+
+function sendQobuzError(res: import('express').Response, err: unknown): void {
+  if (err instanceof QobuzProviderError) {
+    res.status(err.statusCode).json({ error: err.code, message: err.message });
+    return;
+  }
+  res.status(500).json({ error: 'qobuz_stream_unavailable', message: String(err) });
+}
 
 // ─── Unified search across all active providers ──────────────────
 
@@ -38,9 +51,7 @@ providersRouter.get('/status', (_req, res) => {
         configured: !!(process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET),
       },
       qobuz: {
-        available: qobuz.isAvailable,
-        authenticated: qobuz.auth.isAuthenticated,
-        configured: !!(process.env.QOBUZ_CLIENT_ID && process.env.QOBUZ_CLIENT_SECRET),
+        ...qobuzStatus(),
       },
     },
   });
@@ -60,17 +71,25 @@ providersRouter.get('/tidal/status', (_req, res) => {
 
 providersRouter.post('/tidal/auth/init', (req, res) => {
   if (!tidal.isAvailable) {
-    res.status(400).json({ error: 'Tidal not configured. Set TIDAL_CLIENT_ID and TIDAL_CLIENT_SECRET.' });
+    res
+      .status(400)
+      .json({ error: 'Tidal not configured. Set TIDAL_CLIENT_ID and TIDAL_CLIENT_SECRET.' });
     return;
   }
   const { redirectUri } = req.body;
-  if (!redirectUri) { res.status(400).json({ error: 'redirectUri required' }); return; }
+  if (!redirectUri) {
+    res.status(400).json({ error: 'redirectUri required' });
+    return;
+  }
   res.json({ data: { authUrl: tidal.getAuthUrl(redirectUri) } });
 });
 
 providersRouter.post('/tidal/auth/callback', async (req, res) => {
   const { code, redirectUri } = req.body;
-  if (!code || !redirectUri) { res.status(400).json({ error: 'code and redirectUri required' }); return; }
+  if (!code || !redirectUri) {
+    res.status(400).json({ error: 'code and redirectUri required' });
+    return;
+  }
   try {
     await tidal.auth.login({ code, redirectUri });
     logger.info('Tidal: OAuth flow completed');
@@ -91,23 +110,27 @@ providersRouter.get('/tidal/albums/:id', async (req, res) => {
   try {
     const album = await tidal.getAlbum(req.params.id);
     res.json({ data: album });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 providersRouter.get('/tidal/albums/:id/tracks', async (req, res) => {
   try {
     const tracks = await tidal.getAlbumTracks(req.params.id);
     res.json({ data: tracks, meta: { total: tracks.length } });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 // Tidal stream URL
-providersRouter.get('/tidal/tracks/:id/stream', async (req, res) => {
-  try {
-    const url = await tidal.getStreamUrl(req.params.id);
-    if (!url) { res.status(404).json({ error: 'Stream URL not available. Tidal may require a HiFi subscription.' }); return; }
-    res.json({ data: { url } });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+providersRouter.get('/tidal/tracks/:id/stream', (_req, res) => {
+  res.status(410).json({
+    error: 'tidal_preview_only',
+    message:
+      'Tidal full-track playback is not supported in AudioServer. Use Qobuz or local NAS playback for full tracks.',
+  });
 });
 
 // Tidal user playlists
@@ -115,14 +138,18 @@ providersRouter.get('/tidal/playlists', async (_req, res) => {
   try {
     const playlists = await tidal.getPlaylists();
     res.json({ data: playlists });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 providersRouter.get('/tidal/playlists/:id/tracks', async (req, res) => {
   try {
     const tracks = await tidal.getPlaylistTracks(req.params.id);
     res.json({ data: tracks, meta: { total: tracks.length } });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 // Tidal favorites/collection
@@ -130,29 +157,40 @@ providersRouter.get('/tidal/favorites/albums', async (_req, res) => {
   try {
     const albums = await tidal.getFavoriteAlbums();
     res.json({ data: albums });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 providersRouter.get('/tidal/favorites/tracks', async (_req, res) => {
   try {
     const tracks = await tidal.getFavoriteTracks();
     res.json({ data: tracks });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 providersRouter.get('/tidal/favorites/artists', async (_req, res) => {
   try {
     const artists = await tidal.getFavoriteArtists();
     res.json({ data: artists });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 providersRouter.get('/tidal/search', async (req, res) => {
   const q = req.query.q as string;
-  if (!q) { res.json({ data: { artists: [], albums: [], tracks: [], playlists: [] } }); return; }
+  if (!q) {
+    res.json({ data: { artists: [], albums: [], tracks: [], playlists: [] } });
+    return;
+  }
   try {
     res.json({ data: await tidal.search(q) });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 // ─── Spotify ─────────────────────────────────────────────────────
@@ -169,17 +207,25 @@ providersRouter.get('/spotify/status', (_req, res) => {
 
 providersRouter.post('/spotify/auth/init', (req, res) => {
   if (!spotify.isAvailable) {
-    res.status(400).json({ error: 'Spotify not configured. Set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET.' });
+    res
+      .status(400)
+      .json({ error: 'Spotify not configured. Set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET.' });
     return;
   }
   const { redirectUri } = req.body;
-  if (!redirectUri) { res.status(400).json({ error: 'redirectUri required' }); return; }
+  if (!redirectUri) {
+    res.status(400).json({ error: 'redirectUri required' });
+    return;
+  }
   res.json({ data: { authUrl: spotify.getAuthUrl(redirectUri) } });
 });
 
 providersRouter.post('/spotify/auth/callback', async (req, res) => {
   const { code, redirectUri } = req.body;
-  if (!code || !redirectUri) { res.status(400).json({ error: 'code and redirectUri required' }); return; }
+  if (!code || !redirectUri) {
+    res.status(400).json({ error: 'code and redirectUri required' });
+    return;
+  }
   try {
     await spotify.auth.login({ code, redirectUri });
     logger.info('Spotify: OAuth flow completed');
@@ -197,22 +243,21 @@ providersRouter.post('/spotify/auth/logout', async (_req, res) => {
 
 providersRouter.get('/spotify/search', async (req, res) => {
   const q = req.query.q as string;
-  if (!q) { res.json({ data: { artists: [], albums: [], tracks: [], playlists: [] } }); return; }
+  if (!q) {
+    res.json({ data: { artists: [], albums: [], tracks: [], playlists: [] } });
+    return;
+  }
   try {
     res.json({ data: await spotify.search(q) });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 // ─── Qobuz (username/password login, no OAuth) ──────────────────
 
 providersRouter.get('/qobuz/status', (_req, res) => {
-  res.json({
-    data: {
-      available: qobuz.isAvailable || true, // Always show as available (no API keys needed)
-      authenticated: qobuz.auth.isAuthenticated,
-      configured: true, // No env vars needed — uses username/password
-    },
-  });
+  res.json({ data: qobuzStatus() });
 });
 
 // Login with username + password
@@ -225,16 +270,16 @@ providersRouter.post('/qobuz/auth/login', async (req, res) => {
   try {
     await qobuz.auth.login({ username, password });
     logger.info('Qobuz: Login successful');
-    res.json({ data: { authenticated: true } });
+    res.json({ data: qobuzStatus() });
   } catch (err) {
     logger.error(`Qobuz login failed: ${err}`);
-    res.status(401).json({ error: String(err) });
+    sendQobuzError(res, err);
   }
 });
 
 providersRouter.post('/qobuz/auth/logout', async (_req, res) => {
   await qobuz.auth.logout();
-  res.json({ data: { authenticated: false } });
+  res.json({ data: qobuzStatus() });
 });
 
 // Qobuz album detail + tracks
@@ -242,31 +287,41 @@ providersRouter.get('/qobuz/albums/:id', async (req, res) => {
   try {
     const album = await qobuz.getAlbum(req.params.id);
     res.json({ data: album });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 providersRouter.get('/qobuz/albums/:id/tracks', async (req, res) => {
   try {
     const tracks = await qobuz.getAlbumTracks(req.params.id);
     res.json({ data: tracks, meta: { total: tracks.length } });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 // Stream URL for a track (returns direct Qobuz CDN URL)
 providersRouter.get('/qobuz/tracks/:id/stream', async (req, res) => {
   try {
-    const url = await qobuz.getStreamUrl(req.params.id);
-    if (!url) { res.status(404).json({ error: 'Stream URL not available' }); return; }
-    res.json({ data: { url } });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+    const stream = await qobuz.getStreamInfo(req.params.id);
+    res.json({ data: stream });
+  } catch (err) {
+    sendQobuzError(res, err);
+  }
 });
 
 providersRouter.get('/qobuz/search', async (req, res) => {
   const q = req.query.q as string;
-  if (!q) { res.json({ data: { artists: [], albums: [], tracks: [], playlists: [] } }); return; }
+  if (!q) {
+    res.json({ data: { artists: [], albums: [], tracks: [], playlists: [] } });
+    return;
+  }
   try {
     res.json({ data: await qobuz.search(q) });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 // ─── Spotify Connect ─────────────────────────────────────────────
@@ -276,7 +331,9 @@ providersRouter.get('/spotify/connect/devices', async (_req, res) => {
   try {
     const devices = await spotify.getConnectDevices();
     res.json({ data: devices });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 // Get current Spotify playback state
@@ -284,7 +341,9 @@ providersRouter.get('/spotify/connect/state', async (_req, res) => {
   try {
     const state = await spotify.getPlaybackState();
     res.json({ data: state });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 // Play a track on a Spotify Connect device
@@ -300,7 +359,9 @@ providersRouter.post('/spotify/connect/play', async (req, res) => {
   } catch (err) {
     const msg = String(err);
     if (msg.includes('NO_ACTIVE_DEVICE') || msg.includes('No active device')) {
-      res.status(404).json({ error: 'No active Spotify device. Open Spotify on your phone or desktop first.' });
+      res
+        .status(404)
+        .json({ error: 'No active Spotify device. Open Spotify on your phone or desktop first.' });
     } else {
       res.status(500).json({ error: msg });
     }
@@ -311,42 +372,54 @@ providersRouter.post('/spotify/connect/pause', async (req, res) => {
   try {
     await spotify.connectPause(req.body.deviceId);
     res.json({ data: { ok: true } });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 providersRouter.post('/spotify/connect/resume', async (req, res) => {
   try {
     await spotify.connectResume(req.body.deviceId);
     res.json({ data: { ok: true } });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 providersRouter.post('/spotify/connect/next', async (req, res) => {
   try {
     await spotify.connectNext(req.body.deviceId);
     res.json({ data: { ok: true } });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 providersRouter.post('/spotify/connect/previous', async (req, res) => {
   try {
     await spotify.connectPrevious(req.body.deviceId);
     res.json({ data: { ok: true } });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 providersRouter.post('/spotify/connect/volume', async (req, res) => {
   try {
     await spotify.connectSetVolume(req.body.volume, req.body.deviceId);
     res.json({ data: { ok: true } });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 providersRouter.post('/spotify/connect/transfer', async (req, res) => {
   try {
     await spotify.connectTransferPlayback(req.body.deviceId);
     res.json({ data: { ok: true } });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 // Spotify album detail + tracks
@@ -354,14 +427,18 @@ providersRouter.get('/spotify/albums/:id', async (req, res) => {
   try {
     const album = await spotify.getAlbum(req.params.id);
     res.json({ data: album });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 providersRouter.get('/spotify/albums/:id/tracks', async (req, res) => {
   try {
     const tracks = await spotify.getAlbumTracks(req.params.id);
     res.json({ data: tracks, meta: { total: tracks.length } });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 // Spotify user albums
@@ -369,7 +446,9 @@ providersRouter.get('/spotify/albums', async (_req, res) => {
   try {
     const result = await spotify.getAlbums();
     res.json({ data: result.items, meta: { total: result.total } });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });
 
 // Spotify user playlists
@@ -377,5 +456,7 @@ providersRouter.get('/spotify/playlists', async (_req, res) => {
   try {
     const playlists = await spotify.getPlaylists();
     res.json({ data: playlists });
-  } catch (err) { res.status(500).json({ error: String(err) }); }
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
 });

@@ -10,6 +10,7 @@ import { healthRouter } from '../../routes/health.js';
 import { libraryRouter } from '../../routes/library.js';
 import { playbackRouter } from '../../routes/playback.js';
 import { playlistsRouter } from '../../routes/playlists.js';
+import { providersRouter } from '../../routes/providers.js';
 
 /**
  * Build an isolated Express app + sqlite DB for a single test suite.
@@ -34,6 +35,7 @@ export async function createTestApp() {
   app.use('/api/library', libraryRouter);
   app.use('/api/playback', playbackRouter);
   app.use('/api/playlists', playlistsRouter);
+  app.use('/api/providers', providersRouter);
   app.use('/api', notFoundHandler);
   app.use(errorHandler);
 

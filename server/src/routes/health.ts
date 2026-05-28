@@ -83,9 +83,7 @@ healthRouter.get('/', (_req, res) => {
       configured: !!(process.env.TIDAL_CLIENT_ID && process.env.TIDAL_CLIENT_SECRET),
     },
     qobuz: {
-      available: providers.qobuz.isAvailable,
-      authenticated: providers.qobuz.auth.isAuthenticated,
-      configured: !!(process.env.QOBUZ_USERNAME && process.env.QOBUZ_PASSWORD),
+      ...providers.qobuz.getStatus(),
     },
   };
 

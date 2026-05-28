@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { LocalProvider } from '../providers/local.js';
 import { TidalStubProvider } from '../providers/tidal-stub.js';
 import { SpotifyStubProvider } from '../providers/spotify-stub.js';
+import { QobuzProvider } from '../providers/qobuz.js';
 import type { MusicProvider } from '@audioserver/shared';
 
 function testProviderInterface(provider: MusicProvider) {
@@ -84,5 +85,20 @@ describe('SpotifyStubProvider', () => {
   it('getStreamUrl returns null', async () => {
     const url = await provider.getStreamUrl();
     expect(url).toBeNull();
+  });
+});
+
+describe('QobuzProvider', () => {
+  const provider = new QobuzProvider();
+  testProviderInterface(provider);
+
+  it('type is "qobuz"', () => {
+    expect(provider.type).toBe('qobuz');
+  });
+
+  it('exposes robust streaming status', () => {
+    const status = provider.getStatus();
+    expect(typeof status.streamingAvailable).toBe('boolean');
+    expect(status.formatId).toBeTruthy();
   });
 });
