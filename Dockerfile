@@ -1,3 +1,16 @@
+# ───── librespot builder ──────────────────────────────────────────
+# Build the Spotify Connect receiver once, then copy only the binary into the
+# runtime image. The Rust toolchain stays out of production.
+FROM rust:slim-bookworm AS librespot-builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates pkg-config libasound2-dev libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# The app uses librespot as a pipe backend receiver. Keep this pinned because
+# newer librespot releases can move Rust/audio dependencies underneath us.
+RUN cargo install librespot@0.5.0-dev
+
 # ───── builder ───────────────────────────────────────────────────
 # Heavy stage: full toolchain for native dep builds + a full npm install.
 # Discarded once the runtime stage copies what it needs.
@@ -26,13 +39,16 @@ RUN npm run build --workspace=client
 RUN npm prune --omit=dev
 
 # ───── runtime ───────────────────────────────────────────────────
-# Lean stage: only ffmpeg (audio passthroughs) + curl (healthcheck).
+# Lean stage: ffmpeg (audio passthroughs), curl (healthcheck), and the
+# runtime libraries needed by the copied librespot binary.
 # No python3, no make, no g++, no client toolchain.
 FROM node:22-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg curl \
+    ffmpeg curl ca-certificates libasound2 \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=librespot-builder /usr/local/cargo/bin/librespot /usr/local/bin/librespot
 
 WORKDIR /app
 
