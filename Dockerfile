@@ -7,9 +7,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates pkg-config libasound2-dev libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# The app uses librespot as a pipe backend receiver. Pin to a real crates.io
-# release so the NAS build is reproducible.
-RUN cargo install librespot@0.8.0
+# The app uses librespot as a pipe backend receiver. `--locked` is important:
+# librespot 0.8.0 currently fails if Cargo re-resolves transitive build deps.
+RUN cargo install --locked librespot@0.8.0
 
 # ───── builder ───────────────────────────────────────────────────
 # Heavy stage: full toolchain for native dep builds + a full npm install.
