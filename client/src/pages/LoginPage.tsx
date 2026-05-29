@@ -22,8 +22,8 @@ export default function LoginPage({ onAuth }: Props) {
         ? await api.register(username, password)
         : await api.login(username, password);
       onAuth(res.data.token);
-    } catch (err: any) {
-      setError(err.message || 'Authentication failed');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Authentication failed');
     } finally {
       setLoading(false);
     }
@@ -57,9 +57,7 @@ export default function LoginPage({ onAuth }: Props) {
             minLength={6}
           />
 
-          {error && (
-            <p className="text-sm text-red-400">{error}</p>
-          )}
+          {error && <p className="text-sm text-red-400">{error}</p>}
 
           <button
             type="submit"
@@ -71,7 +69,10 @@ export default function LoginPage({ onAuth }: Props) {
         </form>
 
         <button
-          onClick={() => { setIsRegister(!isRegister); setError(''); }}
+          onClick={() => {
+            setIsRegister(!isRegister);
+            setError('');
+          }}
           className="mt-4 text-sm text-gray-400 hover:text-accent transition block w-full text-center"
         >
           {isRegister ? 'Already have an account? Sign in' : 'First time? Create an account'}

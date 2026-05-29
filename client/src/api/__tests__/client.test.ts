@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { STORAGE_KEYS } from '../../constants';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -23,10 +24,10 @@ const { api } = await import('../client');
 
 beforeEach(() => {
   mockFetch.mockReset();
-  delete storage['audioserver_token'];
+  delete storage[STORAGE_KEYS.authToken];
 });
 
-function mockJsonResponse(data: any, status = 200) {
+function mockJsonResponse(data: unknown, status = 200) {
   mockFetch.mockResolvedValueOnce({
     ok: status >= 200 && status < 300,
     status,
@@ -37,7 +38,7 @@ function mockJsonResponse(data: any, status = 200) {
 
 describe('API client', () => {
   it('includes auth token when available', async () => {
-    storage['audioserver_token'] = 'test-jwt-token';
+    storage[STORAGE_KEYS.authToken] = 'test-jwt-token';
     mockJsonResponse({ data: [] });
 
     await api.getArtists();

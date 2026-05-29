@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAudioContext, useProgress } from '../context/AudioContext.js';
+import { useAudioContext, useProgress, type TrackInfo } from '../context/AudioContext.js';
 import { api } from '../api/client.js';
 import DeviceSelector from './DeviceSelector.js';
 import { formatTime } from '../utils/format.js';
@@ -8,6 +8,10 @@ import SortableList from './SortableList.js';
 
 interface NowPlayingBarProps {
   onExpandClick?: () => void;
+}
+
+interface SortableQueueTrack extends TrackInfo {
+  _index: number;
 }
 
 export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
@@ -228,9 +232,11 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
             </div>
           </div>
           <SortableList
-            items={queue.map((t, i) => ({ ...t, id: `q-${i}-${t.id}`, _index: i }))}
+            items={queue.map(
+              (t, i): SortableQueueTrack => ({ ...t, id: `q-${i}-${t.id}`, _index: i }),
+            )}
             onReorder={(from, to) => moveInQueue(from, to)}
-            renderItem={(item: any, _i: number) => {
+            renderItem={(item) => {
               const idx = item._index;
               const isCurrent = idx === queueIndex;
               return (

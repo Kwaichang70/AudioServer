@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import AlbumCover from '../components/AlbumCover.js';
-import { useAudioContext } from '../context/AudioContext.js';
+import { useAudioContext, type TrackInfo } from '../context/AudioContext.js';
+import { formatDuration } from '../utils/format.js';
 
 type Tab = 'album' | 'artist' | 'track';
 
@@ -27,12 +28,6 @@ interface FavTrack {
   duration: number;
 }
 
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
 export default function FavoritesPage() {
   const [tab, setTab] = useState<Tab>('album');
   const [albums, setAlbums] = useState<FavAlbum[]>([]);
@@ -44,11 +39,23 @@ export default function FavoritesPage() {
   useEffect(() => {
     setLoading(true);
     if (tab === 'album') {
-      api.getFavorites('album').then((res) => setAlbums(res.data)).catch(() => {}).finally(() => setLoading(false));
+      api
+        .getFavorites('album')
+        .then((res) => setAlbums(res.data))
+        .catch(() => {})
+        .finally(() => setLoading(false));
     } else if (tab === 'artist') {
-      api.getFavorites('artist').then((res) => setArtists(res.data)).catch(() => {}).finally(() => setLoading(false));
+      api
+        .getFavorites('artist')
+        .then((res) => setArtists(res.data))
+        .catch(() => {})
+        .finally(() => setLoading(false));
     } else {
-      api.getFavoriteTracks().then((res) => setTracks(res.data)).catch(() => {}).finally(() => setLoading(false));
+      api
+        .getFavoriteTracks()
+        .then((res) => setTracks(res.data))
+        .catch(() => {})
+        .finally(() => setLoading(false));
     }
   }, [tab]);
 
@@ -69,7 +76,9 @@ export default function FavoritesPage() {
             key={t.key}
             onClick={() => setTab(t.key)}
             className={`px-4 py-1.5 rounded text-sm transition ${
-              tab === t.key ? 'bg-accent text-white' : 'bg-surface-light text-gray-400 hover:text-white'
+              tab === t.key
+                ? 'bg-accent text-white'
+                : 'bg-surface-light text-gray-400 hover:text-white'
             }`}
           >
             {t.label}
@@ -80,9 +89,12 @@ export default function FavoritesPage() {
       {loading && <p className="text-gray-400">Loading...</p>}
 
       {/* Albums */}
-      {!loading && tab === 'album' && (
-        albums.length === 0 ? (
-          <p className="text-gray-500 py-12 text-center">No favorite albums yet. Tap the heart on an album to add it here.</p>
+      {!loading &&
+        tab === 'album' &&
+        (albums.length === 0 ? (
+          <p className="text-gray-500 py-12 text-center">
+            No favorite albums yet. Tap the heart on an album to add it here.
+          </p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
             {albums.map((album) => (
@@ -92,20 +104,26 @@ export default function FavoritesPage() {
                 className="group bg-surface-light rounded-lg p-3 hover:bg-surface transition"
               >
                 <div className="mb-2">
-                  <AlbumCover albumId={album.id} title={album.title} artistName={album.artistName} />
+                  <AlbumCover
+                    albumId={album.id}
+                    title={album.title}
+                    artistName={album.artistName}
+                  />
                 </div>
-                <p className="text-sm font-medium truncate group-hover:text-accent transition">{album.title}</p>
+                <p className="text-sm font-medium truncate group-hover:text-accent transition">
+                  {album.title}
+                </p>
                 <p className="text-xs text-gray-400 truncate">{album.artistName}</p>
                 {album.year && <p className="text-xs text-gray-500">{album.year}</p>}
               </Link>
             ))}
           </div>
-        )
-      )}
+        ))}
 
       {/* Artists */}
-      {!loading && tab === 'artist' && (
-        artists.length === 0 ? (
+      {!loading &&
+        tab === 'artist' &&
+        (artists.length === 0 ? (
           <p className="text-gray-500 py-12 text-center">No favorite artists yet.</p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -120,26 +138,30 @@ export default function FavoritesPage() {
                     src={api.getArtistImageUrl(artist.id)}
                     alt={artist.name}
                     className="w-full h-full object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
                   />
                 </div>
-                <p className="text-sm font-medium truncate group-hover:text-accent transition">{artist.name}</p>
+                <p className="text-sm font-medium truncate group-hover:text-accent transition">
+                  {artist.name}
+                </p>
               </Link>
             ))}
           </div>
-        )
-      )}
+        ))}
 
       {/* Tracks */}
-      {!loading && tab === 'track' && (
-        tracks.length === 0 ? (
+      {!loading &&
+        tab === 'track' &&
+        (tracks.length === 0 ? (
           <p className="text-gray-500 py-12 text-center">No favorite tracks yet.</p>
         ) : (
           <div className="space-y-1">
             {tracks.map((track) => (
               <button
                 key={track.id}
-                onClick={() => playTrack(track as any)}
+                onClick={() => playTrack(track satisfies TrackInfo)}
                 className="w-full flex items-center gap-4 px-4 py-2 rounded hover:bg-surface-light transition text-left"
               >
                 <div className="w-10 h-10 rounded bg-surface-dark overflow-hidden flex-shrink-0">
@@ -147,12 +169,16 @@ export default function FavoritesPage() {
                     src={api.getAlbumCoverUrl(track.albumId)}
                     alt=""
                     className="w-full h-full object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
                   />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{track.title}</p>
-                  <p className="text-xs text-gray-400 truncate">{track.artistName} &middot; {track.albumTitle}</p>
+                  <p className="text-xs text-gray-400 truncate">
+                    {track.artistName} &middot; {track.albumTitle}
+                  </p>
                 </div>
                 <span className="text-xs text-gray-500 flex-shrink-0">
                   {track.duration ? formatDuration(track.duration) : ''}
@@ -160,8 +186,7 @@ export default function FavoritesPage() {
               </button>
             ))}
           </div>
-        )
-      )}
+        ))}
     </div>
   );
 }

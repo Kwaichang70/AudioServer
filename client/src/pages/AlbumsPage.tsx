@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useInfiniteLoad } from '../hooks/useInfiniteLoad.js';
 import AlbumCover from '../components/AlbumCover.js';
+import { DEFAULT_LIBRARY_PAGE_SIZE } from '../constants.js';
 
 interface Album {
   id: string;
@@ -12,9 +13,17 @@ interface Album {
 }
 
 export default function AlbumsPage() {
-  const { items: albums, loading, loadingMore, total, hasMore, loadMore, reload } = useInfiniteLoad<Album>(
+  const {
+    items: albums,
+    loading,
+    loadingMore,
+    total,
+    hasMore,
+    loadMore,
+    reload,
+  } = useInfiniteLoad<Album>(
     (page, limit) => api.getAlbums(page, limit),
-    60,
+    DEFAULT_LIBRARY_PAGE_SIZE,
   );
 
   const startScan = async () => {
@@ -58,9 +67,15 @@ export default function AlbumsPage() {
                 className="group bg-surface-light rounded-lg p-3 hover:bg-surface transition"
               >
                 <div className="mb-2">
-                  <AlbumCover albumId={album.id} title={album.title} artistName={album.artistName} />
+                  <AlbumCover
+                    albumId={album.id}
+                    title={album.title}
+                    artistName={album.artistName}
+                  />
                 </div>
-                <p className="text-sm font-medium truncate group-hover:text-accent transition">{album.title}</p>
+                <p className="text-sm font-medium truncate group-hover:text-accent transition">
+                  {album.title}
+                </p>
                 <p className="text-xs text-gray-400 truncate">{album.artistName}</p>
                 {album.year && <p className="text-xs text-gray-500">{album.year}</p>}
               </Link>

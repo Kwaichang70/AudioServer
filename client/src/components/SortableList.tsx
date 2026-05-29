@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -7,11 +6,7 @@ import {
   useSensors,
   type DragEndEvent,
 } from '@dnd-kit/core';
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-  useSortable,
-} from '@dnd-kit/sortable';
+import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
 interface SortableItemProps {
@@ -20,7 +15,9 @@ interface SortableItemProps {
 }
 
 function SortableItem({ id, children }: SortableItemProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+  });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -45,16 +42,18 @@ function SortableItem({ id, children }: SortableItemProps) {
   );
 }
 
-interface SortableListProps {
-  items: { id: string }[];
+interface SortableListProps<TItem extends { id: string }> {
+  items: TItem[];
   onReorder: (from: number, to: number) => void;
-  renderItem: (item: any, index: number) => React.ReactNode;
+  renderItem: (item: TItem, index: number) => React.ReactNode;
 }
 
-export default function SortableList({ items, onReorder, renderItem }: SortableListProps) {
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
-  );
+export default function SortableList<TItem extends { id: string }>({
+  items,
+  onReorder,
+  renderItem,
+}: SortableListProps<TItem>) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;

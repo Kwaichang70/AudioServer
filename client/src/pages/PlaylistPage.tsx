@@ -4,6 +4,7 @@ import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
 import { formatDuration } from '../utils/format.js';
 import SortableList from '../components/SortableList.js';
+import { STORAGE_KEYS } from '../constants.js';
 
 interface Track {
   id: string;
@@ -23,6 +24,11 @@ interface Playlist {
   trackCount?: number;
 }
 
+interface SortablePlaylistTrack extends Track {
+  _trackId: string;
+  _index: number;
+}
+
 export default function PlaylistPage() {
   const { id } = useParams<{ id: string }>();
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
@@ -35,7 +41,9 @@ export default function PlaylistPage() {
     api.getPlaylistTracks(id).then((res) => setTracks(res.data));
   };
 
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => {
+    load();
+  }, [id]);
 
   const handleRemove = async (trackId: string) => {
     if (!id) return;
@@ -49,13 +57,16 @@ export default function PlaylistPage() {
     newTracks.splice(to, 0, moved);
     setTracks(newTracks);
     if (id) {
-      await api.reorderPlaylist(id, newTracks.map((t) => t.id));
+      await api.reorderPlaylist(
+        id,
+        newTracks.map((t) => t.id),
+      );
     }
   };
 
   const handleExport = () => {
     if (!id) return;
-    const token = localStorage.getItem('audioserver_token');
+    const token = localStorage.getItem(STORAGE_KEYS.authToken);
     const url = api.exportPlaylist(id);
     // Download via hidden link with auth
     window.open(`${url}${url.includes('?') ? '&' : '?'}token=${token}`, '_blank');
@@ -72,7 +83,9 @@ export default function PlaylistPage() {
         <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Playlist</p>
         <h2 className="text-3xl font-bold mb-2">{playlist.name}</h2>
         {playlist.description && <p className="text-gray-400 mb-1">{playlist.description}</p>}
-        <p className="text-sm text-gray-500">{tracks.length} tracks &middot; {totalMin} min</p>
+        <p className="text-sm text-gray-500">
+          {tracks.length} tracks &middot; {totalMin} min
+        </p>
         <div className="flex gap-3 mt-4">
           {tracks.length > 0 && (
             <button
@@ -99,42 +112,60 @@ export default function PlaylistPage() {
         </p>
       ) : (
         <>
-        <div className="text-left text-xs text-gray-500 uppercase border-b border-white/10 pb-2 mb-1 flex items-center gap-2 px-2">
-          <span className="w-8">#</span>
-          <span className="flex-1">Title</span>
-          <span className="w-20 text-right">Duration</span>
-          <span className="w-8"></span>
-        </div>
-        <SortableList
-          items={tracks.map((t, i) => ({ ...t, id: `pl-${i}-${t.id}`, _trackId: t.id, _index: i }))}
-          onReorder={handleReorder}
-          renderItem={(item: any, _i: number) => {
-            const track = tracks[item._index];
-            if (!track) return null;
-            const isCurrent = currentTrack?.id === track.id;
-            return (
-              <div
-                onClick={() => playTrack(track)}
-                className={`group flex items-center gap-2 py-2 px-1 cursor-pointer hover:bg-surface-light rounded transition ${isCurrent ? 'text-accent' : ''}`}
-              >
-                <span className="w-6 text-sm text-gray-500 text-right shrink-0">
-                  {isCurrent && isPlaying ? <span className="text-accent animate-pulse">&#9654;</span> : item._index + 1}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{track.title}</p>
-                  <p className="text-xs text-gray-500 truncate">{track.artistName} &middot; {track.albumTitle}</p>
-                </div>
-                <span className="text-sm text-gray-400 shrink-0">{formatDuration(track.duration)}</span>
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleRemove(track.id); }}
-                  className="opacity-0 group-hover:opacity-100 text-xs text-gray-600 hover:text-red-400 transition shrink-0 px-1"
+          <div className="text-left text-xs text-gray-500 uppercase border-b border-white/10 pb-2 mb-1 flex items-center gap-2 px-2">
+            <span className="w-8">#</span>
+            <span className="flex-1">Title</span>
+            <span className="w-20 text-right">Duration</span>
+            <span className="w-8"></span>
+          </div>
+          <SortableList
+            items={tracks.map(
+              (t, i): SortablePlaylistTrack => ({
+                ...t,
+                id: `pl-${i}-${t.id}`,
+                _trackId: t.id,
+                _index: i,
+              }),
+            )}
+            onReorder={handleReorder}
+            renderItem={(item) => {
+              const track = tracks[item._index];
+              if (!track) return null;
+              const isCurrent = currentTrack?.id === track.id;
+              return (
+                <div
+                  onClick={() => playTrack(track)}
+                  className={`group flex items-center gap-2 py-2 px-1 cursor-pointer hover:bg-surface-light rounded transition ${isCurrent ? 'text-accent' : ''}`}
                 >
-                  &#10005;
-                </button>
-              </div>
-            );
-          }}
-        />
+                  <span className="w-6 text-sm text-gray-500 text-right shrink-0">
+                    {isCurrent && isPlaying ? (
+                      <span className="text-accent animate-pulse">&#9654;</span>
+                    ) : (
+                      item._index + 1
+                    )}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{track.title}</p>
+                    <p className="text-xs text-gray-500 truncate">
+                      {track.artistName} &middot; {track.albumTitle}
+                    </p>
+                  </div>
+                  <span className="text-sm text-gray-400 shrink-0">
+                    {formatDuration(track.duration)}
+                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemove(track.id);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 text-xs text-gray-600 hover:text-red-400 transition shrink-0 px-1"
+                  >
+                    &#10005;
+                  </button>
+                </div>
+              );
+            }}
+          />
         </>
       )}
     </div>

@@ -12,11 +12,12 @@ import { useSocket } from '../hooks/useSocket.js';
 import { api } from '../api/client.js';
 import { useToast } from '../components/Toast.js';
 import { setProgress } from './ProgressStore.js';
+import { DEVICE_POLL_INTERVAL, SPOTIFY_CONNECT_RECEIVER_NAME, STORAGE_KEYS } from '../constants.js';
 
 // Re-export so consumers can keep importing from this module.
 export { useProgress } from './ProgressStore.js';
 
-interface TrackInfo {
+export interface TrackInfo {
   id: string;
   title: string;
   artistName: string;
@@ -37,6 +38,40 @@ interface TrackInfo {
 }
 
 export type ReplayGainMode = 'off' | 'track' | 'album';
+
+interface HealthResponse {
+  lanAddress?: string;
+}
+
+interface DeviceStatusResponse {
+  data?: {
+    state?: 'playing' | 'paused' | 'stopped';
+    position?: number;
+    duration?: number;
+    volume?: number;
+  };
+}
+
+interface SpotifyConnectDevice {
+  id: string;
+  name: string;
+}
+
+interface OutputDeviceSummary {
+  id: string;
+  name: string;
+}
+
+interface WakeLockSentinelLike {
+  release?: () => Promise<void>;
+  addEventListener?: (type: 'release', listener: () => void) => void;
+}
+
+interface WakeLockCapability {
+  wakeLock?: {
+    request: (type: 'screen') => Promise<WakeLockSentinelLike>;
+  };
+}
 
 interface AudioContextValue {
   currentTrack: TrackInfo | null;
@@ -84,34 +119,34 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const [queue, setQueue] = useState<TrackInfo[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
   const [selectedDeviceId, setSelectedDeviceIdState] = useState(
-    () => localStorage.getItem('audioserver_device') || 'browser',
+    () => localStorage.getItem(STORAGE_KEYS.selectedDevice) || 'browser',
   );
 
   const setSelectedDeviceId = (id: string) => {
     setSelectedDeviceIdState(id);
-    localStorage.setItem('audioserver_device', id);
+    localStorage.setItem(STORAGE_KEYS.selectedDevice, id);
   };
   const [isLoading, setIsLoading] = useState(false);
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState<'off' | 'all' | 'one'>('off');
   const [crossfade, setCrossfadeState] = useState(() => {
-    const saved = localStorage.getItem('audioserver_crossfade');
+    const saved = localStorage.getItem(STORAGE_KEYS.crossfade);
     return saved ? Number(saved) : 0;
   });
   // ReplayGain: mode (off/track/album) + preamp in dB. Persisted across sessions.
   const [replayGainMode, setReplayGainModeState] = useState<ReplayGainMode>(() => {
-    const saved = localStorage.getItem('audioserver_replaygain_mode');
+    const saved = localStorage.getItem(STORAGE_KEYS.replayGainMode);
     return saved === 'track' || saved === 'album' ? saved : 'off';
   });
   const [replayGainPreamp, setReplayGainPreampState] = useState(() => {
-    const saved = localStorage.getItem('audioserver_replaygain_preamp');
+    const saved = localStorage.getItem(STORAGE_KEYS.replayGainPreamp);
     return saved ? Number(saved) : 0;
   });
 
   const setReplayGainMode = useCallback(
     (mode: ReplayGainMode) => {
       setReplayGainModeState(mode);
-      localStorage.setItem('audioserver_replaygain_mode', mode);
+      localStorage.setItem(STORAGE_KEYS.replayGainMode, mode);
       audio.setReplayGain({ mode });
     },
     [audio],
@@ -120,7 +155,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const setReplayGainPreamp = useCallback(
     (db: number) => {
       setReplayGainPreampState(db);
-      localStorage.setItem('audioserver_replaygain_preamp', String(db));
+      localStorage.setItem(STORAGE_KEYS.replayGainPreamp, String(db));
       audio.setReplayGain({ preampDb: db });
     },
     [audio],
@@ -137,7 +172,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const setCrossfade = useCallback(
     (seconds: number) => {
       setCrossfadeState(seconds);
-      localStorage.setItem('audioserver_crossfade', String(seconds));
+      localStorage.setItem(STORAGE_KEYS.crossfade, String(seconds));
       audio.setCrossfadeDuration(seconds);
     },
     [audio],
@@ -160,7 +195,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     api
       .getHealth()
-      .then((d: any) => {
+      .then((d: HealthResponse) => {
         if (d.lanAddress) lanAddressRef.current = d.lanAddress;
       })
       .catch(() => {});
@@ -180,7 +215,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     // Fetch initial device status (volume etc.) so the slider reflects reality
     api
       .getDeviceStatus(selectedDeviceId)
-      .then((res: any) => {
+      .then((res: DeviceStatusResponse) => {
         if (typeof res?.data?.volume === 'number') {
           setDeviceVolume(res.data.volume / 100);
         }
@@ -223,7 +258,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
           setProgress(pos, dur);
         })
         .catch(() => {});
-    }, 2000);
+    }, DEVICE_POLL_INTERVAL);
 
     return () => clearInterval(poll);
   }, [socket.connected, currentTrack, selectedDeviceId]);
@@ -266,8 +301,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
                   // Librespot is running — route through it
                   // First tell Spotify to play on the "AudioServer" librespot device
                   const devRes = await api.spotifyConnectDevices();
-                  const audioServerDevice = (devRes.data || []).find(
-                    (d: any) => d.name === 'AudioServer',
+                  const audioServerDevice = ((devRes.data || []) as SpotifyConnectDevice[]).find(
+                    (d) => d.name === SPOTIFY_CONNECT_RECEIVER_NAME,
                   );
                   if (audioServerDevice) {
                     await api.spotifyConnectPlay(spotifyTrackUri, audioServerDevice.id);
@@ -284,15 +319,17 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
               // Strategy 2: Try matching selected AudioServer device with a Spotify Connect device
               const devRes = await api.spotifyConnectDevices();
-              const connectDevices = devRes.data || [];
+              const connectDevices = (devRes.data || []) as SpotifyConnectDevice[];
               // Get the selected device name from cached devices
               const selectedDevice = await api
                 .getDevices()
-                .then((r: any) => r.data?.find((d: any) => d.id === deviceId))
+                .then((r: { data?: OutputDeviceSummary[] }) =>
+                  r.data?.find((d) => d.id === deviceId),
+                )
                 .catch(() => null);
               const selectedName = selectedDevice?.name?.toLowerCase() || '';
               // Match by checking if Spotify device name overlaps with selected device name
-              const match = connectDevices.find((d: any) => {
+              const match = connectDevices.find((d) => {
                 const cName = d.name.toLowerCase();
                 // Match if any word from the device name appears in Spotify Connect device name
                 const words = selectedName.split(/[\s\-_]+/).filter((w: string) => w.length > 2);
@@ -658,11 +695,11 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   //  3. When the tab becomes visible again, re-acquire the wake lock and
   //     resume playback if the UI state says we should be playing but the
   //     underlying <audio> element got paused by the OS.
-  const wakeLockRef = useRef<any>(null);
+  const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const browserIsPlaying = selectedDeviceId === 'browser' && audio.isPlaying;
 
   useEffect(() => {
-    const nav: any = navigator;
+    const nav = navigator as Navigator & WakeLockCapability;
     const requestWakeLock = async () => {
       if (!browserIsPlaying) return;
       try {

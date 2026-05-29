@@ -2,7 +2,7 @@
  * Format seconds to "M:SS" or "H:MM:SS" for display.
  */
 export function formatDuration(seconds?: number): string {
-  if (!seconds || isNaN(seconds)) return '';
+  if (!seconds || isNaN(seconds) || seconds < 0) return '';
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
@@ -15,7 +15,7 @@ export function formatDuration(seconds?: number): string {
  * Same as formatDuration but returns "0:00" for falsy values.
  */
 export function formatTime(seconds: number): string {
-  if (!seconds || isNaN(seconds)) return '0:00';
+  if (!seconds || isNaN(seconds) || seconds < 0) return '0:00';
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
@@ -24,7 +24,11 @@ export function formatTime(seconds: number): string {
 /**
  * Format track quality info (e.g. "FLAC / 44.1kHz / 16bit").
  */
-export function formatQuality(track: { format?: string; sampleRate?: number; bitDepth?: number }): string {
+export function formatQuality(track: {
+  format?: string;
+  sampleRate?: number;
+  bitDepth?: number;
+}): string {
   const parts: string[] = [];
   if (track.format) parts.push(track.format.toUpperCase());
   if (track.sampleRate) parts.push(`${(track.sampleRate / 1000).toFixed(1)}kHz`);

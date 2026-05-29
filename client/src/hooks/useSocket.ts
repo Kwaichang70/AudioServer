@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
+import { SOCKET_RECONNECT_ATTEMPTS, SOCKET_RECONNECT_DELAY, STORAGE_KEYS } from '../constants.js';
 
 interface DevicePlaybackUpdate {
   deviceId: string;
@@ -45,12 +46,12 @@ export function useSocket(): UseSocketReturn {
   const subscribedDeviceRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const token = localStorage.getItem('audioserver_token');
+    const token = localStorage.getItem(STORAGE_KEYS.authToken);
     const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io({
       auth: { token },
       reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 10,
+      reconnectionDelay: SOCKET_RECONNECT_DELAY,
+      reconnectionAttempts: SOCKET_RECONNECT_ATTEMPTS,
     });
 
     socketRef.current = socket;

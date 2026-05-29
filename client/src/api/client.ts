@@ -1,4 +1,5 @@
 import type { Track, RadioStation } from '@audioserver/shared';
+import { API_BASE, STORAGE_KEYS } from '../constants.js';
 
 // Fase 1 status: argument types are typed; return types are still `any` because
 // many callers use ad-hoc shapes (FavTrack, HistoryEntry, PaginatedResponse, etc.)
@@ -7,8 +8,6 @@ import type { Track, RadioStation } from '@audioserver/shared';
 // expected shape so the migration has a target.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ApiResult = any;
-
-const API_BASE = '/api';
 
 /**
  * Thrown by fetchApi on non-2xx responses. Carries the HTTP status and the
@@ -51,7 +50,7 @@ export function onApiError(listener: ErrorListener): () => void {
 }
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = localStorage.getItem('audioserver_token');
+  const token = localStorage.getItem(STORAGE_KEYS.authToken);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 

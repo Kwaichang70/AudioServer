@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { useToast } from '../components/Toast.js';
 import { useAudioContext, type ReplayGainMode } from '../context/AudioContext.js';
+import { DEVICE_POLL_INTERVAL, STORAGE_KEYS } from '../constants.js';
 
 interface ProviderStatus {
   available: boolean;
@@ -17,6 +18,27 @@ interface AllStatus {
   tidal: ProviderStatus;
   spotify: ProviderStatus;
   qobuz: ProviderStatus;
+}
+
+interface UserAccount {
+  id: string;
+  username: string;
+  role: 'admin' | 'user' | string;
+}
+
+interface ScrobbleConfig {
+  lastfm?: {
+    enabled?: boolean;
+    configured?: boolean;
+    username?: string;
+  };
+  listenbrainz?: {
+    enabled?: boolean;
+  };
+}
+
+function getErrorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback;
 }
 
 export default function SettingsPage() {
@@ -59,8 +81,8 @@ export default function SettingsPage() {
       } else {
         toast(data.error || 'Failed to get auth URL', 'error');
       }
-    } catch (err: any) {
-      toast(err.message || 'Connection failed', 'error');
+    } catch (err: unknown) {
+      toast(getErrorMessage(err, 'Connection failed'), 'error');
     }
   };
 
@@ -85,7 +107,7 @@ export default function SettingsPage() {
         setScanInfo('');
         toast('Library scan complete', 'success');
       }
-    }, 2000);
+    }, DEVICE_POLL_INTERVAL);
   };
 
   const { replayGainMode, setReplayGainMode, replayGainPreamp, setReplayGainPreamp } =
@@ -352,8 +374,8 @@ function QobuzCard({
       } else {
         setError(data.error || 'Login failed');
       }
-    } catch (err: any) {
-      setError(err.message || 'Login failed');
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, 'Login failed'));
     }
     setLoading(false);
   };
@@ -435,11 +457,11 @@ function QobuzCard({
 }
 
 function ThemeSection() {
-  const [theme, setTheme] = useState(() => localStorage.getItem('audioserver_theme') || 'dark');
+  const [theme, setTheme] = useState(() => localStorage.getItem(STORAGE_KEYS.theme) || 'dark');
 
   const applyTheme = (t: string) => {
     setTheme(t);
-    localStorage.setItem('audioserver_theme', t);
+    localStorage.setItem(STORAGE_KEYS.theme, t);
     document.documentElement.setAttribute('data-theme', t);
   };
 
@@ -477,7 +499,7 @@ function ThemeSection() {
 }
 
 function UserManagementSection() {
-  const [users, setUsers] = useState<any[]>([]);
+  const [users, setUsers] = useState<UserAccount[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [newUsername, setNewUsername] = useState('');
@@ -488,12 +510,12 @@ function UserManagementSection() {
   useEffect(() => {
     api
       .getMe()
-      .then((res) => {
+      .then((res: { data?: { role?: string } }) => {
         if (res.data?.role === 'admin') {
           setIsAdmin(true);
           api
             .getUsers()
-            .then((r) => setUsers(r.data))
+            .then((r: { data: UserAccount[] }) => setUsers(r.data))
             .catch(() => {});
         }
       })
@@ -514,8 +536,8 @@ function UserManagementSection() {
         .getUsers()
         .then((r) => setUsers(r.data))
         .catch(() => {});
-    } catch (err: any) {
-      toast(err.message || 'Failed to create user', 'error');
+    } catch (err: unknown) {
+      toast(getErrorMessage(err, 'Failed to create user'), 'error');
     }
   };
 
@@ -524,8 +546,8 @@ function UserManagementSection() {
       await api.deleteUser(id);
       toast(`User "${username}" deleted`, 'info');
       setUsers((prev) => prev.filter((u) => u.id !== id));
-    } catch (err: any) {
-      toast(err.message || 'Failed to delete user', 'error');
+    } catch (err: unknown) {
+      toast(getErrorMessage(err, 'Failed to delete user'), 'error');
     }
   };
 
@@ -604,7 +626,7 @@ function UserManagementSection() {
 }
 
 function ScrobblingSection() {
-  const [config, setConfig] = useState<any>(null);
+  const [config, setConfig] = useState<ScrobbleConfig | null>(null);
   const [lbToken, setLbToken] = useState('');
   const [lastfmToken, setLastfmToken] = useState('');
   const { toast } = useToast();
@@ -612,7 +634,7 @@ function ScrobblingSection() {
   const loadConfig = () => {
     api
       .getScrobbleConfig()
-      .then((res) => setConfig(res.data))
+      .then((res: { data: ScrobbleConfig }) => setConfig(res.data))
       .catch(() => {});
   };
 
@@ -627,16 +649,16 @@ function ScrobblingSection() {
         toast(`Last.fm connected as ${res.data.username}`, 'success');
         setLastfmToken('');
         loadConfig();
-      } catch (err: any) {
-        toast(err.message || 'Last.fm auth failed', 'error');
+      } catch (err: unknown) {
+        toast(getErrorMessage(err, 'Last.fm auth failed'), 'error');
       }
     } else {
       try {
         const res = await api.getLastfmAuthUrl();
         window.open(res.data.url, '_blank');
         toast('Authorize in the browser tab, then paste the token here', 'info');
-      } catch (err: any) {
-        toast(err.message || 'Failed to get Last.fm auth URL', 'error');
+      } catch (err: unknown) {
+        toast(getErrorMessage(err, 'Failed to get Last.fm auth URL'), 'error');
       }
     }
   };
@@ -648,8 +670,8 @@ function ScrobblingSection() {
       toast('ListenBrainz connected', 'success');
       setLbToken('');
       loadConfig();
-    } catch (err: any) {
-      toast(err.message || 'Invalid token', 'error');
+    } catch (err: unknown) {
+      toast(getErrorMessage(err, 'Invalid token'), 'error');
     }
   };
 

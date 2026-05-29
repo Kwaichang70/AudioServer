@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
-import { useAudioContext } from '../context/AudioContext.js';
+import { useAudioContext, type TrackInfo } from '../context/AudioContext.js';
+import { DEFAULT_HISTORY_PAGE_SIZE } from '../constants.js';
+import { formatDuration } from '../utils/format.js';
 
 interface HistoryEntry {
   id: number;
@@ -25,12 +27,6 @@ interface TopArtist {
   id: string;
   name: string;
   play_count: number;
-}
-
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 function formatDate(dateStr: string): string {
@@ -61,25 +57,40 @@ export default function HistoryPage() {
   useEffect(() => {
     setLoading(true);
     if (view === 'tracks') {
-      api.getHistoryTracks(1, 50).then((res) => {
-        setEntries(res.data);
-        setHasMore(res.meta?.page < res.meta?.totalPages);
-        setPage(1);
-      }).catch(() => {}).finally(() => setLoading(false));
+      api
+        .getHistoryTracks(1, DEFAULT_HISTORY_PAGE_SIZE)
+        .then((res) => {
+          setEntries(res.data);
+          setHasMore(res.meta?.page < res.meta?.totalPages);
+          setPage(1);
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
     } else if (view === 'albums') {
-      api.getRecentAlbums().then((res) => setRecentAlbums(res.data)).catch(() => {}).finally(() => setLoading(false));
+      api
+        .getRecentAlbums()
+        .then((res) => setRecentAlbums(res.data))
+        .catch(() => {})
+        .finally(() => setLoading(false));
     } else {
-      api.getTopArtists().then((res) => setTopArtists(res.data)).catch(() => {}).finally(() => setLoading(false));
+      api
+        .getTopArtists()
+        .then((res) => setTopArtists(res.data))
+        .catch(() => {})
+        .finally(() => setLoading(false));
     }
   }, [view]);
 
   const loadMore = () => {
     const nextPage = page + 1;
-    api.getHistoryTracks(nextPage, 50).then((res) => {
-      setEntries((prev) => [...prev, ...res.data]);
-      setHasMore(res.meta?.page < res.meta?.totalPages);
-      setPage(nextPage);
-    }).catch(() => {});
+    api
+      .getHistoryTracks(nextPage, DEFAULT_HISTORY_PAGE_SIZE)
+      .then((res) => {
+        setEntries((prev) => [...prev, ...res.data]);
+        setHasMore(res.meta?.page < res.meta?.totalPages);
+        setPage(nextPage);
+      })
+      .catch(() => {});
   };
 
   const views: { key: View; label: string }[] = [
@@ -99,7 +110,9 @@ export default function HistoryPage() {
             key={v.key}
             onClick={() => setView(v.key)}
             className={`px-4 py-1.5 rounded text-sm transition ${
-              view === v.key ? 'bg-accent text-white' : 'bg-surface-light text-gray-400 hover:text-white'
+              view === v.key
+                ? 'bg-accent text-white'
+                : 'bg-surface-light text-gray-400 hover:text-white'
             }`}
           >
             {v.label}
@@ -110,16 +123,30 @@ export default function HistoryPage() {
       {loading && <p className="text-gray-400">Loading...</p>}
 
       {/* All Plays */}
-      {!loading && view === 'tracks' && (
-        entries.length === 0 ? (
-          <p className="text-gray-500 py-12 text-center">No play history yet. Start listening to build your history.</p>
+      {!loading &&
+        view === 'tracks' &&
+        (entries.length === 0 ? (
+          <p className="text-gray-500 py-12 text-center">
+            No play history yet. Start listening to build your history.
+          </p>
         ) : (
           <>
             <div className="space-y-1">
               {entries.map((entry) => (
                 <button
                   key={entry.id}
-                  onClick={() => entry.track_id && playTrack({ id: entry.track_id, title: entry.track_title, artistName: entry.artist_name, albumId: entry.album_id, albumTitle: entry.album_title, duration: entry.duration } as any)}
+                  onClick={() => {
+                    if (!entry.track_id) return;
+                    const track: TrackInfo = {
+                      id: entry.track_id,
+                      title: entry.track_title,
+                      artistName: entry.artist_name,
+                      albumId: entry.album_id,
+                      albumTitle: entry.album_title,
+                      duration: entry.duration,
+                    };
+                    playTrack(track);
+                  }}
                   className="w-full flex items-center gap-4 px-4 py-2 rounded hover:bg-surface-light transition text-left"
                 >
                   <div className="w-10 h-10 rounded bg-surface-dark overflow-hidden flex-shrink-0">
@@ -128,17 +155,29 @@ export default function HistoryPage() {
                         src={api.getAlbumCoverUrl(entry.album_id)}
                         alt=""
                         className="w-full h-full object-cover"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
                       />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{entry.track_title || 'Unknown Track'}</p>
-                    <p className="text-xs text-gray-400 truncate">{entry.artist_name} &middot; {entry.album_title}</p>
+                    <p className="text-sm font-medium truncate">
+                      {entry.track_title || 'Unknown Track'}
+                    </p>
+                    <p className="text-xs text-gray-400 truncate">
+                      {entry.artist_name} &middot; {entry.album_title}
+                    </p>
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0">
-                    {entry.duration > 0 && <span className="text-xs text-gray-500">{formatDuration(entry.duration)}</span>}
-                    <span className="text-xs text-gray-600 w-20 text-right">{formatDate(entry.played_at)}</span>
+                    {entry.duration > 0 && (
+                      <span className="text-xs text-gray-500">
+                        {formatDuration(entry.duration)}
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-600 w-20 text-right">
+                      {formatDate(entry.played_at)}
+                    </span>
                   </div>
                 </button>
               ))}
@@ -154,12 +193,12 @@ export default function HistoryPage() {
               </div>
             )}
           </>
-        )
-      )}
+        ))}
 
       {/* Recent Albums */}
-      {!loading && view === 'albums' && (
-        recentAlbums.length === 0 ? (
+      {!loading &&
+        view === 'albums' &&
+        (recentAlbums.length === 0 ? (
           <p className="text-gray-500 py-12 text-center">No recently played albums.</p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
@@ -174,20 +213,24 @@ export default function HistoryPage() {
                     src={api.getAlbumCoverUrl(album.album_id)}
                     alt={album.title}
                     className="w-full h-full object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
                   />
                 </div>
-                <p className="text-sm font-medium truncate group-hover:text-accent transition">{album.title}</p>
+                <p className="text-sm font-medium truncate group-hover:text-accent transition">
+                  {album.title}
+                </p>
                 <p className="text-xs text-gray-400 truncate">{album.artist_name}</p>
               </Link>
             ))}
           </div>
-        )
-      )}
+        ))}
 
       {/* Top Artists */}
-      {!loading && view === 'artists' && (
-        topArtists.length === 0 ? (
+      {!loading &&
+        view === 'artists' &&
+        (topArtists.length === 0 ? (
           <p className="text-gray-500 py-12 text-center">No top artists yet.</p>
         ) : (
           <div className="space-y-1">
@@ -203,18 +246,21 @@ export default function HistoryPage() {
                     src={api.getArtistImageUrl(artist.id)}
                     alt=""
                     className="w-full h-full object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
                   />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium group-hover:text-accent transition">{artist.name}</p>
+                  <p className="text-sm font-medium group-hover:text-accent transition">
+                    {artist.name}
+                  </p>
                 </div>
                 <span className="text-xs text-gray-500">{artist.play_count} plays</span>
               </Link>
             ))}
           </div>
-        )
-      )}
+        ))}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import Layout from './components/Layout.js';
 import LoginPage from './pages/LoginPage.js';
 import ErrorBoundary from './components/ErrorBoundary.js';
 import { api, ensureStreamToken, clearStreamToken } from './api/client.js';
+import { STORAGE_KEYS } from './constants.js';
 
 // Lazy-loaded pages (code splitting)
 const HomePage = lazy(() => import('./pages/HomePage.js'));
@@ -41,7 +42,7 @@ export default function App() {
       }
       const err = statsResult.reason;
       if (err?.message?.includes('Unauthorized') || err?.message?.includes('401')) {
-        const token = localStorage.getItem('audioserver_token');
+        const token = localStorage.getItem(STORAGE_KEYS.authToken);
         setNeedsAuth(!token);
       } else {
         setNeedsAuth(false);
@@ -51,7 +52,7 @@ export default function App() {
   }, []);
 
   const handleAuth = (token: string) => {
-    localStorage.setItem('audioserver_token', token);
+    localStorage.setItem(STORAGE_KEYS.authToken, token);
     clearStreamToken();
     ensureStreamToken().catch(() => {});
     setNeedsAuth(false);

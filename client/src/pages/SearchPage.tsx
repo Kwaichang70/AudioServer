@@ -1,18 +1,50 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
-import { useAudioContext } from '../context/AudioContext.js';
+import { useAudioContext, type TrackInfo } from '../context/AudioContext.js';
+import { SOURCE_COLORS } from '../constants.js';
 
-const sourceColors: Record<string, string> = {
-  local: 'bg-blue-900/50 text-blue-300',
-  spotify: 'bg-green-900/50 text-green-300',
-  tidal: 'bg-cyan-900/50 text-cyan-300',
-};
+interface SearchArtist {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  source?: string;
+}
+
+interface SearchAlbum {
+  id: string;
+  title: string;
+  artistName: string;
+  coverUrl?: string;
+  source?: string;
+}
+
+interface SearchTrack extends TrackInfo {
+  source?: string;
+}
+
+interface SearchPlaylist {
+  id: string;
+  name: string;
+  trackCount?: number;
+  source?: string;
+}
+
+interface SearchResults {
+  artists: SearchArtist[];
+  albums: SearchAlbum[];
+  tracks: SearchTrack[];
+  playlists: SearchPlaylist[];
+}
+
+const EMPTY_RESULTS: SearchResults = { artists: [], albums: [], tracks: [], playlists: [] };
 
 function SourceBadge({ source }: { source?: string }) {
   if (!source || source === 'local') return null;
   return (
-    <span className={`text-[10px] px-1.5 py-0.5 rounded ${sourceColors[source] || 'bg-gray-700 text-gray-300'}`}>
+    <span
+      className={`text-[10px] px-1.5 py-0.5 rounded ${SOURCE_COLORS[source] || 'bg-gray-700 text-gray-300'}`}
+    >
       {source}
     </span>
   );
@@ -20,7 +52,7 @@ function SourceBadge({ source }: { source?: string }) {
 
 export default function SearchPage() {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<any>(null);
+  const [results, setResults] = useState<SearchResults | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchMode, setSearchMode] = useState<'all' | 'local'>('all');
   const { playTrack } = useAudioContext();
@@ -35,18 +67,24 @@ export default function SearchPage() {
           api.providerSearch(query),
         ]);
 
-        const local = localRes.status === 'fulfilled' ? localRes.value.data : { artists: [], albums: [], tracks: [] };
-        const providers = providerRes.status === 'fulfilled' ? providerRes.value.data : { artists: [], albums: [], tracks: [], playlists: [] };
+        const local =
+          localRes.status === 'fulfilled' ? (localRes.value.data as SearchResults) : EMPTY_RESULTS;
+        const providers =
+          providerRes.status === 'fulfilled'
+            ? (providerRes.value.data as SearchResults)
+            : EMPTY_RESULTS;
 
         // De-duplicate: if a local artist/album exists, skip the Spotify version
-        const localArtistNames = new Set(local.artists.map((a: any) => a.name.toLowerCase()));
-        const localAlbumKeys = new Set(local.albums.map((a: any) => `${a.artistName}-${a.title}`.toLowerCase()));
+        const localArtistNames = new Set(local.artists.map((a) => a.name.toLowerCase()));
+        const localAlbumKeys = new Set(
+          local.albums.map((a) => `${a.artistName}-${a.title}`.toLowerCase()),
+        );
 
         const filteredSpotifyArtists = providers.artists.filter(
-          (a: any) => !localArtistNames.has(a.name.toLowerCase())
+          (a) => !localArtistNames.has(a.name.toLowerCase()),
         );
         const filteredSpotifyAlbums = providers.albums.filter(
-          (a: any) => !localAlbumKeys.has(`${a.artistName}-${a.title}`.toLowerCase())
+          (a) => !localAlbumKeys.has(`${a.artistName}-${a.title}`.toLowerCase()),
         );
 
         setResults({
@@ -57,7 +95,7 @@ export default function SearchPage() {
         });
       } else {
         const res = await api.search(query);
-        setResults(res.data);
+        setResults(res.data as SearchResults);
       }
     } catch {
       setResults(null);
@@ -90,17 +128,27 @@ export default function SearchPage() {
       {/* Source toggle */}
       <div className="flex gap-2 mb-6">
         <button
-          onClick={() => { setSearchMode('all'); doSearch('all'); }}
+          onClick={() => {
+            setSearchMode('all');
+            doSearch('all');
+          }}
           className={`px-3 py-1 text-xs rounded transition ${
-            searchMode === 'all' ? 'bg-accent text-white' : 'bg-surface-light text-gray-400 hover:text-white'
+            searchMode === 'all'
+              ? 'bg-accent text-white'
+              : 'bg-surface-light text-gray-400 hover:text-white'
           }`}
         >
           All Sources
         </button>
         <button
-          onClick={() => { setSearchMode('local'); doSearch('local'); }}
+          onClick={() => {
+            setSearchMode('local');
+            doSearch('local');
+          }}
           className={`px-3 py-1 text-xs rounded transition ${
-            searchMode === 'local' ? 'bg-accent text-white' : 'bg-surface-light text-gray-400 hover:text-white'
+            searchMode === 'local'
+              ? 'bg-accent text-white'
+              : 'bg-surface-light text-gray-400 hover:text-white'
           }`}
         >
           Local Only
@@ -111,15 +159,23 @@ export default function SearchPage() {
         <div className="space-y-8">
           {results.artists?.length > 0 && (
             <section>
-              <h3 className="text-lg font-semibold mb-3 text-gray-300">Artists ({results.artists.length})</h3>
+              <h3 className="text-lg font-semibold mb-3 text-gray-300">
+                Artists ({results.artists.length})
+              </h3>
               <div className="flex gap-3 flex-wrap">
-                {results.artists.map((a: any, i: number) => (
+                {results.artists.map((a, i) => (
                   <Link
                     key={`${a.source}-${a.id}-${i}`}
-                    to={a.source === 'local' ? `/artists/${a.id}` : `/search?q=${encodeURIComponent(a.name)}`}
+                    to={
+                      a.source === 'local'
+                        ? `/artists/${a.id}`
+                        : `/search?q=${encodeURIComponent(a.name)}`
+                    }
                     className="flex items-center gap-2 px-4 py-2 bg-surface-light rounded-full text-sm hover:bg-surface hover:text-accent transition"
                   >
-                    {a.imageUrl && <img src={a.imageUrl} alt="" className="w-6 h-6 rounded-full object-cover" />}
+                    {a.imageUrl && (
+                      <img src={a.imageUrl} alt="" className="w-6 h-6 rounded-full object-cover" />
+                    )}
                     {a.name}
                     <SourceBadge source={a.source} />
                   </Link>
@@ -130,9 +186,11 @@ export default function SearchPage() {
 
           {results.albums?.length > 0 && (
             <section>
-              <h3 className="text-lg font-semibold mb-3 text-gray-300">Albums ({results.albums.length})</h3>
+              <h3 className="text-lg font-semibold mb-3 text-gray-300">
+                Albums ({results.albums.length})
+              </h3>
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-                {results.albums.map((a: any, i: number) => (
+                {results.albums.map((a, i) => (
                   <Link
                     key={`${a.source}-${a.id}-${i}`}
                     to={`/albums/${a.id}`}
@@ -140,18 +198,26 @@ export default function SearchPage() {
                   >
                     <div className="aspect-square bg-surface-dark rounded mb-2 overflow-hidden">
                       {a.coverUrl ? (
-                        <img src={a.coverUrl} alt={a.title} className="w-full h-full object-cover" />
+                        <img
+                          src={a.coverUrl}
+                          alt={a.title}
+                          className="w-full h-full object-cover"
+                        />
                       ) : a.source === 'local' ? (
                         <img
                           src={api.getAlbumCoverUrl(a.id)}
                           alt={a.title}
                           className="w-full h-full object-cover"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
                         />
                       ) : null}
                     </div>
                     <div className="flex items-center gap-1 mb-0.5">
-                      <p className="text-sm font-medium truncate group-hover:text-accent transition flex-1">{a.title}</p>
+                      <p className="text-sm font-medium truncate group-hover:text-accent transition flex-1">
+                        {a.title}
+                      </p>
                       <SourceBadge source={a.source} />
                     </div>
                     <p className="text-xs text-gray-400 truncate">{a.artistName}</p>
@@ -163,15 +229,21 @@ export default function SearchPage() {
 
           {results.tracks?.length > 0 && (
             <section>
-              <h3 className="text-lg font-semibold mb-3 text-gray-300">Tracks ({results.tracks.length})</h3>
+              <h3 className="text-lg font-semibold mb-3 text-gray-300">
+                Tracks ({results.tracks.length})
+              </h3>
               <div className="space-y-0.5">
-                {results.tracks.map((t: any, i: number) => (
+                {results.tracks.map((t, i) => (
                   // Use index to ensure unique keys across local + spotify results
                   <div
                     key={`${t.id}-${i}`}
-                    onClick={() => (t.source === 'local' || t.source === 'spotify') ? playTrack(t) : null}
+                    onClick={() =>
+                      t.source === 'local' || t.source === 'spotify' ? playTrack(t) : null
+                    }
                     className={`flex items-center gap-4 px-3 py-2 rounded hover:bg-surface-light transition ${
-                      (t.source === 'local' || t.source === 'spotify') ? 'cursor-pointer' : 'opacity-70'
+                      t.source === 'local' || t.source === 'spotify'
+                        ? 'cursor-pointer'
+                        : 'opacity-70'
                     }`}
                   >
                     <div className="w-8 h-8 rounded bg-surface-dark overflow-hidden shrink-0">
@@ -180,12 +252,16 @@ export default function SearchPage() {
                           src={api.getTrackCoverUrl(t.id)}
                           alt=""
                           className="w-full h-full object-cover"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
                         />
                       )}
                     </div>
                     <span className="text-sm font-medium flex-1 min-w-0 truncate">{t.title}</span>
-                    <span className="text-xs text-gray-500 truncate max-w-[200px]">{t.artistName} &mdash; {t.albumTitle}</span>
+                    <span className="text-xs text-gray-500 truncate max-w-[200px]">
+                      {t.artistName} &mdash; {t.albumTitle}
+                    </span>
                     <SourceBadge source={t.source} />
                   </div>
                 ))}
@@ -195,9 +271,11 @@ export default function SearchPage() {
 
           {results.playlists?.length > 0 && (
             <section>
-              <h3 className="text-lg font-semibold mb-3 text-gray-300">Playlists ({results.playlists.length})</h3>
+              <h3 className="text-lg font-semibold mb-3 text-gray-300">
+                Playlists ({results.playlists.length})
+              </h3>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {results.playlists.map((p: any) => (
+                {results.playlists.map((p) => (
                   <div key={p.id} className="bg-surface-light rounded-lg p-3">
                     <div className="flex items-center gap-1 mb-0.5">
                       <p className="text-sm font-medium truncate flex-1">{p.name}</p>
@@ -210,9 +288,12 @@ export default function SearchPage() {
             </section>
           )}
 
-          {!results.artists?.length && !results.albums?.length && !results.tracks?.length && !results.playlists?.length && (
-            <p className="text-gray-500 text-center py-8">No results found for "{query}"</p>
-          )}
+          {!results.artists?.length &&
+            !results.albums?.length &&
+            !results.tracks?.length &&
+            !results.playlists?.length && (
+              <p className="text-gray-500 text-center py-8">No results found for "{query}"</p>
+            )}
         </div>
       )}
     </div>

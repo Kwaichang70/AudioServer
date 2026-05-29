@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { TrackInfo } from '../AudioContext.js';
 
 const mocks = vi.hoisted(() => {
   const audio = {
@@ -49,7 +50,7 @@ vi.mock('../../components/Toast.js', () => ({ useToast: () => ({ toast: mocks.to
 
 const { AudioProvider, useAudioContext } = await import('../AudioContext.js');
 
-function PlayButton({ track }: { track: any }) {
+function PlayButton({ track }: { track: TrackInfo }) {
   const { playTrack } = useAudioContext();
   return <button onClick={() => playTrack(track)}>Play</button>;
 }

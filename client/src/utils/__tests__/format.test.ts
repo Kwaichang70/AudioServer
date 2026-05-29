@@ -12,6 +12,7 @@ describe('formatDuration', () => {
   it('handles undefined and NaN', () => {
     expect(formatDuration(undefined)).toBe('');
     expect(formatDuration(NaN)).toBe('');
+    expect(formatDuration(-1)).toBe('');
   });
 
   it('handles large values', () => {
@@ -29,13 +30,15 @@ describe('formatTime', () => {
   it('handles falsy values', () => {
     expect(formatTime(0)).toBe('0:00');
     expect(formatTime(NaN)).toBe('0:00');
+    expect(formatTime(-1)).toBe('0:00');
   });
 });
 
 describe('formatQuality', () => {
   it('formats full quality info', () => {
-    expect(formatQuality({ format: 'flac', sampleRate: 44100, bitDepth: 16 }))
-      .toBe('FLAC / 44.1kHz / 16bit');
+    expect(formatQuality({ format: 'flac', sampleRate: 44100, bitDepth: 16 })).toBe(
+      'FLAC / 44.1kHz / 16bit',
+    );
   });
 
   it('formats partial info', () => {

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useInfiniteLoad } from '../hooks/useInfiniteLoad.js';
+import { DEFAULT_LIBRARY_PAGE_SIZE } from '../constants.js';
 
 interface Artist {
   id: string;
@@ -41,9 +42,16 @@ function ArtistImage({ artistId, name }: { artistId: string; name: string }) {
 }
 
 export default function ArtistsPage() {
-  const { items: artists, loading, loadingMore, total, hasMore, loadMore } = useInfiniteLoad<Artist>(
+  const {
+    items: artists,
+    loading,
+    loadingMore,
+    total,
+    hasMore,
+    loadMore,
+  } = useInfiniteLoad<Artist>(
     (page, limit) => api.getArtists(page, limit),
-    60,
+    DEFAULT_LIBRARY_PAGE_SIZE,
   );
 
   if (loading) return <p className="text-gray-400">Loading artists...</p>;
@@ -65,7 +73,9 @@ export default function ArtistsPage() {
             className="bg-surface-light rounded-lg p-4 text-center hover:bg-surface transition group"
           >
             <ArtistImage artistId={artist.id} name={artist.name} />
-            <p className="text-sm font-medium truncate group-hover:text-accent transition">{artist.name}</p>
+            <p className="text-sm font-medium truncate group-hover:text-accent transition">
+              {artist.name}
+            </p>
           </Link>
         ))}
       </div>
