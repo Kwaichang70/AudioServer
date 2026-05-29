@@ -2,17 +2,51 @@ import { deviceManager } from '../devices/manager.js';
 import { playbackService } from './playback.js';
 import { getIO } from '../socketio.js';
 import { logger } from '../logger.js';
-import type { DevicePlaybackUpdate } from '../types/socket-events.js';
+import type { DevicePlaybackStatus, OutputDevice } from '@audioserver/shared';
+import type { DevicePlaybackUpdate, ServerToClientEvents } from '../types/socket-events.js';
+
+interface DeviceMonitorIo {
+  emit: <EventName extends keyof ServerToClientEvents>(
+    event: EventName,
+    ...args: Parameters<ServerToClientEvents[EventName]>
+  ) => boolean | void;
+}
+
+interface PlaybackStateSync {
+  setState(updates: {
+    deviceId?: string;
+    state?: 'playing' | 'paused' | 'stopped';
+    position?: number;
+  }): void;
+}
+
+interface DeviceMonitorDependencies {
+  getDevices: () => Promise<OutputDevice[]>;
+  getPlaybackState: (deviceId: string) => Promise<DevicePlaybackStatus>;
+  getIO: () => DeviceMonitorIo;
+  playback: PlaybackStateSync;
+  logger: Pick<typeof logger, 'info' | 'debug'>;
+}
+
+const defaultDependencies: DeviceMonitorDependencies = {
+  getDevices: () => deviceManager.getDevices(),
+  getPlaybackState: (deviceId) => deviceManager.getPlaybackState(deviceId),
+  getIO,
+  playback: playbackService,
+  logger,
+};
 
 /**
  * Server-side device monitor that polls active devices for playback status
  * and pushes updates via Socket.IO. Replaces client-side polling.
  */
-class DeviceMonitor {
+export class DeviceMonitor {
   private pollingIntervals = new Map<string, ReturnType<typeof setInterval>>();
   private lastStates = new Map<string, DevicePlaybackUpdate>();
   private subscriberCounts = new Map<string, number>();
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+
+  constructor(private deps: DeviceMonitorDependencies = defaultDependencies) {}
 
   /** Start monitoring a device (called when a client subscribes) */
   subscribe(deviceId: string): void {
@@ -40,23 +74,23 @@ class DeviceMonitor {
 
     this.healthCheckInterval = setInterval(async () => {
       try {
-        const devices = await deviceManager.getDevices();
-        const io = getIO();
+        const devices = await this.deps.getDevices();
+        const io = this.deps.getIO();
 
         for (const device of devices) {
           if (device.type === 'browser') continue;
 
           const wasOnline = device.isOnline;
           try {
-            await deviceManager.getPlaybackState(device.id);
+            await this.deps.getPlaybackState(device.id);
             if (!wasOnline) {
               io.emit('device:discovered', { id: device.id, name: device.name, type: device.type });
-              logger.info(`Device back online: ${device.name}`);
+              this.deps.logger.info(`Device back online: ${device.name}`);
             }
           } catch {
             if (wasOnline) {
               io.emit('device:lost', { id: device.id, name: device.name });
-              logger.info(`Device offline: ${device.name}`);
+              this.deps.logger.info(`Device offline: ${device.name}`);
             }
           }
         }
@@ -75,44 +109,14 @@ class DeviceMonitor {
   }
 
   private startPolling(deviceId: string): void {
-    logger.info(`DeviceMonitor: start polling ${deviceId}`);
+    this.deps.logger.info(`DeviceMonitor: start polling ${deviceId}`);
 
     const interval = setInterval(async () => {
       try {
-        const status = await deviceManager.getPlaybackState(deviceId);
-        const update: DevicePlaybackUpdate = {
-          deviceId,
-          state: status.state as any,
-          position: status.position,
-          duration: status.duration,
-          volume: status.volume,
-        };
-
-        // Compare with last known state
-        const last = this.lastStates.get(deviceId);
-        const changed = !last ||
-          last.state !== update.state ||
-          Math.abs(last.position - update.position) > 3 ||
-          last.duration !== update.duration ||
-          last.volume !== update.volume;
-
-        if (changed) {
-          this.lastStates.set(deviceId, update);
-          getIO().emit('device:playback-update', update);
-        }
-
-        // Detect track ended: was playing, now stopped
-        if (last?.state === 'playing' && update.state === 'stopped') {
-          const nearEnd = last.duration > 0 && last.position >= last.duration - 2;
-          if (nearEnd || update.position === 0) {
-            logger.info(`DeviceMonitor: track ended on ${deviceId}, advancing queue`);
-            playbackService.advance();
-            // The track-changed event is emitted by PlaybackService.advance()
-          }
-        }
-      } catch (err) {
+        await this.pollDeviceOnce(deviceId);
+      } catch {
         // Device unreachable, stop polling
-        logger.debug(`DeviceMonitor: ${deviceId} unreachable, stopping poll`);
+        this.deps.logger.debug(`DeviceMonitor: ${deviceId} unreachable, stopping poll`);
         this.stopPolling(deviceId);
       }
     }, 2000);
@@ -126,9 +130,63 @@ class DeviceMonitor {
       clearInterval(interval);
       this.pollingIntervals.delete(deviceId);
       this.lastStates.delete(deviceId);
-      logger.info(`DeviceMonitor: stop polling ${deviceId}`);
+      this.deps.logger.info(`DeviceMonitor: stop polling ${deviceId}`);
     }
+  }
+
+  async pollDeviceOnce(deviceId: string): Promise<void> {
+    const status = await this.deps.getPlaybackState(deviceId);
+    const update: DevicePlaybackUpdate = {
+      deviceId,
+      state: normalizeDeviceState(status.state),
+      position: status.position,
+      duration: status.duration,
+      volume: status.volume,
+    };
+
+    const last = this.lastStates.get(deviceId);
+    const changed =
+      !last ||
+      last.state !== update.state ||
+      Math.abs(last.position - update.position) > 3 ||
+      last.duration !== update.duration ||
+      last.volume !== update.volume;
+
+    if (!changed) return;
+
+    this.lastStates.set(deviceId, update);
+    this.deps.getIO().emit('device:playback-update', update);
+    this.syncPlaybackState(update, last);
+  }
+
+  private syncPlaybackState(update: DevicePlaybackUpdate, last?: DevicePlaybackUpdate): void {
+    const ended =
+      last?.state === 'playing' &&
+      update.state === 'stopped' &&
+      ((last.duration > 0 && last.position >= last.duration - 2) || update.position === 0);
+
+    if (ended) {
+      this.deps.logger.info(`DeviceMonitor: track ended on ${update.deviceId}, advancing queue`);
+      this.deps.playback.setState({
+        deviceId: update.deviceId,
+        state: 'stopped',
+        position: update.duration || last.duration || update.position,
+      });
+      return;
+    }
+
+    this.deps.playback.setState({
+      deviceId: update.deviceId,
+      state: update.state,
+      position: update.position,
+    });
   }
 }
 
 export const deviceMonitor = new DeviceMonitor();
+
+function normalizeDeviceState(state: DevicePlaybackStatus['state']): DevicePlaybackUpdate['state'] {
+  if (state === 'paused') return 'paused';
+  if (state === 'playing' || state === 'buffering') return 'playing';
+  return 'stopped';
+}

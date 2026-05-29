@@ -9,22 +9,44 @@ interface DevicePlaybackUpdate {
   volume: number;
 }
 
+interface PlaybackTrack {
+  id: string;
+  title: string;
+  artistName: string;
+  albumTitle: string;
+  albumId?: string;
+  duration?: number;
+  source?: string;
+}
+
+interface ServerToClientEvents {
+  'device:playback-update': (update: DevicePlaybackUpdate) => void;
+  'playback:track-changed': (track: PlaybackTrack) => void;
+}
+
+interface ClientToServerEvents {
+  'device:subscribe': (deviceId: string) => void;
+  'device:unsubscribe': (deviceId: string) => void;
+}
+
 interface UseSocketReturn {
   connected: boolean;
   deviceUpdate: DevicePlaybackUpdate | null;
+  trackChanged: PlaybackTrack | null;
   subscribeDevice: (deviceId: string) => void;
   unsubscribeDevice: (deviceId: string) => void;
 }
 
 export function useSocket(): UseSocketReturn {
-  const socketRef = useRef<Socket | null>(null);
+  const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
   const [connected, setConnected] = useState(false);
   const [deviceUpdate, setDeviceUpdate] = useState<DevicePlaybackUpdate | null>(null);
+  const [trackChanged, setTrackChanged] = useState<PlaybackTrack | null>(null);
   const subscribedDeviceRef = useRef<string | null>(null);
 
   useEffect(() => {
     const token = localStorage.getItem('audioserver_token');
-    const socket = io({
+    const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io({
       auth: { token },
       reconnection: true,
       reconnectionDelay: 1000,
@@ -43,9 +65,8 @@ export function useSocket(): UseSocketReturn {
 
     socket.on('disconnect', () => setConnected(false));
 
-    socket.on('device:playback-update' as any, (update: DevicePlaybackUpdate) => {
-      setDeviceUpdate(update);
-    });
+    socket.on('device:playback-update', setDeviceUpdate);
+    socket.on('playback:track-changed', setTrackChanged);
 
     return () => {
       socket.disconnect();
@@ -70,5 +91,5 @@ export function useSocket(): UseSocketReturn {
     }
   };
 
-  return { connected, deviceUpdate, subscribeDevice, unsubscribeDevice };
+  return { connected, deviceUpdate, trackChanged, subscribeDevice, unsubscribeDevice };
 }

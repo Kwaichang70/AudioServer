@@ -1,4 +1,25 @@
-import type { NowPlaying, PlaybackState } from '@audioserver/shared';
+import type { NowPlaying } from '@audioserver/shared';
+
+export interface PlaybackTrack {
+  id: string;
+  title: string;
+  artistName: string;
+  albumTitle: string;
+  albumId?: string;
+  duration?: number;
+  source?: string;
+}
+
+export interface PlaybackQueueEntry {
+  trackId: string;
+  trackTitle: string;
+  artistName: string;
+  albumTitle: string;
+  albumId?: string;
+  duration?: number;
+  source?: string;
+  position: number;
+}
 
 export interface DevicePlaybackUpdate {
   deviceId: string;
@@ -10,12 +31,12 @@ export interface DevicePlaybackUpdate {
 
 export interface ServerToClientEvents {
   'playback:state': (state: NowPlaying) => void;
-  'playback:queue': (queue: any[]) => void;
-  'playback:track-changed': (track: any) => void;
+  'playback:queue': (queue: PlaybackQueueEntry[]) => void;
+  'playback:track-changed': (track: PlaybackTrack) => void;
   'device:playback-update': (update: DevicePlaybackUpdate) => void;
   'device:discovered': (device: { id: string; name: string; type: string }) => void;
   'device:lost': (device: { id: string; name: string }) => void;
-  'library:scan-progress': (progress: any) => void;
+  'library:scan-progress': (progress: Record<string, unknown>) => void;
 }
 
 export interface ClientToServerEvents {

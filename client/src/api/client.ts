@@ -210,14 +210,14 @@ export const api = {
   // ─── Playback ──────────────────────────────────────────────
   getNowPlaying: (): Promise<ApiResult> => fetchApi('/playback/now-playing'),
   getQueue: (): Promise<ApiResult> => fetchApi('/playback/queue'),
-  addToQueue: (track: Partial<Track> | Record<string, unknown>): Promise<ApiResult> =>
+  addToQueue: (track: Partial<Track> | object): Promise<ApiResult> =>
     fetchApi('/playback/queue/add', { method: 'POST', body: JSON.stringify({ track }) }),
   clearQueue: (): Promise<ApiResult> => fetchApi('/playback/queue/clear', { method: 'POST' }),
   removeFromQueue: (index: number): Promise<ApiResult> =>
     fetchApi('/playback/queue/remove', { method: 'POST', body: JSON.stringify({ index }) }),
   moveInQueue: (from: number, to: number): Promise<ApiResult> =>
     fetchApi('/playback/queue/move', { method: 'POST', body: JSON.stringify({ from, to }) }),
-  play: (track: Partial<Track> | Record<string, unknown>, deviceId?: string): Promise<ApiResult> =>
+  play: (track: Partial<Track> | object, deviceId?: string): Promise<ApiResult> =>
     fetchApi('/playback/play', { method: 'POST', body: JSON.stringify({ track, deviceId }) }),
   pause: (): Promise<ApiResult> => fetchApi('/playback/pause', { method: 'POST' }),
   stop: (): Promise<ApiResult> => fetchApi('/playback/stop', { method: 'POST' }),

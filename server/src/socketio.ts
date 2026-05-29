@@ -19,7 +19,9 @@ export function isValidSocketToken(token: unknown): boolean {
   }
 }
 
-export function initSocketIO(httpServer: HttpServer): SocketServer {
+export function initSocketIO(
+  httpServer: HttpServer,
+): SocketServer<ClientToServerEvents, ServerToClientEvents> {
   io = new SocketServer<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     cors: {
       origin: config.allowedOrigins.length > 0 ? config.allowedOrigins : '*',
@@ -70,10 +72,10 @@ export function initSocketIO(httpServer: HttpServer): SocketServer {
   // Start device health checks
   deviceMonitor.startHealthChecks();
 
-  return io as any;
+  return io;
 }
 
-export function getIO(): SocketServer {
+export function getIO(): SocketServer<ClientToServerEvents, ServerToClientEvents> {
   if (!io) throw new Error('Socket.IO not initialized');
-  return io as any;
+  return io;
 }

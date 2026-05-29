@@ -26,6 +26,7 @@ interface TrackInfo {
   format?: string;
   sampleRate?: number;
   bitDepth?: number;
+  source?: string;
   // Optional ReplayGain tags (dB + 0..1 peak ratio). Backend returns these
   // from /library/tracks/:id and /library/albums/:id. If the file has no RG
   // metadata they're undefined and the player falls back to preamp-only.
@@ -155,7 +156,6 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const toastRef = useRef(toast);
   toastRef.current = toast;
   const lanAddressRef = useRef<string | null>(null);
-  const playNextRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     api
@@ -189,8 +189,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     return () => socket.unsubscribeDevice(selectedDeviceId);
   }, [selectedDeviceId]);
 
-  // Process WebSocket device updates
-  const prevDeviceState = useRef<string>('stopped');
+  // Process WebSocket device updates. Queue advancement is decided server-side
+  // by PlaybackService and delivered as playback:track-changed.
   useEffect(() => {
     if (!socket.deviceUpdate || socket.deviceUpdate.deviceId !== selectedDeviceRef.current) return;
 
@@ -204,16 +204,6 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       // regardless of whether the user picked the browser or a remote device.
       setProgress(u.position, u.duration);
     }
-
-    // Auto-advance: device was playing, now stopped → next track
-    if (prevDeviceState.current === 'playing' && u.state === 'stopped') {
-      const nearEnd = u.duration > 0 && u.position >= u.duration - 2;
-      if (nearEnd || u.position === 0) {
-        console.log(`[AudioServer] Track ended via WebSocket, advancing`);
-        playNextRef.current?.();
-      }
-    }
-    prevDeviceState.current = u.state;
   }, [socket.deviceUpdate]);
 
   // Fallback: if WebSocket disconnected, use polling
@@ -474,6 +464,15 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     [startTrack],
   );
 
+  useEffect(() => {
+    if (!socket.trackChanged) return;
+
+    const nextTrack = socket.trackChanged;
+    const nextIndex = queue.findIndex((track) => track.id === nextTrack.id);
+    if (nextIndex >= 0) setQueueIndex(nextIndex);
+    startTrack(nextTrack);
+  }, [socket.trackChanged, queue, startTrack]);
+
   const playAlbum = useCallback(
     (tracks: TrackInfo[]) => {
       if (tracks.length === 0) return;
@@ -550,8 +549,6 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       startTrack(queue[0]);
     }
   }, [queue, queueIndex, startTrack, shuffle, repeat]);
-  playNextRef.current = playNext;
-
   const playPrevious = useCallback(() => {
     if (queue.length === 0) return;
     if (audio.getCurrentTime() > 3) {
