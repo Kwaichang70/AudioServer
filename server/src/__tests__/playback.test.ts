@@ -1,17 +1,48 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
 import { createServer, type Server } from 'http';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { getRawDb, initDatabase } from '../db/index.js';
 import { playbackRouter } from '../routes/playback.js';
+import { playbackService } from '../services/playback.js';
 import { initSocketIO } from '../socketio.js';
 
 let server: Server;
 let baseUrl: string;
+let tmp: string | null = null;
 
-const mockTrack1 = { id: 't1', title: 'Track One', artistName: 'Artist A', albumTitle: 'Album X', albumId: 'a1', duration: 180 };
-const mockTrack2 = { id: 't2', title: 'Track Two', artistName: 'Artist A', albumTitle: 'Album X', albumId: 'a1', duration: 210 };
-const mockTrack3 = { id: 't3', title: 'Track Three', artistName: 'Artist B', albumTitle: 'Album Y', albumId: 'a2', duration: 240 };
+const mockTrack1 = {
+  id: 't1',
+  title: 'Track One',
+  artistName: 'Artist A',
+  albumTitle: 'Album X',
+  albumId: 'a1',
+  duration: 180,
+};
+const mockTrack2 = {
+  id: 't2',
+  title: 'Track Two',
+  artistName: 'Artist A',
+  albumTitle: 'Album X',
+  albumId: 'a1',
+  duration: 210,
+};
+const mockTrack3 = {
+  id: 't3',
+  title: 'Track Three',
+  artistName: 'Artist B',
+  albumTitle: 'Album Y',
+  albumId: 'a2',
+  duration: 240,
+};
 
 beforeAll(async () => {
+  tmp = mkdtempSync(join(tmpdir(), 'audioserver-playback-api-test-'));
+  await initDatabase(join(tmp, 'test.db'));
+  playbackService.initialize();
+
   const app = express();
   app.use(express.json());
   app.use('/api/playback', playbackRouter);
@@ -26,7 +57,15 @@ beforeAll(async () => {
   });
 });
 
-afterAll(() => { server.close(); });
+afterAll(() => {
+  server.close();
+  try {
+    getRawDb().close();
+  } catch {
+    // ignore
+  }
+  if (tmp) rmSync(tmp, { recursive: true, force: true });
+});
 
 async function post(path: string, body?: any) {
   const res = await fetch(`${baseUrl}/api/playback${path}`, {
