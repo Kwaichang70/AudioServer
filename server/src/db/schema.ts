@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
+import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const artists = sqliteTable('artists', {
   id: text('id').primaryKey(),
@@ -57,6 +57,21 @@ export const tracks = sqliteTable('tracks', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
 });
 
+export const users = sqliteTable('users', {
+  id: text('id').primaryKey(),
+  username: text('username').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  role: text('role').notNull().default('user'),
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+});
+
+export const providerTokens = sqliteTable('provider_tokens', {
+  provider: text('provider').primaryKey(),
+  accessToken: text('access_token').notNull(),
+  refreshToken: text('refresh_token').notNull(),
+  expiresAt: integer('expires_at').notNull(),
+});
+
 export const playlists = sqliteTable('playlists', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -66,17 +81,23 @@ export const playlists = sqliteTable('playlists', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
 });
 
-export const playlistTracks = sqliteTable('playlist_tracks', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  playlistId: text('playlist_id')
-    .notNull()
-    .references(() => playlists.id),
-  trackId: text('track_id')
-    .notNull()
-    .references(() => tracks.id),
-  position: integer('position').notNull(),
-  addedAt: integer('added_at', { mode: 'timestamp' }),
-});
+export const playlistTracks = sqliteTable(
+  'playlist_tracks',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    playlistId: text('playlist_id')
+      .notNull()
+      .references(() => playlists.id),
+    trackId: text('track_id')
+      .notNull()
+      .references(() => tracks.id),
+    position: integer('position').notNull(),
+    addedAt: integer('added_at', { mode: 'timestamp' }),
+  },
+  (table) => ({
+    playlistPositionIdx: index('idx_playlist_tracks_playlist').on(table.playlistId, table.position),
+  }),
+);
 
 export const playHistory = sqliteTable('play_history', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -100,18 +121,24 @@ export const playbackState = sqliteTable('playback_state', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
 });
 
-export const queueItems = sqliteTable('queue_items', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  trackId: text('track_id').notNull(),
-  trackTitle: text('track_title').notNull(),
-  artistName: text('artist_name').notNull(),
-  albumTitle: text('album_title').notNull(),
-  albumId: text('album_id'),
-  duration: real('duration'),
-  source: text('source').default('local'),
-  position: integer('position').notNull(),
-  addedAt: integer('added_at', { mode: 'timestamp' }),
-});
+export const queueItems = sqliteTable(
+  'queue_items',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    trackId: text('track_id').notNull(),
+    trackTitle: text('track_title').notNull(),
+    artistName: text('artist_name').notNull(),
+    albumTitle: text('album_title').notNull(),
+    albumId: text('album_id'),
+    duration: real('duration'),
+    source: text('source').default('local'),
+    position: integer('position').notNull(),
+    addedAt: integer('added_at', { mode: 'timestamp' }),
+  },
+  (table) => ({
+    positionIdx: index('idx_queue_position').on(table.position),
+  }),
+);
 
 export const smartPlaylists = sqliteTable('smart_playlists', {
   id: text('id').primaryKey(),
@@ -143,12 +170,19 @@ export const scrobbleQueue = sqliteTable('scrobble_queue', {
   retries: integer('retries').default(0),
 });
 
-export const favorites = sqliteTable('favorites', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  itemType: text('item_type').notNull(), // 'track', 'album', 'artist', 'station'
-  itemId: text('item_id').notNull(),
-  createdAt: integer('created_at', { mode: 'timestamp' }),
-});
+export const favorites = sqliteTable(
+  'favorites',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    itemType: text('item_type').notNull(), // 'track', 'album', 'artist', 'station'
+    itemId: text('item_id').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp' }),
+  },
+  (table) => ({
+    itemIdx: index('idx_favorites_type').on(table.itemType, table.itemId),
+    itemUniqueIdx: uniqueIndex('idx_favorites_unique_item').on(table.itemType, table.itemId),
+  }),
+);
 
 export const radioStations = sqliteTable('radio_stations', {
   uuid: text('uuid').primaryKey(), // raw station uuid / curated slug

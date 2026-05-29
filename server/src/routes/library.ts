@@ -136,6 +136,30 @@ libraryRouter.get('/tracks/:id/cover', async (req, res) => {
 
 // ─── Tracks ──────────────────────────────────────────────────────
 
+libraryRouter.get('/tracks', (req, res) => {
+  const { page, limit, offset } = parsePagination(req, 100);
+  const raw = getRawDb();
+  const total = (raw.prepare('SELECT COUNT(*) as count FROM tracks').get() as { count: number })
+    .count;
+  const data = raw
+    .prepare(
+      `
+    SELECT id, title, album_id as albumId, album_title as albumTitle,
+      artist_id as artistId, artist_name as artistName,
+      track_number as trackNumber, disc_number as discNumber, duration,
+      format, sample_rate as sampleRate, bit_depth as bitDepth,
+      file_path as filePath, cover_url as coverUrl,
+      replay_gain_track as replayGainTrack, replay_gain_track_peak as replayGainTrackPeak,
+      source, created_at as createdAt, updated_at as updatedAt
+    FROM tracks
+    ORDER BY album_id COLLATE NOCASE, disc_number, track_number, title COLLATE NOCASE
+    LIMIT ? OFFSET ?
+  `,
+    )
+    .all(limit, offset);
+  res.json({ data, meta: buildMeta(page, limit, total) });
+});
+
 libraryRouter.get('/tracks/:id', (req, res) => {
   const db = getDb();
   const track = db.select().from(tracks).where(eq(tracks.id, req.params.id)).get();

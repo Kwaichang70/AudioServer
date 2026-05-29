@@ -9,8 +9,12 @@ const storage: Record<string, string> = {};
 Object.defineProperty(global, 'localStorage', {
   value: {
     getItem: (key: string) => storage[key] || null,
-    setItem: (key: string, val: string) => { storage[key] = val; },
-    removeItem: (key: string) => { delete storage[key]; },
+    setItem: (key: string, val: string) => {
+      storage[key] = val;
+    },
+    removeItem: (key: string) => {
+      delete storage[key];
+    },
   },
 });
 
@@ -70,6 +74,28 @@ describe('API client', () => {
 
     expect(mockFetch).toHaveBeenCalledWith(
       '/api/library/albums?page=2&limit=30',
+      expect.anything(),
+    );
+  });
+
+  it('gets paginated tracks', async () => {
+    mockJsonResponse({ data: [], meta: { page: 3, limit: 100, total: 250, totalPages: 3 } });
+
+    await api.getTracks(3, 100);
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/library/tracks?page=3&limit=100',
+      expect.anything(),
+    );
+  });
+
+  it('passes search limit params', async () => {
+    mockJsonResponse({ data: { artists: [], albums: [], tracks: [] } });
+
+    await api.search('blue note', 12);
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/library/search?q=blue%20note&limit=12',
       expect.anything(),
     );
   });

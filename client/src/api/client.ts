@@ -154,7 +154,10 @@ export const api = {
     fetchApi(`/library/albums?page=${page}&limit=${limit}`),
   getAlbum: (id: string): Promise<ApiResult> => fetchApi(`/library/albums/${id}`),
   getAlbumTracks: (id: string): Promise<ApiResult> => fetchApi(`/library/albums/${id}/tracks`),
-  search: (q: string): Promise<ApiResult> => fetchApi(`/library/search?q=${encodeURIComponent(q)}`),
+  getTracks: (page = 1, limit = 100): Promise<ApiResult> =>
+    fetchApi(`/library/tracks?page=${page}&limit=${limit}`),
+  search: (q: string, limit = 20): Promise<ApiResult> =>
+    fetchApi(`/library/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   scanLibrary: (): Promise<ApiResult> => fetchApi('/library/scan', { method: 'POST' }),
   getScanStatus: (): Promise<ApiResult> => fetchApi('/library/scan/status'),
 
