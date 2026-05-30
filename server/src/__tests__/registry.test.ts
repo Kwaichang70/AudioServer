@@ -1,72 +1,122 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { Album, Artist, ProviderType, SearchResults, Track } from '@audioserver/shared';
+import {
+  deduplicateProviderItems,
+  deduplicateSearchResults,
+  normalizeSearchKey,
+} from '../providers/registry.js';
 
-// Test the dedup logic standalone
-describe('Search deduplication', () => {
-  function dedup<T extends { source?: string }>(items: T[], keyFn: (item: T) => string): T[] {
-    const seen = new Map<string, T>();
-    const sourceOrder: Record<string, number> = { local: 0, qobuz: 1, tidal: 2, spotify: 3 };
+function artist(name: string, source: ProviderType): Artist {
+  return {
+    id: `${source}-${name}`,
+    name,
+    source,
+  };
+}
 
-    for (const item of items) {
-      const key = keyFn(item);
-      const existing = seen.get(key);
-      if (!existing) {
-        seen.set(key, item);
-      } else {
-        const existingPriority = sourceOrder[existing.source || 'spotify'] ?? 9;
-        const newPriority = sourceOrder[item.source || 'spotify'] ?? 9;
-        if (newPriority < existingPriority) {
-          seen.set(key, item);
-        }
-      }
-    }
+function album(title: string, artistName: string, source: ProviderType): Album {
+  return {
+    id: `${source}-${artistName}-${title}`,
+    title,
+    artistId: `${source}-${artistName}`,
+    artistName,
+    source,
+  };
+}
 
-    return Array.from(seen.values());
-  }
+function track(title: string, artistName: string, source: ProviderType): Track {
+  return {
+    id: `${source}-${artistName}-${title}`,
+    title,
+    albumId: `${source}-album`,
+    albumTitle: 'Album',
+    artistId: `${source}-${artistName}`,
+    artistName,
+    source,
+  };
+}
 
-  it('removes duplicate artists, keeps local over spotify', () => {
-    const items = [
-      { name: 'Prince', source: 'local' },
-      { name: 'Prince', source: 'spotify' },
-      { name: 'Queen', source: 'spotify' },
-    ];
-    const result = dedup(items, (a) => a.name.toLowerCase());
-    expect(result).toHaveLength(2);
-    expect(result.find((a) => a.name === 'Prince')?.source).toBe('local');
+describe('provider search deduplication', () => {
+  it('normalizes punctuation, accents, whitespace and case', () => {
+    expect(normalizeSearchKey('  Café   del  Mar ', 'Don’t Stop')).toBe('cafe del mar|dont stop');
   });
 
-  it('keeps higher priority source (qobuz > spotify)', () => {
-    const items = [
-      { name: 'Miles Davis', source: 'spotify' },
-      { name: 'Miles Davis', source: 'qobuz' },
-    ];
-    const result = dedup(items, (a) => a.name.toLowerCase());
+  it('keeps local over streaming providers and records availability', () => {
+    const result = deduplicateProviderItems(
+      [artist('Prince', 'spotify'), artist('Prince', 'qobuz'), artist('Prince', 'local')],
+      (item) => normalizeSearchKey(item.name),
+    );
+
     expect(result).toHaveLength(1);
-    expect(result[0].source).toBe('qobuz');
+    expect(result[0]).toMatchObject({
+      source: 'local',
+      availableOn: ['local', 'qobuz', 'spotify'],
+    });
   });
 
-  it('removes duplicate albums by artist+title', () => {
-    const items = [
-      { title: 'Purple Rain', artistName: 'Prince', source: 'local' },
-      { title: 'Purple Rain', artistName: 'Prince', source: 'spotify' },
-      { title: 'Purple Rain', artistName: 'Prince', source: 'tidal' },
-      { title: '1999', artistName: 'Prince', source: 'spotify' },
-    ];
-    const result = dedup(items, (a) => `${a.artistName}-${a.title}`.toLowerCase());
-    expect(result).toHaveLength(2);
-    expect(result.find((a) => a.title === 'Purple Rain')?.source).toBe('local');
+  it('prefers qobuz over tidal and spotify when local is absent', () => {
+    const result = deduplicateProviderItems(
+      [
+        track('So What', 'Miles Davis', 'spotify'),
+        track('So What', 'Miles Davis', 'tidal'),
+        track('So What', 'Miles Davis', 'qobuz'),
+      ],
+      (item) => normalizeSearchKey(item.artistName, item.title),
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      source: 'qobuz',
+      availableOn: ['qobuz', 'tidal', 'spotify'],
+    });
+  });
+
+  it('deduplicates albums by artist and title', () => {
+    const result = deduplicateSearchResults({
+      artists: [],
+      albums: [
+        album('Kind of Blue', 'Miles Davis', 'spotify'),
+        album('Kind of Blue', 'Miles Davis', 'qobuz'),
+        album('Bitches Brew', 'Miles Davis', 'spotify'),
+      ],
+      tracks: [],
+      playlists: [],
+    });
+
+    expect(result.albums).toHaveLength(2);
+    expect(result.albums.find((item) => item.title === 'Kind of Blue')).toMatchObject({
+      source: 'qobuz',
+      availableOn: ['qobuz', 'spotify'],
+    });
+  });
+
+  it('deduplicates tracks while preserving unique tracks', () => {
+    const input: SearchResults = {
+      artists: [],
+      albums: [],
+      tracks: [
+        track('Where The Streets Have No Name', 'U2', 'local'),
+        track('Where the Streets Have No Name', 'U2', 'qobuz'),
+        track('One', 'U2', 'qobuz'),
+      ],
+      playlists: [],
+    };
+
+    const result = deduplicateSearchResults(input);
+
+    expect(result.tracks).toHaveLength(2);
+    expect(result.tracks[0]).toMatchObject({
+      source: 'local',
+      availableOn: ['local', 'qobuz'],
+    });
   });
 
   it('handles empty input', () => {
-    expect(dedup([], (a: any) => a.name)).toEqual([]);
-  });
+    const result = deduplicateProviderItems(
+      [] as Array<{ name: string; source: ProviderType; availableOn?: ProviderType[] }>,
+      (item) => item.name,
+    );
 
-  it('handles unique items', () => {
-    const items = [
-      { name: 'A', source: 'local' },
-      { name: 'B', source: 'spotify' },
-      { name: 'C', source: 'tidal' },
-    ];
-    const result = dedup(items, (a) => a.name);
-    expect(result).toHaveLength(3);
+    expect(result).toEqual([]);
   });
 });

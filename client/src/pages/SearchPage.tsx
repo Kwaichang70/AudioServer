@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import type { ProviderType } from '@audioserver/shared';
 import { api } from '../api/client.js';
 import { useAudioContext, type TrackInfo } from '../context/AudioContext.js';
 import { SOURCE_COLORS } from '../constants.js';
@@ -8,7 +9,8 @@ interface SearchArtist {
   id: string;
   name: string;
   imageUrl?: string;
-  source?: string;
+  source?: ProviderType;
+  availableOn?: ProviderType[];
 }
 
 interface SearchAlbum {
@@ -16,18 +18,21 @@ interface SearchAlbum {
   title: string;
   artistName: string;
   coverUrl?: string;
-  source?: string;
+  source?: ProviderType;
+  availableOn?: ProviderType[];
 }
 
 interface SearchTrack extends TrackInfo {
-  source?: string;
+  source?: ProviderType;
+  availableOn?: ProviderType[];
 }
 
 interface SearchPlaylist {
   id: string;
   name: string;
   trackCount?: number;
-  source?: string;
+  source?: ProviderType;
+  availableOn?: ProviderType[];
 }
 
 interface SearchResults {
@@ -37,9 +42,9 @@ interface SearchResults {
   playlists: SearchPlaylist[];
 }
 
-const EMPTY_RESULTS: SearchResults = { artists: [], albums: [], tracks: [], playlists: [] };
+const PLAYABLE_TRACK_SOURCES = new Set<ProviderType>(['local', 'qobuz', 'spotify', 'radio']);
 
-function SourceBadge({ source }: { source?: string }) {
+function SourceBadge({ source }: { source?: ProviderType }) {
   if (!source || source === 'local') return null;
   return (
     <span
@@ -48,6 +53,29 @@ function SourceBadge({ source }: { source?: string }) {
       {source}
     </span>
   );
+}
+
+function SourceBadges({
+  source,
+  availableOn,
+}: {
+  source?: ProviderType;
+  availableOn?: ProviderType[];
+}) {
+  const sources = availableOn?.length ? availableOn : source ? [source] : [];
+  const visibleSources = sources.filter((s) => s !== 'local');
+  if (visibleSources.length === 0) return null;
+  return (
+    <>
+      {visibleSources.map((s) => (
+        <SourceBadge key={s} source={s} />
+      ))}
+    </>
+  );
+}
+
+function isPlayableTrack(track: SearchTrack): boolean {
+  return PLAYABLE_TRACK_SOURCES.has(track.source ?? 'local');
 }
 
 export default function SearchPage() {
@@ -61,38 +89,10 @@ export default function SearchPage() {
     setLoading(true);
     try {
       if (mode === 'all') {
-        // Unified search: local + Spotify + Tidal
-        const [localRes, providerRes] = await Promise.allSettled([
-          api.search(query),
-          api.providerSearch(query),
-        ]);
-
-        const local =
-          localRes.status === 'fulfilled' ? (localRes.value.data as SearchResults) : EMPTY_RESULTS;
-        const providers =
-          providerRes.status === 'fulfilled'
-            ? (providerRes.value.data as SearchResults)
-            : EMPTY_RESULTS;
-
-        // De-duplicate: if a local artist/album exists, skip the Spotify version
-        const localArtistNames = new Set(local.artists.map((a) => a.name.toLowerCase()));
-        const localAlbumKeys = new Set(
-          local.albums.map((a) => `${a.artistName}-${a.title}`.toLowerCase()),
-        );
-
-        const filteredSpotifyArtists = providers.artists.filter(
-          (a) => !localArtistNames.has(a.name.toLowerCase()),
-        );
-        const filteredSpotifyAlbums = providers.albums.filter(
-          (a) => !localAlbumKeys.has(`${a.artistName}-${a.title}`.toLowerCase()),
-        );
-
-        setResults({
-          artists: [...local.artists, ...filteredSpotifyArtists],
-          albums: [...local.albums, ...filteredSpotifyAlbums],
-          tracks: [...local.tracks, ...providers.tracks],
-          playlists: providers.playlists || [],
-        });
+        // Unified search already includes local + active providers and performs
+        // provider-priority deduplication on the server.
+        const res = await api.providerSearch(query);
+        setResults(res.data as SearchResults);
       } else {
         const res = await api.search(query);
         setResults(res.data as SearchResults);
@@ -177,7 +177,7 @@ export default function SearchPage() {
                       <img src={a.imageUrl} alt="" className="w-6 h-6 rounded-full object-cover" />
                     )}
                     {a.name}
-                    <SourceBadge source={a.source} />
+                    <SourceBadges source={a.source} availableOn={a.availableOn} />
                   </Link>
                 ))}
               </div>
@@ -218,7 +218,7 @@ export default function SearchPage() {
                       <p className="text-sm font-medium truncate group-hover:text-accent transition flex-1">
                         {a.title}
                       </p>
-                      <SourceBadge source={a.source} />
+                      <SourceBadges source={a.source} availableOn={a.availableOn} />
                     </div>
                     <p className="text-xs text-gray-400 truncate">{a.artistName}</p>
                   </Link>
@@ -237,13 +237,9 @@ export default function SearchPage() {
                   // Use index to ensure unique keys across local + spotify results
                   <div
                     key={`${t.id}-${i}`}
-                    onClick={() =>
-                      t.source === 'local' || t.source === 'spotify' ? playTrack(t) : null
-                    }
+                    onClick={() => (isPlayableTrack(t) ? playTrack(t) : null)}
                     className={`flex items-center gap-4 px-3 py-2 rounded hover:bg-surface-light transition ${
-                      t.source === 'local' || t.source === 'spotify'
-                        ? 'cursor-pointer'
-                        : 'opacity-70'
+                      isPlayableTrack(t) ? 'cursor-pointer' : 'opacity-70'
                     }`}
                   >
                     <div className="w-8 h-8 rounded bg-surface-dark overflow-hidden shrink-0">
@@ -262,7 +258,7 @@ export default function SearchPage() {
                     <span className="text-xs text-gray-500 truncate max-w-[200px]">
                       {t.artistName} &mdash; {t.albumTitle}
                     </span>
-                    <SourceBadge source={t.source} />
+                    <SourceBadges source={t.source} availableOn={t.availableOn} />
                   </div>
                 ))}
               </div>
@@ -279,7 +275,7 @@ export default function SearchPage() {
                   <div key={p.id} className="bg-surface-light rounded-lg p-3">
                     <div className="flex items-center gap-1 mb-0.5">
                       <p className="text-sm font-medium truncate flex-1">{p.name}</p>
-                      <SourceBadge source={p.source} />
+                      <SourceBadges source={p.source} availableOn={p.availableOn} />
                     </div>
                     <p className="text-xs text-gray-500">{p.trackCount || 0} tracks</p>
                   </div>

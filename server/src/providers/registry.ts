@@ -1,9 +1,88 @@
-import type { MusicProvider } from '@audioserver/shared';
+import type {
+  Album,
+  Artist,
+  MusicProvider,
+  Playlist,
+  ProviderType,
+  SearchResults,
+  Track,
+} from '@audioserver/shared';
 import { LocalProvider } from './local.js';
 import { TidalProvider } from './tidal.js';
 import { SpotifyProvider } from './spotify.js';
 import { QobuzProvider } from './qobuz.js';
 import { logger } from '../logger.js';
+
+export const SOURCE_PRIORITY: readonly ProviderType[] = [
+  'local',
+  'qobuz',
+  'tidal',
+  'spotify',
+  'radio',
+];
+
+function sourceRank(source: ProviderType): number {
+  const rank = SOURCE_PRIORITY.indexOf(source);
+  return rank === -1 ? SOURCE_PRIORITY.length : rank;
+}
+
+export function normalizeSearchKey(...parts: Array<string | null | undefined>): string {
+  return parts
+    .map((part) =>
+      (part ?? '')
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/['’"“”]/g, '')
+        .replace(/[^a-zA-Z0-9]+/g, ' ')
+        .trim()
+        .toLowerCase(),
+    )
+    .join('|');
+}
+
+export function deduplicateProviderItems<
+  T extends { source: ProviderType; availableOn?: ProviderType[] },
+>(items: T[], keyFn: (item: T) => string): T[] {
+  const groups = new Map<string, { best: T; sources: Set<ProviderType> }>();
+
+  for (const item of items) {
+    const key = keyFn(item);
+    const itemSources = new Set<ProviderType>([item.source, ...(item.availableOn ?? [])]);
+    const existing = groups.get(key);
+
+    if (!existing) {
+      groups.set(key, { best: item, sources: itemSources });
+      continue;
+    }
+
+    for (const source of itemSources) existing.sources.add(source);
+    if (sourceRank(item.source) < sourceRank(existing.best.source)) {
+      existing.best = item;
+    }
+  }
+
+  return Array.from(groups.values()).map(({ best, sources }) => ({
+    ...best,
+    availableOn: Array.from(sources).sort((a, b) => sourceRank(a) - sourceRank(b)),
+  }));
+}
+
+export function deduplicateSearchResults(results: SearchResults): SearchResults {
+  return {
+    artists: deduplicateProviderItems(results.artists, (artist: Artist) =>
+      normalizeSearchKey(artist.name),
+    ),
+    albums: deduplicateProviderItems(results.albums, (album: Album) =>
+      normalizeSearchKey(album.artistName, album.title),
+    ),
+    tracks: deduplicateProviderItems(results.tracks, (track: Track) =>
+      normalizeSearchKey(track.artistName, track.title),
+    ),
+    playlists: deduplicateProviderItems(results.playlists, (playlist: Playlist) =>
+      normalizeSearchKey(playlist.source, playlist.name),
+    ),
+  };
+}
 
 class ProviderRegistry {
   readonly local = new LocalProvider();
@@ -30,16 +109,16 @@ class ProviderRegistry {
     }
   }
 
-  async searchAll(query: string, limit = 20) {
+  async searchAll(query: string, limit = 20): Promise<SearchResults> {
     const results = await Promise.allSettled(
       this.getActiveProviders().map((p) => p.search(query, limit)),
     );
 
-    const merged = {
-      artists: [] as any[],
-      albums: [] as any[],
-      tracks: [] as any[],
-      playlists: [] as any[],
+    const merged: SearchResults = {
+      artists: [],
+      albums: [],
+      tracks: [],
+      playlists: [],
     };
 
     for (const result of results) {
@@ -51,35 +130,7 @@ class ProviderRegistry {
       }
     }
 
-    // Deduplicate: prefer local > qobuz > tidal > spotify
-    merged.artists = this.dedup(merged.artists, (a) => a.name.toLowerCase());
-    merged.albums = this.dedup(merged.albums, (a) => `${a.artistName}-${a.title}`.toLowerCase());
-    merged.tracks = this.dedup(merged.tracks, (t) => `${t.artistName}-${t.title}`.toLowerCase());
-
-    return merged;
-  }
-
-  /** Remove duplicates, keeping the first occurrence (local comes first) */
-  private dedup<T extends { source?: string }>(items: T[], keyFn: (item: T) => string): T[] {
-    const seen = new Map<string, T>();
-    const sourceOrder: Record<string, number> = { local: 0, qobuz: 1, tidal: 2, spotify: 3 };
-
-    for (const item of items) {
-      const key = keyFn(item);
-      const existing = seen.get(key);
-      if (!existing) {
-        seen.set(key, item);
-      } else {
-        // Keep the one with higher priority (lower number)
-        const existingPriority = sourceOrder[existing.source || 'spotify'] ?? 9;
-        const newPriority = sourceOrder[item.source || 'spotify'] ?? 9;
-        if (newPriority < existingPriority) {
-          seen.set(key, item);
-        }
-      }
-    }
-
-    return Array.from(seen.values());
+    return deduplicateSearchResults(merged);
   }
 }
 
