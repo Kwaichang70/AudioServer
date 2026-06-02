@@ -1,4 +1,5 @@
 import type { NowPlaying } from '@audioserver/shared';
+import type { ScanStatus } from '../services/scanner.js';
 
 export interface PlaybackTrack {
   id: string;
@@ -36,7 +37,7 @@ export interface ServerToClientEvents {
   'device:playback-update': (update: DevicePlaybackUpdate) => void;
   'device:discovered': (device: { id: string; name: string; type: string }) => void;
   'device:lost': (device: { id: string; name: string }) => void;
-  'library:scan-progress': (progress: Record<string, unknown>) => void;
+  'library:scan-progress': (progress: ScanStatus) => void;
 }
 
 export interface ClientToServerEvents {

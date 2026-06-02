@@ -43,6 +43,10 @@ export async function initDatabase(overridePath?: string) {
   // that predate a migration file, keep column-level backfills idempotent.
   runMigration(sqlite, 'tracks', 'replay_gain_track', 'REAL');
   runMigration(sqlite, 'tracks', 'replay_gain_track_peak', 'REAL');
+  runMigration(sqlite, 'tracks', 'artist_names', 'TEXT');
+  runMigration(sqlite, 'tracks', 'composer', 'TEXT');
+  runMigration(sqlite, 'tracks', 'conductor', 'TEXT');
+  runMigration(sqlite, 'albums', 'is_compilation', 'INTEGER DEFAULT 0');
   runMigration(sqlite, 'albums', 'replay_gain_album', 'REAL');
   runMigration(sqlite, 'albums', 'replay_gain_album_peak', 'REAL');
 

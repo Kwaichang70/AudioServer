@@ -19,6 +19,7 @@ export const albums = sqliteTable('albums', {
   year: integer('year'),
   coverUrl: text('cover_url'),
   genre: text('genre'),
+  isCompilation: integer('is_compilation', { mode: 'boolean' }).default(false),
   trackCount: integer('track_count').default(0),
   // ReplayGain album-mode gain (dB) + peak (0..1 ratio). Computed from per-track
   // metadata at scan time. NULL means "no replay-gain metadata available".
@@ -40,6 +41,9 @@ export const tracks = sqliteTable('tracks', {
     .notNull()
     .references(() => artists.id),
   artistName: text('artist_name').notNull(),
+  artistNames: text('artist_names'),
+  composer: text('composer'),
+  conductor: text('conductor'),
   trackNumber: integer('track_number'),
   discNumber: integer('disc_number').default(1),
   duration: real('duration'),

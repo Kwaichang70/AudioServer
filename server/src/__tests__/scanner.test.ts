@@ -8,10 +8,17 @@ import { scanLibrary } from '../services/scanner.js';
 interface TrackRow {
   id: string;
   title: string;
+  artist_name: string;
+  artist_names: string | null;
+  composer: string | null;
+  conductor: string | null;
   file_path: string | null;
 }
 
 vi.mock('music-metadata', () => ({
+  selectCover: vi.fn(
+    (pictures?: Array<{ data: Uint8Array; format: string }>) => pictures?.[0] ?? null,
+  ),
   parseFile: vi.fn(async (filePath: string) => {
     const fileName = String(filePath).split(/[\\/]/).pop() ?? 'track.mp3';
     const title = fileName.replace(/\.[^.]+$/, '');
@@ -20,6 +27,9 @@ vi.mock('music-metadata', () => ({
         artist: 'Scanned Artist',
         album: 'Scanned Album',
         title,
+        artists: ['Scanned Artist', 'Guest Artist'],
+        composer: ['Composer One'],
+        conductor: ['Conductor One'],
         track: { no: 1 },
         disk: { no: 1 },
       },
@@ -112,6 +122,28 @@ describe('scanner orphan cleanup safety', () => {
     });
     expect(status.newTracks).toBe(1);
     expect(status.removedTracks).toBe(1);
+  });
+
+  it('discovers total files before scanning and stores richer metadata', async () => {
+    const root = join(tmp!, 'music');
+    const nested = join(root, 'nested');
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(join(root, 'first.mp3'), '');
+    writeFileSync(join(nested, 'second.flac'), '');
+
+    const status = await scanLibrary([root]);
+    const track = getTrackByPath(`${root}/first.mp3`);
+
+    expect(status.phase).toBe('done');
+    expect(status.totalFiles).toBe(2);
+    expect(status.processedFiles).toBe(2);
+    expect(track).toMatchObject({
+      title: 'first',
+      artist_name: 'Scanned Artist, Guest Artist',
+      artist_names: 'Scanned Artist, Guest Artist',
+      composer: 'Composer One',
+      conductor: 'Conductor One',
+    });
   });
 });
 

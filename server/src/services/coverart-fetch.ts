@@ -1,14 +1,19 @@
-import { mkdirSync, existsSync, writeFileSync, readFileSync } from 'fs';
+import { mkdirSync, existsSync, writeFileSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { getDb } from '../db/index.js';
 import { albums } from '../db/schema.js';
 // eq removed - not currently used
 import { logger } from '../logger.js';
 
-const COVER_DIR = './data/covers';
+const DEFAULT_COVER_DIR = './data/covers';
 const MUSICBRAINZ_API = 'https://musicbrainz.org/ws/2';
 const COVERART_API = 'https://coverartarchive.org';
 const USER_AGENT = 'AudioServer/1.0 (https://github.com/Kwaichang70/AudioServer)';
+const COVER_FORMATS = [
+  { ext: 'jpg', mime: 'image/jpeg' },
+  { ext: 'png', mime: 'image/png' },
+  { ext: 'webp', mime: 'image/webp' },
+];
 
 // Rate limiting: MusicBrainz allows 1 request per second
 let lastRequestTime = 0;
@@ -32,7 +37,11 @@ interface FetchStatus {
 }
 
 let fetchStatus: FetchStatus = {
-  isRunning: false, total: 0, processed: 0, found: 0, notFound: 0,
+  isRunning: false,
+  total: 0,
+  processed: 0,
+  found: 0,
+  notFound: 0,
 };
 
 export function getCoverFetchStatus(): FetchStatus {
@@ -43,8 +52,11 @@ export function getCoverFetchStatus(): FetchStatus {
  * Get the local cover path for an album. Returns null if not cached.
  */
 export function getLocalCoverPath(albumId: string): string | null {
-  const path = join(COVER_DIR, `${albumId}.jpg`);
-  return existsSync(path) ? path : null;
+  for (const format of COVER_FORMATS) {
+    const path = join(getCoverDir(), `${albumId}.${format.ext}`);
+    if (existsSync(path)) return path;
+  }
+  return null;
 }
 
 /**
@@ -54,7 +66,7 @@ export function getLocalCoverPath(albumId: string): string | null {
 export async function fetchMissingCovers(): Promise<FetchStatus> {
   if (fetchStatus.isRunning) return fetchStatus;
 
-  mkdirSync(COVER_DIR, { recursive: true });
+  mkdirSync(getCoverDir(), { recursive: true });
 
   const db = getDb();
   const allAlbums = db.select().from(albums).all();
@@ -88,12 +100,16 @@ export async function fetchMissingCovers(): Promise<FetchStatus> {
     fetchStatus.processed++;
 
     if (fetchStatus.processed % 50 === 0) {
-      logger.info(`Cover art: ${fetchStatus.processed}/${fetchStatus.total} (${fetchStatus.found} found)`);
+      logger.info(
+        `Cover art: ${fetchStatus.processed}/${fetchStatus.total} (${fetchStatus.found} found)`,
+      );
     }
   }
 
   fetchStatus.isRunning = false;
-  logger.info(`Cover art fetch complete: ${fetchStatus.found} found, ${fetchStatus.notFound} not found`);
+  logger.info(
+    `Cover art fetch complete: ${fetchStatus.found} found, ${fetchStatus.notFound} not found`,
+  );
   return fetchStatus;
 }
 
@@ -101,7 +117,11 @@ export async function fetchMissingCovers(): Promise<FetchStatus> {
  * Try to fetch cover art for a single album.
  * Returns true if found and saved.
  */
-async function fetchCoverForAlbum(albumId: string, artist: string, title: string): Promise<boolean> {
+async function fetchCoverForAlbum(
+  albumId: string,
+  artist: string,
+  title: string,
+): Promise<boolean> {
   // Skip "Unknown Album"
   if (title === 'Unknown Album') return false;
 
@@ -140,7 +160,7 @@ async function fetchFromMusicBrainz(artist: string, title: string): Promise<Buff
     const searchRes = await rateLimitedFetch(searchUrl);
     if (!searchRes.ok) return null;
 
-    const searchData = await searchRes.json() as any;
+    const searchData = (await searchRes.json()) as any;
     const releases = searchData.releases || [];
 
     if (releases.length === 0) return null;
@@ -154,22 +174,24 @@ async function fetchFromMusicBrainz(artist: string, title: string): Promise<Buff
         const coverRes = await rateLimitedFetch(`${COVERART_API}/release/${mbid}`);
         if (!coverRes.ok) continue;
 
-        const coverData = await coverRes.json() as any;
-        const frontImage = coverData.images?.find((img: any) =>
-          img.front === true || img.types?.includes('Front')
+        const coverData = (await coverRes.json()) as any;
+        const frontImage = coverData.images?.find(
+          (img: any) => img.front === true || img.types?.includes('Front'),
         );
 
         if (!frontImage) continue;
 
         // Download the image (use thumbnail for smaller size)
-        const imageUrl = frontImage.thumbnails?.large || frontImage.thumbnails?.small || frontImage.image;
+        const imageUrl =
+          frontImage.thumbnails?.large || frontImage.thumbnails?.small || frontImage.image;
         if (!imageUrl) continue;
 
         const imgRes = await fetch(imageUrl);
         if (!imgRes.ok) continue;
 
         const buffer = Buffer.from(await imgRes.arrayBuffer());
-        if (buffer.length > 1000) { // Sanity check: at least 1KB
+        if (buffer.length > 1000) {
+          // Sanity check: at least 1KB
           return buffer;
         }
       } catch {
@@ -209,10 +231,12 @@ async function fetchFromSpotify(artist: string, title: string): Promise<Buffer |
 
 let artistFetchStatus = { isRunning: false, total: 0, processed: 0, found: 0, notFound: 0 };
 
-export function getArtistFetchStatus() { return { ...artistFetchStatus }; }
+export function getArtistFetchStatus() {
+  return { ...artistFetchStatus };
+}
 
 export function getLocalArtistImagePath(artistId: string): string | null {
-  const path = join(COVER_DIR, `artist-${artistId}.jpg`);
+  const path = join(getCoverDir(), `artist-${artistId}.jpg`);
   return existsSync(path) ? path : null;
 }
 
@@ -221,16 +245,20 @@ export function readCachedArtistImage(artistId: string): { data: Buffer; mime: s
   if (!path) return null;
   try {
     return { data: readFileSync(path), mime: 'image/jpeg' };
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchMissingArtistImages(): Promise<typeof artistFetchStatus> {
   if (artistFetchStatus.isRunning) return artistFetchStatus;
 
-  mkdirSync(COVER_DIR, { recursive: true });
+  mkdirSync(getCoverDir(), { recursive: true });
 
   const db = getDb();
-  const allArtists = db.select().from(albums)
+  const allArtists = db
+    .select()
+    .from(albums)
     .all()
     .reduce((acc: Map<string, string>, a) => {
       if (!acc.has(a.artistId)) acc.set(a.artistId, a.artistName);
@@ -240,7 +268,13 @@ export async function fetchMissingArtistImages(): Promise<typeof artistFetchStat
   // Filter artists without an image
   const missing = Array.from(allArtists.entries()).filter(([id]) => !getLocalArtistImagePath(id));
 
-  artistFetchStatus = { isRunning: true, total: missing.length, processed: 0, found: 0, notFound: 0 };
+  artistFetchStatus = {
+    isRunning: true,
+    total: missing.length,
+    processed: 0,
+    found: 0,
+    notFound: 0,
+  };
   logger.info(`Artist image fetch: ${missing.length} artists without images`);
 
   for (const [artistId, artistName] of missing) {
@@ -254,7 +288,9 @@ export async function fetchMissingArtistImages(): Promise<typeof artistFetchStat
     artistFetchStatus.processed++;
 
     if (artistFetchStatus.processed % 20 === 0) {
-      logger.info(`Artist images: ${artistFetchStatus.processed}/${artistFetchStatus.total} (${artistFetchStatus.found} found)`);
+      logger.info(
+        `Artist images: ${artistFetchStatus.processed}/${artistFetchStatus.total} (${artistFetchStatus.found} found)`,
+      );
     }
   }
 
@@ -273,16 +309,17 @@ async function fetchArtistImage(artistId: string, artistName: string): Promise<b
     if (!providers.spotify.auth.isAuthenticated) return false;
 
     const results = await providers.spotify.search(`artist:${artistName}`, 3);
-    const match = results.artists?.find((a: any) =>
-      a.name.toLowerCase() === artistName.toLowerCase() && a.imageUrl
-    ) || results.artists?.[0];
+    const match =
+      results.artists?.find(
+        (a: any) => a.name.toLowerCase() === artistName.toLowerCase() && a.imageUrl,
+      ) || results.artists?.[0];
 
     if (match?.imageUrl) {
       const imgRes = await fetch(match.imageUrl);
       if (imgRes.ok) {
         const buffer = Buffer.from(await imgRes.arrayBuffer());
         if (buffer.length > 1000) {
-          const path = join(COVER_DIR, `artist-${artistId}.jpg`);
+          const path = join(getCoverDir(), `artist-${artistId}.jpg`);
           writeFileSync(path, buffer);
           return true;
         }
@@ -295,10 +332,20 @@ async function fetchArtistImage(artistId: string, artistName: string): Promise<b
   return false;
 }
 
-function saveCover(albumId: string, data: Buffer): void {
-  mkdirSync(COVER_DIR, { recursive: true });
-  const path = join(COVER_DIR, `${albumId}.jpg`);
+function saveCover(albumId: string, data: Buffer, mime = 'image/jpeg'): void {
+  mkdirSync(getCoverDir(), { recursive: true });
+  for (const format of COVER_FORMATS) {
+    const stalePath = join(getCoverDir(), `${albumId}.${format.ext}`);
+    if (existsSync(stalePath)) rmSync(stalePath, { force: true });
+  }
+  const path = join(getCoverDir(), `${albumId}.${coverExtensionForMime(mime)}`);
   writeFileSync(path, data);
+}
+
+export function cacheEmbeddedCover(albumId: string, data: Buffer, mime = 'image/jpeg'): boolean {
+  if (getLocalCoverPath(albumId)) return false;
+  saveCover(albumId, data, mime);
+  return true;
 }
 
 /**
@@ -308,8 +355,23 @@ export function readCachedCover(albumId: string): { data: Buffer; mime: string }
   const path = getLocalCoverPath(albumId);
   if (!path) return null;
   try {
-    return { data: readFileSync(path), mime: 'image/jpeg' };
+    return { data: readFileSync(path), mime: coverMimeForPath(path) };
   } catch {
     return null;
   }
+}
+
+function coverExtensionForMime(mime: string): string {
+  if (mime.includes('png')) return 'png';
+  if (mime.includes('webp')) return 'webp';
+  return 'jpg';
+}
+
+function coverMimeForPath(path: string): string {
+  const match = COVER_FORMATS.find((format) => path.endsWith(`.${format.ext}`));
+  return match?.mime || 'image/jpeg';
+}
+
+function getCoverDir(): string {
+  return process.env.COVER_CACHE_DIR || DEFAULT_COVER_DIR;
 }

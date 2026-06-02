@@ -13,21 +13,21 @@ Scope: code-audit op de lokale repository. Deze audit controleert implementatie 
 
 ## Samenvatting
 
-| Sprint | Status    | Auditconclusie                                                                                                                      |
-| ------ | --------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| 8      | DONE      | Device state machine, Sonos group metadata, health checks en expliciete browser-fallback zijn aanwezig.                             |
-| 9      | PARTIAL   | Incremental scanner, progress-events en watcher bestaan; metadata-verrijking en client-side websocket-progress zijn nog incompleet. |
-| 10     | PARTIAL   | Logging, health, shutdown, Docker en env-validatie bestaan; productie-documentatie en client-build polish blijven open.             |
-| 11     | DONE      | Favorites, history, recent/recently added en navigatie zijn aanwezig.                                                               |
-| 12     | DONE      | Shortcuts, queue-editing, fullscreen now playing en stats zijn aanwezig.                                                            |
-| 13     | DONE      | Drag-and-drop queue/playlist plus M3U import/export zijn aanwezig.                                                                  |
-| 14     | DONE      | Genres en smart playlists zijn aanwezig.                                                                                            |
-| 15     | REDEFINED | Tidal full playback is bewust gedegradeerd naar preview/metadata-only; Qobuz is de full-playback route.                             |
-| 16     | DONE      | Last.fm, ListenBrainz, queueing/retry en settings-UI zijn aanwezig.                                                                 |
-| 17     | PARTIAL   | Crossfade, quality indicators en DLNA SetNext bestaan; echte gapless/preload flow moet nog worden bewezen en aangescherpt.          |
-| 18     | DONE      | Manifest, service worker, meta tags en mobiele CSS bestaan; alleen device-QA resteert.                                              |
-| 19     | DONE      | Lyrics service, API-route en fullscreen lyrics UI bestaan.                                                                          |
-| 20     | DONE      | Multi-user rollen, admin user management en theme switching bestaan.                                                                |
+| Sprint | Status    | Auditconclusie                                                                                                             |
+| ------ | --------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 8      | DONE      | Device state machine, Sonos group metadata, health checks en expliciete browser-fallback zijn aanwezig.                    |
+| 9      | DONE      | Incremental scanner, websocket-progress, richer metadata, watcher en persistente embedded cover-cache zijn aanwezig.       |
+| 10     | PARTIAL   | Logging, health, shutdown, Docker en env-validatie bestaan; productie-documentatie en client-build polish blijven open.    |
+| 11     | DONE      | Favorites, history, recent/recently added en navigatie zijn aanwezig.                                                      |
+| 12     | DONE      | Shortcuts, queue-editing, fullscreen now playing en stats zijn aanwezig.                                                   |
+| 13     | DONE      | Drag-and-drop queue/playlist plus M3U import/export zijn aanwezig.                                                         |
+| 14     | DONE      | Genres en smart playlists zijn aanwezig.                                                                                   |
+| 15     | REDEFINED | Tidal full playback is bewust gedegradeerd naar preview/metadata-only; Qobuz is de full-playback route.                    |
+| 16     | DONE      | Last.fm, ListenBrainz, queueing/retry en settings-UI zijn aanwezig.                                                        |
+| 17     | PARTIAL   | Crossfade, quality indicators en DLNA SetNext bestaan; echte gapless/preload flow moet nog worden bewezen en aangescherpt. |
+| 18     | DONE      | Manifest, service worker, meta tags en mobiele CSS bestaan; alleen device-QA resteert.                                     |
+| 19     | DONE      | Lyrics service, API-route en fullscreen lyrics UI bestaan.                                                                 |
+| 20     | DONE      | Multi-user rollen, admin user management en theme switching bestaan.                                                       |
 
 ## Sprint 8 - DLNA Robuustheid en Device UX
 
@@ -49,28 +49,21 @@ Volgende actie:
 
 ## Sprint 9 - Library Scanner en Metadata
 
-Status: PARTIAL
+Status: DONE
 
 Aanwezig:
 
 - `server/src/services/scanner.ts` gebruikt file mtime om ongewijzigde bestanden over te slaan.
-- Scannerstatus bevat tellerdata voor processed/new/updated/removed en emit `library:scan-progress`.
+- Scannerstatus bevat discovery/scanning/cleaning/done fases, total file count, tellerdata voor processed/new/updated/removed en emit `library:scan-progress`.
 - Orphan tracks worden opgeschoond.
 - `server/src/services/watcher.ts` ondersteunt `WATCH_LIBRARY=true` met debounce.
-- Cover endpoints en cachelogica bestaan via `server/src/services/coverart.ts` en library routes.
-
-Gaten:
-
-- De Settings UI gebruikt nog polling voor scanstatus; websocket-progress wordt niet volledig benut in de client.
-- Embedded cover art wordt vooral request-time/in-memory behandeld; permanente cache voor alle embedded covers is niet volledig bewezen.
-- Metadata zoals composer, conductor, compilation en multi-artist parsing is niet aantoonbaar volledig.
-- Scanfasen zoals discovering/counting/scanning/complete zijn niet zo rijk als de sprint omschrijft.
+- Embedded covers worden tijdens scan persistent opgeslagen via `server/src/services/coverart-fetch.ts`.
+- Metadata parsing slaat multi-artist display, composer, conductor en compilation metadata op.
+- `client/src/hooks/useSocket.ts` en `client/src/pages/SettingsPage.tsx` gebruiken websocket scan-progress met polling fallback.
 
 Volgende actie:
 
-- Vervang scan polling in Settings door websocket-events met polling als fallback.
-- Breid metadata-schema en scanner uit voor composer/conductor/compilation.
-- Maak persistente cover-cache voor embedded covers expliciet en testbaar.
+- Handmatige acceptatie met een grote NAS-library en gemengde metadata-tags.
 
 ## Sprint 10 - Polish en Production Readiness
 
@@ -263,10 +256,6 @@ Restpunt:
 ## Open werk na deze audit
 
 Prioriteit 1:
-
-- Sprint 9 afronden: websocket scan progress in UI, richer metadata, persistente embedded cover-cache.
-
-Prioriteit 2:
 
 - Sprint 10 afronden: README, Docker pinning/updatebeleid, build compression/analyse, structured logging.
 - Sprint 17 afronden: bewijsbare gapless/preload-next flow en DLNA SetNext fallback.

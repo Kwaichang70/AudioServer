@@ -20,9 +20,26 @@ interface PlaybackTrack {
   source?: string;
 }
 
+export interface LibraryScanProgress {
+  isScanning: boolean;
+  phase: 'idle' | 'discovering' | 'scanning' | 'cleaning' | 'done';
+  processedFiles: number;
+  totalFiles: number;
+  newTracks: number;
+  updatedTracks: number;
+  removedTracks: number;
+  artists: number;
+  albums: number;
+  tracks: number;
+  errors: number;
+  currentDir?: string;
+  currentFile?: string;
+}
+
 interface ServerToClientEvents {
   'device:playback-update': (update: DevicePlaybackUpdate) => void;
   'playback:track-changed': (track: PlaybackTrack) => void;
+  'library:scan-progress': (progress: LibraryScanProgress) => void;
 }
 
 interface ClientToServerEvents {
@@ -34,6 +51,7 @@ interface UseSocketReturn {
   connected: boolean;
   deviceUpdate: DevicePlaybackUpdate | null;
   trackChanged: PlaybackTrack | null;
+  scanProgress: LibraryScanProgress | null;
   subscribeDevice: (deviceId: string) => void;
   unsubscribeDevice: (deviceId: string) => void;
 }
@@ -43,6 +61,7 @@ export function useSocket(): UseSocketReturn {
   const [connected, setConnected] = useState(false);
   const [deviceUpdate, setDeviceUpdate] = useState<DevicePlaybackUpdate | null>(null);
   const [trackChanged, setTrackChanged] = useState<PlaybackTrack | null>(null);
+  const [scanProgress, setScanProgress] = useState<LibraryScanProgress | null>(null);
   const subscribedDeviceRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -68,6 +87,7 @@ export function useSocket(): UseSocketReturn {
 
     socket.on('device:playback-update', setDeviceUpdate);
     socket.on('playback:track-changed', setTrackChanged);
+    socket.on('library:scan-progress', setScanProgress);
 
     return () => {
       socket.disconnect();
@@ -92,5 +112,12 @@ export function useSocket(): UseSocketReturn {
     }
   };
 
-  return { connected, deviceUpdate, trackChanged, subscribeDevice, unsubscribeDevice };
+  return {
+    connected,
+    deviceUpdate,
+    trackChanged,
+    scanProgress,
+    subscribeDevice,
+    unsubscribeDevice,
+  };
 }

@@ -128,12 +128,19 @@ export interface LibraryStats {
   tracks: number;
 }
 export interface ScanStatus {
-  state: 'idle' | 'discovering' | 'scanning' | 'cleaning' | 'done' | 'error';
-  filesDiscovered: number;
-  filesScanned: number;
+  isScanning: boolean;
+  phase: 'idle' | 'discovering' | 'scanning' | 'cleaning' | 'done';
+  processedFiles: number;
+  totalFiles: number;
+  newTracks: number;
+  updatedTracks: number;
+  removedTracks: number;
+  artists: number;
+  albums: number;
+  tracks: number;
   errors: number;
-  startedAt: number | null;
-  finishedAt: number | null;
+  currentDir?: string;
+  currentFile?: string;
 }
 export interface SmartPlaylistRule {
   field: 'genre' | 'year' | 'format' | 'sampleRate' | 'bitDepth' | 'artistName';

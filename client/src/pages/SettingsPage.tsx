@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client.js';
 import { useToast } from '../components/Toast.js';
 import { useAudioContext, type ReplayGainMode } from '../context/AudioContext.js';
 import { DEVICE_POLL_INTERVAL, STORAGE_KEYS } from '../constants.js';
+import { useSocket, type LibraryScanProgress } from '../hooks/useSocket.js';
 
 interface ProviderStatus {
   available: boolean;
@@ -41,11 +42,30 @@ function getErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
+function formatScanInfo(status: LibraryScanProgress): string {
+  if (status.phase === 'idle') return '';
+  const percent =
+    status.totalFiles > 0
+      ? ` (${Math.round((status.processedFiles / status.totalFiles) * 100)}%)`
+      : '';
+  const current =
+    status.currentFile || status.currentDir ? ` | ${status.currentFile || status.currentDir}` : '';
+  const changed =
+    status.newTracks || status.updatedTracks || status.removedTracks
+      ? ` | +${status.newTracks} / ~${status.updatedTracks} / -${status.removedTracks}`
+      : '';
+
+  return `${status.phase}: ${status.processedFiles}/${status.totalFiles} files${percent} | ${status.artists} artists | ${status.albums} albums | ${status.tracks} tracks${changed}${current}`;
+}
+
 export default function SettingsPage() {
   const [status, setStatus] = useState<AllStatus | null>(null);
   const [scanning, setScanning] = useState(false);
   const [scanInfo, setScanInfo] = useState('');
   const { toast } = useToast();
+  const socket = useSocket();
+  const scanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const scanCompleteToastRef = useRef(false);
 
   const loadStatus = () => {
     api
@@ -92,22 +112,52 @@ export default function SettingsPage() {
     loadStatus();
   };
 
-  const startScan = async () => {
-    setScanning(true);
-    await api.scanLibrary();
-    const interval = setInterval(async () => {
-      const res = await api.getScanStatus();
-      const s = res.data;
-      setScanInfo(
-        `${s.processedFiles} files | ${s.artists} artists | ${s.albums} albums | ${s.tracks} tracks`,
-      );
-      if (!s.isScanning) {
-        clearInterval(interval);
-        setScanning(false);
-        setScanInfo('');
+  const stopScanPolling = useCallback(() => {
+    if (scanPollRef.current) {
+      clearInterval(scanPollRef.current);
+      scanPollRef.current = null;
+    }
+  }, []);
+
+  const applyScanStatus = useCallback(
+    (s: LibraryScanProgress) => {
+      setScanning(s.isScanning);
+      setScanInfo(formatScanInfo(s));
+
+      if (s.isScanning) {
+        scanCompleteToastRef.current = false;
+        return;
+      }
+
+      stopScanPolling();
+      if (s.phase === 'done' && !scanCompleteToastRef.current) {
+        scanCompleteToastRef.current = true;
         toast('Library scan complete', 'success');
       }
+    },
+    [stopScanPolling, toast],
+  );
+
+  const startScanPolling = useCallback(() => {
+    stopScanPolling();
+    scanPollRef.current = setInterval(async () => {
+      const res = await api.getScanStatus();
+      applyScanStatus(res.data);
     }, DEVICE_POLL_INTERVAL);
+  }, [applyScanStatus, stopScanPolling]);
+
+  useEffect(() => {
+    if (socket.scanProgress) applyScanStatus(socket.scanProgress);
+  }, [applyScanStatus, socket.scanProgress]);
+
+  useEffect(() => () => stopScanPolling(), [stopScanPolling]);
+
+  const startScan = async () => {
+    setScanning(true);
+    scanCompleteToastRef.current = false;
+    const res = await api.scanLibrary();
+    applyScanStatus(res.data);
+    if (!socket.connected) startScanPolling();
   };
 
   const { replayGainMode, setReplayGainMode, replayGainPreamp, setReplayGainPreamp } =
@@ -192,7 +242,7 @@ export default function SettingsPage() {
               {scanning ? 'Scanning...' : 'Scan Now'}
             </button>
           </div>
-          {scanning && scanInfo && (
+          {(scanning || scanInfo) && (
             <p className="text-xs text-gray-400 animate-pulse">{scanInfo}</p>
           )}
 

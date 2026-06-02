@@ -16,6 +16,7 @@ export interface Album {
   year?: number;
   coverUrl?: string;
   genre?: string;
+  isCompilation?: boolean;
   trackCount?: number;
   source: ProviderType;
   availableOn?: ProviderType[];
@@ -28,6 +29,9 @@ export interface Track {
   albumTitle: string;
   artistId: string;
   artistName: string;
+  artistNames?: string;
+  composer?: string;
+  conductor?: string;
   trackNumber?: number;
   discNumber?: number;
   duration?: number; // seconds

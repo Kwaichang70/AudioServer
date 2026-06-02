@@ -1,12 +1,13 @@
 import { readdir, stat } from 'node:fs/promises';
 import { extname, basename } from 'path';
 // @ts-expect-error - music-metadata types don't export parseFile in ESM mode
-import { parseFile } from 'music-metadata';
+import { parseFile, selectCover } from 'music-metadata';
 import { v4 as uuid } from 'uuid';
 import { getDb, getRawDb } from '../db/index.js';
 import { artists, albums, tracks } from '../db/schema.js';
 import { logger } from '../logger.js';
 import { eq } from 'drizzle-orm';
+import { cacheEmbeddedCover } from './coverart-fetch.js';
 
 const SUPPORTED_EXTENSIONS = new Set([
   '.flac',
@@ -68,7 +69,7 @@ function emitProgress(): void {
     // Dynamic import to avoid circular dependency
     import('../socketio.js')
       .then(({ getIO }) => {
-        getIO().emit('library:scan-progress' as any, scanStatus);
+        getIO().emit('library:scan-progress', scanStatus);
       })
       .catch(() => {});
   } catch {}
@@ -79,7 +80,7 @@ export async function scanLibrary(libraryPaths: string[]): Promise<ScanStatus> {
 
   scanStatus = {
     isScanning: true,
-    phase: 'scanning',
+    phase: 'discovering',
     processedFiles: 0,
     totalFiles: 0,
     newTracks: 0,
@@ -99,6 +100,17 @@ export async function scanLibrary(libraryPaths: string[]): Promise<ScanStatus> {
   const seenFilePaths = new Set<string>();
 
   try {
+    emitProgress();
+    for (const libPath of libraryPaths) {
+      scanStatus.currentDir = libPath.split('/').pop() || libPath;
+      scanStatus.totalFiles += await countSupportedFiles(libPath);
+      emitProgress();
+    }
+
+    scanStatus.phase = 'scanning';
+    scanStatus.currentFile = undefined;
+    emitProgress();
+
     for (const libPath of libraryPaths) {
       logger.info(`Scanning: ${libPath}`);
       const result = await scanDirectory(libPath, seenFilePaths);
@@ -128,6 +140,8 @@ export async function scanLibrary(libraryPaths: string[]): Promise<ScanStatus> {
 
     scanStatus.phase = 'done';
     scanStatus.isScanning = false;
+    scanStatus.currentDir = undefined;
+    scanStatus.currentFile = undefined;
     emitProgress();
     logger.info(
       `Scan complete: ${scanStatus.newTracks} new, ${scanStatus.updatedTracks} updated, ${scanStatus.removedTracks} removed, ${scanStatus.errors} errors`,
@@ -136,6 +150,7 @@ export async function scanLibrary(libraryPaths: string[]): Promise<ScanStatus> {
     logger.error(`Scan failed: ${err}`);
     scanStatus.isScanning = false;
     scanStatus.phase = 'idle';
+    emitProgress();
   }
 
   artistCache.clear();
@@ -256,6 +271,25 @@ async function scanDirectory(dir: string, seenFiles: Set<string>): Promise<Direc
   return { ok: true, error: '', failedDirs: [] };
 }
 
+async function countSupportedFiles(dir: string): Promise<number> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+
+  let count = 0;
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      count += await countSupportedFiles(`${dir}/${entry.name}`);
+    } else if (SUPPORTED_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
+      count++;
+    }
+  }
+  return count;
+}
+
 async function cleanOrphans(seenFiles: Set<string>, successfulRoots: string[]): Promise<void> {
   const db = getRawDb();
   const allTracks = db
@@ -319,23 +353,28 @@ async function processFile(filePath: string): Promise<void> {
   const metadata = await parseFile(filePath);
   const { common, format } = metadata;
 
-  const artistName = common.artist || common.albumartist || 'Unknown Artist';
+  const trackArtistNames = normalizePeople(common.artists ?? common.artist);
+  const isCompilation = Boolean((common as { compilation?: boolean | string }).compilation);
+  const artistName = trackArtistNames.join(', ') || common.albumartist || 'Unknown Artist';
+  const albumArtistName = common.albumartist || (isCompilation ? 'Various Artists' : artistName);
   const albumTitle = common.album || 'Unknown Album';
   const trackTitle = common.title || basename(filePath, extname(filePath));
+  const composer = normalizePeople(common.composer).join(', ') || undefined;
+  const conductor = normalizePeople(common.conductor).join(', ') || undefined;
 
   // Upsert artist
-  const artistKey = artistName.toLowerCase();
+  const artistKey = albumArtistName.toLowerCase();
   let artistId = artistCache.get(artistKey);
   if (!artistId) {
     artistId = uuid();
     artistCache.set(artistKey, artistId);
     const db = getDb();
-    const existing = db.select().from(artists).where(eq(artists.name, artistName)).get();
+    const existing = db.select().from(artists).where(eq(artists.name, albumArtistName)).get();
     if (existing) {
       artistId = existing.id;
       artistCache.set(artistKey, artistId);
     } else {
-      db.insert(artists).values({ id: artistId, name: artistName, source: 'local' }).run();
+      db.insert(artists).values({ id: artistId, name: albumArtistName, source: 'local' }).run();
       scanStatus.artists++;
     }
   }
@@ -362,9 +401,10 @@ async function processFile(filePath: string): Promise<void> {
           id: albumId,
           title: albumTitle,
           artistId,
-          artistName,
+          artistName: albumArtistName,
           year: common.year,
           genre: common.genre?.[0],
+          isCompilation,
           source: 'local',
         })
         .run();
@@ -393,6 +433,9 @@ async function processFile(filePath: string): Promise<void> {
     albumTitle,
     artistId,
     artistName,
+    artistNames: trackArtistNames.join(', ') || null,
+    composer: composer ?? null,
+    conductor: conductor ?? null,
     trackNumber: common.track?.no ?? undefined,
     discNumber: common.disk?.no ?? 1,
     duration: format.duration,
@@ -403,6 +446,7 @@ async function processFile(filePath: string): Promise<void> {
     replayGainTrackPeak: rgTrackPeak ?? null,
     filePath,
     source: 'local' as const,
+    updatedAt: new Date(),
   };
 
   if (existingTrack) {
@@ -427,10 +471,30 @@ async function processFile(filePath: string): Promise<void> {
       .run();
   }
 
+  const cover = selectCover(common.picture);
+  if (cover) {
+    cacheEmbeddedCover(albumId, Buffer.from(cover.data), cover.format || 'image/jpeg');
+  }
+
   // Update album track count
   const trackCountResult = db.select().from(tracks).where(eq(tracks.albumId, albumId)).all();
   db.update(albums)
-    .set({ trackCount: trackCountResult.length })
+    .set({
+      trackCount: trackCountResult.length,
+      artistName: albumArtistName,
+      year: common.year,
+      genre: common.genre?.[0],
+      isCompilation,
+      updatedAt: new Date(),
+    })
     .where(eq(albums.id, albumId))
     .run();
+}
+
+function normalizePeople(value: string | string[] | undefined): string[] {
+  const raw = Array.isArray(value) ? value : value ? [value] : [];
+  return raw
+    .flatMap((item) => item.split(/\s*(?:;|\/)\s*/))
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
