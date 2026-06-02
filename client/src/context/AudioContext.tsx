@@ -192,6 +192,22 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   toastRef.current = toast;
   const lanAddressRef = useRef<string | null>(null);
 
+  const fallbackToBrowserPlayback = useCallback(
+    (streamUrl: string, reason: string) => {
+      selectedDeviceRef.current = 'browser';
+      setSelectedDeviceIdState('browser');
+      localStorage.setItem(STORAGE_KEYS.selectedDevice, 'browser');
+      setDevicePosition(0);
+      setDeviceDuration(0);
+      setDeviceIsPlaying(false);
+      setDeviceVolume(null);
+      audio.play(streamUrl);
+      setIsLoading(false);
+      toastRef.current(`${reason}; switched to browser playback`, 'info');
+    },
+    [audio],
+  );
+
   useEffect(() => {
     api
       .getHealth()
@@ -385,12 +401,18 @@ export function AudioProvider({ children }: { children: ReactNode }) {
               audio.play(qobuzStreamUrl);
             } else {
               // Send Qobuz CDN URL directly to DLNA/Volumio (no proxy needed)
-              await api.devicePlay(deviceId, qobuzStreamUrl, {
-                title: track.title,
-                artist: track.artistName,
-                album: track.albumTitle,
-                duration: track.duration,
-              });
+              try {
+                await api.devicePlay(deviceId, qobuzStreamUrl, {
+                  title: track.title,
+                  artist: track.artistName,
+                  album: track.albumTitle,
+                  duration: track.duration,
+                });
+              } catch (deviceErr) {
+                console.error('Qobuz device play failed:', deviceErr);
+                fallbackToBrowserPlayback(qobuzStreamUrl, 'External device failed');
+                return;
+              }
             }
             setIsLoading(false);
             toastRef.current('Playing from Qobuz', 'success');
@@ -417,12 +439,18 @@ export function AudioProvider({ children }: { children: ReactNode }) {
             if (deviceId === 'browser') {
               audio.play(streamUrl);
             } else {
-              await api.devicePlay(deviceId, streamUrl, {
-                title: track.title,
-                artist: 'Live Radio',
-                album: track.albumTitle,
-                // no duration — livestream
-              });
+              try {
+                await api.devicePlay(deviceId, streamUrl, {
+                  title: track.title,
+                  artist: 'Live Radio',
+                  album: track.albumTitle,
+                  // no duration — livestream
+                });
+              } catch (deviceErr) {
+                console.error('Radio device play failed:', deviceErr);
+                fallbackToBrowserPlayback(streamUrl, 'External device failed');
+                return;
+              }
             }
             setIsLoading(false);
             toastRef.current(`Tuned in: ${track.title}`, 'success');
@@ -476,10 +504,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
           })
           .catch((err) => {
             console.error('Device play failed:', err);
-            toastRef.current(`Device error: ${err.message || err}`, 'error');
-            // Fallback to browser
-            audio.play(streamUrl);
-            setIsLoading(false);
+            fallbackToBrowserPlayback(streamUrl, 'External device failed');
           });
       }
 
@@ -488,7 +513,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       api.play(track, deviceId).catch(() => {});
       api.recordPlay(track.id, track.albumId || '', '').catch(() => {});
     },
-    [audio],
+    [audio, fallbackToBrowserPlayback],
   );
 
   const playTrack = useCallback(

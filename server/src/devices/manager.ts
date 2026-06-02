@@ -8,6 +8,7 @@ import { DlnaController } from './dlna.js';
 import { SonosController } from './sonos.js';
 import { VolumioController } from './volumio.js';
 import { logger } from '../logger.js';
+import { DeviceStateMachine } from './state-machine.js';
 
 /**
  * Central device manager that aggregates all device controllers.
@@ -18,6 +19,7 @@ export class DeviceManager {
   private cachedDevices: OutputDevice[] = [];
   private lastDiscovery = 0;
   private readonly CACHE_TTL = 300_000; // 5 minutes
+  private readonly stateMachine = new DeviceStateMachine();
 
   constructor() {
     this.controllers.push(new VolumioController());
@@ -32,7 +34,7 @@ export class DeviceManager {
       this.cachedDevices.length > 0 &&
       now - this.lastDiscovery < this.CACHE_TTL
     ) {
-      return this.cachedDevices;
+      return this.withSessionState(this.cachedDevices);
     }
 
     logger.info('Discovering devices...');
@@ -51,7 +53,7 @@ export class DeviceManager {
     ) {
       this.cachedDevices = discovered;
       this.lastDiscovery = now;
-      return discovered;
+      return this.withSessionState(discovered);
     }
 
     for (const controller of this.controllers) {
@@ -66,7 +68,7 @@ export class DeviceManager {
 
     this.cachedDevices = discovered;
     this.lastDiscovery = now;
-    return discovered;
+    return this.withSessionState(discovered);
   }
 
   private getController(deviceType: string): DeviceController | undefined {
@@ -84,16 +86,21 @@ export class DeviceManager {
     const controller = this.getController(device.type);
     if (!controller) throw new Error(`No controller for device type: ${device.type}`);
 
+    this.stateMachine.transition(deviceId, 'loading', { track: metadata });
     try {
       await controller.play(deviceId, streamUrl, metadata);
+      this.stateMachine.transition(deviceId, 'playing', { track: metadata });
     } catch (err) {
       // Retry once
       logger.warn(`Device play failed on ${device.name}, retrying: ${err}`);
       try {
         await new Promise((r) => setTimeout(r, 1000));
+        this.stateMachine.transition(deviceId, 'loading', { track: metadata });
         await controller.play(deviceId, streamUrl, metadata);
+        this.stateMachine.transition(deviceId, 'playing', { track: metadata });
       } catch (retryErr) {
         logger.error(`Device play retry failed on ${device.name}: ${retryErr}`);
+        this.stateMachine.transition(deviceId, 'error', { error: retryErr, track: metadata });
         throw retryErr;
       }
     }
@@ -103,8 +110,8 @@ export class DeviceManager {
     const device = this.findCachedDevice(deviceId);
     if (!device || device.type === 'browser') return;
     const controller = this.getController(device.type);
-    if (controller && 'setNextUri' in controller) {
-      await (controller as any).setNextUri(deviceId, streamUrl, metadata);
+    if (controller?.setNextUri) {
+      await controller.setNextUri(deviceId, streamUrl, metadata);
     }
   }
 
@@ -112,21 +119,30 @@ export class DeviceManager {
     const device = this.findCachedDevice(deviceId);
     if (!device || device.type === 'browser') return;
     const controller = this.getController(device.type);
-    if (controller) await controller.pause(deviceId);
+    if (controller) {
+      await controller.pause(deviceId);
+      this.stateMachine.transition(deviceId, 'paused');
+    }
   }
 
   async resume(deviceId: string): Promise<void> {
     const device = this.findCachedDevice(deviceId);
     if (!device || device.type === 'browser') return;
     const controller = this.getController(device.type);
-    if (controller) await controller.resume(deviceId);
+    if (controller) {
+      await controller.resume(deviceId);
+      this.stateMachine.transition(deviceId, 'playing');
+    }
   }
 
   async stop(deviceId: string): Promise<void> {
     const device = this.findCachedDevice(deviceId);
     if (!device || device.type === 'browser') return;
     const controller = this.getController(device.type);
-    if (controller) await controller.stop(deviceId);
+    if (controller) {
+      await controller.stop(deviceId);
+      this.stateMachine.transition(deviceId, 'stopped');
+    }
   }
 
   async setVolume(deviceId: string, volume: number): Promise<void> {
@@ -142,8 +158,24 @@ export class DeviceManager {
       return { state: 'stopped', position: 0, duration: 0, volume: 50 };
     }
     const controller = this.getController(device.type);
-    if (controller) return controller.getPlaybackState(deviceId);
+    if (controller) {
+      const status = await controller.getPlaybackState(deviceId);
+      const session = this.stateMachine.reconcilePlaybackState(deviceId, status.state);
+      return { ...status, deviceState: session.state, lastError: session.lastError };
+    }
     return { state: 'stopped', position: 0, duration: 0, volume: 50 };
+  }
+
+  private withSessionState(devices: OutputDevice[]): OutputDevice[] {
+    return devices.map((device) => {
+      const session = this.stateMachine.get(device.id);
+      return {
+        ...device,
+        playbackState: session.state,
+        playbackStateUpdatedAt: session.updatedAt,
+        lastError: session.lastError,
+      };
+    });
   }
 }
 

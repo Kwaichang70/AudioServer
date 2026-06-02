@@ -7,6 +7,10 @@ interface Device {
   type: string;
   isOnline: boolean;
   host?: string;
+  playbackState?: 'idle' | 'loading' | 'playing' | 'paused' | 'stopped' | 'error';
+  lastError?: string;
+  groupName?: string;
+  isGroupCoordinator?: boolean;
 }
 
 const deviceTypeIcons: Record<string, string> = {
@@ -14,6 +18,15 @@ const deviceTypeIcons: Record<string, string> = {
   dlna: '\u{1F50A}',
   sonos: '\u{1F3B5}',
   volumio: '\u{1F3B6}',
+};
+
+const stateLabels: Record<string, string> = {
+  idle: 'Idle',
+  loading: 'Loading',
+  playing: 'Playing',
+  paused: 'Paused',
+  stopped: 'Stopped',
+  error: 'Error',
 };
 
 interface Props {
@@ -30,10 +43,12 @@ export default function DeviceSelector({ selectedDeviceId, onSelect }: Props) {
   const loadDevices = (discover = false) => {
     const fn = discover ? api.discoverDevices : api.getDevices;
     if (discover) setScanning(true);
-    fn().then((res) => {
-      setDevices(res.data);
-      setScanning(false);
-    }).catch(() => setScanning(false));
+    fn()
+      .then((res) => {
+        setDevices(res.data);
+        setScanning(false);
+      })
+      .catch(() => setScanning(false));
   };
 
   useEffect(() => {
@@ -61,6 +76,7 @@ export default function DeviceSelector({ selectedDeviceId, onSelect }: Props) {
       >
         <span>{deviceTypeIcons[selected?.type || 'browser'] || '\u{1F50A}'}</span>
         <span className="max-w-[100px] truncate">{selected?.name || 'Browser'}</span>
+        {selected?.playbackState === 'error' && <span className="text-red-400">!</span>}
       </button>
 
       {open && (
@@ -80,7 +96,10 @@ export default function DeviceSelector({ selectedDeviceId, onSelect }: Props) {
             {onlineDevices.map((device) => (
               <button
                 key={device.id}
-                onClick={() => { onSelect(device.id); setOpen(false); }}
+                onClick={() => {
+                  onSelect(device.id);
+                  setOpen(false);
+                }}
                 className={`w-full text-left px-3 py-2 flex items-center gap-3 transition cursor-pointer
                   ${device.id === selectedDeviceId ? 'bg-accent/20 text-accent' : 'hover:bg-surface-light'}
                 `}
@@ -91,7 +110,16 @@ export default function DeviceSelector({ selectedDeviceId, onSelect }: Props) {
                   <p className="text-xs text-gray-500">
                     {device.type.toUpperCase()}
                     {device.host && ` \u00B7 ${device.host}`}
+                    {device.playbackState && ` \u00B7 ${stateLabels[device.playbackState]}`}
                   </p>
+                  {device.groupName && (
+                    <p className="text-xs text-gray-600 truncate">
+                      {device.isGroupCoordinator ? 'Group leader' : 'Grouped'}: {device.groupName}
+                    </p>
+                  )}
+                  {device.lastError && (
+                    <p className="text-xs text-red-400 truncate">{device.lastError}</p>
+                  )}
                 </div>
                 {device.id === selectedDeviceId && (
                   <span className="text-accent text-sm">&#10003;</span>
@@ -109,7 +137,9 @@ export default function DeviceSelector({ selectedDeviceId, onSelect }: Props) {
                     <span className="text-lg">{deviceTypeIcons[device.type] || '\u{1F50A}'}</span>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm truncate">{device.name}</p>
-                      <p className="text-xs text-gray-600">{device.type.toUpperCase()} \u00B7 Offline</p>
+                      <p className="text-xs text-gray-600">
+                        {device.type.toUpperCase()} \u00B7 Offline
+                      </p>
                     </div>
                   </div>
                 ))}

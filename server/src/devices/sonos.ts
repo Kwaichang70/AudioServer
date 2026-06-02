@@ -3,7 +3,12 @@ const { Client: SsdpClient } = ssdp;
 import xml2js from 'xml2js';
 const { parseStringPromise } = xml2js;
 import { logger } from '../logger.js';
-import type { DeviceController, OutputDevice, DevicePlaybackStatus, TrackMetadata } from '@audioserver/shared';
+import type {
+  DeviceController,
+  OutputDevice,
+  DevicePlaybackStatus,
+  TrackMetadata,
+} from '@audioserver/shared';
 
 interface SonosDevice {
   id: string;
@@ -11,6 +16,15 @@ interface SonosDevice {
   host: string;
   port: number;
   isOnline: boolean;
+  groupId?: string;
+  groupName?: string;
+  isGroupCoordinator?: boolean;
+}
+
+interface SonosZoneGroupInfo {
+  groupId: string;
+  groupName: string;
+  isGroupCoordinator: boolean;
 }
 
 /**
@@ -43,8 +57,9 @@ export class SonosController implements DeviceController {
       // Search for ZonePlayer (Sonos-specific) and generic MediaRenderer
       client.search('urn:schemas-upnp-org:device:ZonePlayer:1');
 
-      setTimeout(() => {
+      setTimeout(async () => {
         client.stop();
+        await this.enrichZoneGroups();
         resolve(this.getDeviceList());
       }, 5000);
     });
@@ -63,7 +78,11 @@ export class SonosController implements DeviceController {
     const modelName = device.modelName?.[0] || '';
 
     // Only Sonos/Symfonisk devices
-    if (!modelName.includes('Sonos') && !modelName.includes('SYMFONISK') && !name.includes('Sonos')) {
+    if (
+      !modelName.includes('Sonos') &&
+      !modelName.includes('SYMFONISK') &&
+      !name.includes('Sonos')
+    ) {
       return;
     }
 
@@ -88,7 +107,30 @@ export class SonosController implements DeviceController {
       type: 'sonos' as const,
       host: d.host,
       isOnline: d.isOnline,
+      groupId: d.groupId,
+      groupName: d.groupName,
+      isGroupCoordinator: d.isGroupCoordinator,
     }));
+  }
+
+  private async enrichZoneGroups(): Promise<void> {
+    for (const device of this.devices.values()) {
+      try {
+        const res = await fetch(`${this.baseUrl(device)}/status/topology`, {
+          signal: AbortSignal.timeout(3000),
+        });
+        if (!res.ok) continue;
+        const topology = await parseSonosZoneGroups(await res.text());
+        for (const [deviceId, group] of topology) {
+          const known = this.devices.get(deviceId);
+          if (!known) continue;
+          this.devices.set(deviceId, { ...known, ...group });
+        }
+        if (topology.size > 0) return;
+      } catch {
+        // Older Sonos firmware can skip /status/topology. Grouping metadata is optional.
+      }
+    }
   }
 
   private getDevice(deviceId: string): SonosDevice {
@@ -126,7 +168,10 @@ export class SonosController implements DeviceController {
 
   async resume(deviceId: string): Promise<void> {
     const device = this.getDevice(deviceId);
-    await this.soapAction(this.baseUrl(device), 'AVTransport', 'Play', { InstanceID: '0', Speed: '1' });
+    await this.soapAction(this.baseUrl(device), 'AVTransport', 'Play', {
+      InstanceID: '0',
+      Speed: '1',
+    });
   }
 
   async stop(deviceId: string): Promise<void> {
@@ -171,11 +216,15 @@ export class SonosController implements DeviceController {
     const device = this.getDevice(deviceId);
     const base = this.baseUrl(device);
     try {
-      const info = await this.soapAction(base, 'AVTransport', 'GetTransportInfo', { InstanceID: '0' });
+      const info = await this.soapAction(base, 'AVTransport', 'GetTransportInfo', {
+        InstanceID: '0',
+      });
       const stateMatch = info.match(/<CurrentTransportState>(\w+)<\/CurrentTransportState>/);
       const state = stateMatch?.[1] || 'STOPPED';
 
-      const pos = await this.soapAction(base, 'AVTransport', 'GetPositionInfo', { InstanceID: '0' });
+      const pos = await this.soapAction(base, 'AVTransport', 'GetPositionInfo', {
+        InstanceID: '0',
+      });
       const posMatch = pos.match(/<RelTime>([\d:]+)<\/RelTime>/);
       const durMatch = pos.match(/<TrackDuration>([\d:]+)<\/TrackDuration>/);
 
@@ -198,7 +247,12 @@ export class SonosController implements DeviceController {
     return 0;
   }
 
-  private async soapAction(baseUrl: string, service: string, action: string, args: Record<string, string>): Promise<string> {
+  private async soapAction(
+    baseUrl: string,
+    service: string,
+    action: string,
+    args: Record<string, string>,
+  ): Promise<string> {
     const argsXml = Object.entries(args)
       .map(([k, v]) => `<${k}>${this.escapeXml(v)}</${k}>`)
       .join('');
@@ -213,9 +267,10 @@ export class SonosController implements DeviceController {
   </s:Body>
 </s:Envelope>`;
 
-    const controlPath = service === 'AVTransport'
-      ? '/MediaRenderer/AVTransport/Control'
-      : '/MediaRenderer/RenderingControl/Control';
+    const controlPath =
+      service === 'AVTransport'
+        ? '/MediaRenderer/AVTransport/Control'
+        : '/MediaRenderer/RenderingControl/Control';
 
     const res = await fetch(`${baseUrl}${controlPath}`, {
       method: 'POST',
@@ -234,6 +289,57 @@ export class SonosController implements DeviceController {
   }
 
   private escapeXml(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
+}
+
+export async function parseSonosZoneGroups(xml: string): Promise<Map<string, SonosZoneGroupInfo>> {
+  const parsed = await parseStringPromise(xml);
+  const groups = extractZoneGroups(parsed);
+  const result = new Map<string, SonosZoneGroupInfo>();
+
+  for (const group of groups) {
+    const groupAttrs = group.$ || {};
+    const groupId = normalizeSonosId(groupAttrs.ID || groupAttrs.Coordinator || '');
+    const coordinator = normalizeSonosId(groupAttrs.Coordinator || groupId);
+    const members = normalizeArray(group.ZoneGroupMember || group.Member);
+    const groupName = members
+      .map((member: any) => member.$?.ZoneName)
+      .filter((name: unknown): name is string => typeof name === 'string' && name.length > 0)
+      .join(' + ');
+
+    for (const member of members) {
+      const memberId = normalizeSonosId(member.$?.UUID || member.$?.Uuid || '');
+      if (!memberId) continue;
+      result.set(memberId, {
+        groupId: groupId || coordinator || memberId,
+        groupName: groupName || member.$?.ZoneName || 'Sonos Group',
+        isGroupCoordinator: memberId === coordinator,
+      });
+    }
+  }
+
+  return result;
+}
+
+function extractZoneGroups(parsed: any): any[] {
+  return normalizeArray(
+    parsed?.ZoneGroups?.ZoneGroup ||
+      parsed?.ZoneGroupState?.ZoneGroups?.[0]?.ZoneGroup ||
+      parsed?.ZoneGroupState?.ZoneGroup ||
+      parsed?.root?.ZoneGroups?.[0]?.ZoneGroup,
+  );
+}
+
+function normalizeArray<T>(value: T | T[] | undefined): T[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function normalizeSonosId(id: string): string {
+  return id.replace(/^uuid:/i, '');
 }

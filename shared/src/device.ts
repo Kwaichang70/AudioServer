@@ -4,6 +4,7 @@ import type { PlaybackState } from './types.js';
 // Every playback target (Cocktail Audio, Volumio, Sonos, browser) implements this.
 
 export type DeviceType = 'dlna' | 'sonos' | 'volumio' | 'browser';
+export type DeviceSessionState = 'idle' | 'loading' | 'playing' | 'paused' | 'stopped' | 'error';
 
 export interface OutputDevice {
   id: string;
@@ -11,6 +12,12 @@ export interface OutputDevice {
   type: DeviceType;
   host?: string; // network address
   isOnline: boolean;
+  playbackState?: DeviceSessionState;
+  playbackStateUpdatedAt?: number;
+  lastError?: string;
+  groupId?: string;
+  groupName?: string;
+  isGroupCoordinator?: boolean;
 }
 
 export interface DeviceController {
@@ -26,6 +33,7 @@ export interface DeviceController {
   stop(deviceId: string): Promise<void>;
   next(deviceId: string): Promise<void>;
   previous(deviceId: string): Promise<void>;
+  setNextUri?(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void>;
 
   // Volume
   setVolume(deviceId: string, volume: number): Promise<void>;
@@ -49,4 +57,6 @@ export interface DevicePlaybackStatus {
   duration: number;
   volume: number;
   currentTrack?: TrackMetadata;
+  deviceState?: DeviceSessionState;
+  lastError?: string;
 }

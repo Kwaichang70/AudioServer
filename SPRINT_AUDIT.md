@@ -15,7 +15,7 @@ Scope: code-audit op de lokale repository. Deze audit controleert implementatie 
 
 | Sprint | Status    | Auditconclusie                                                                                                                      |
 | ------ | --------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| 8      | PARTIAL   | DLNA/device-laag is verbeterd, maar formele state machine, Sonos grouping en expliciete fallback-UX zijn nog niet compleet.         |
+| 8      | DONE      | Device state machine, Sonos group metadata, health checks en expliciete browser-fallback zijn aanwezig.                             |
 | 9      | PARTIAL   | Incremental scanner, progress-events en watcher bestaan; metadata-verrijking en client-side websocket-progress zijn nog incompleet. |
 | 10     | PARTIAL   | Logging, health, shutdown, Docker en env-validatie bestaan; productie-documentatie en client-build polish blijven open.             |
 | 11     | DONE      | Favorites, history, recent/recently added en navigatie zijn aanwezig.                                                               |
@@ -31,26 +31,21 @@ Scope: code-audit op de lokale repository. Deze audit controleert implementatie 
 
 ## Sprint 8 - DLNA Robuustheid en Device UX
 
-Status: PARTIAL
+Status: DONE
 
 Aanwezig:
 
 - `server/src/devices/dlna.ts` controleert transportstatus, retryt playback en ondersteunt `SetNextAVTransportURI`.
 - `server/src/services/device-monitor.ts` pollt devices en emit `device:discovered` en `device:lost`.
-- `server/src/devices/manager.ts` heeft retry/fallback-achtige foutafhandeling rond device playback.
+- `server/src/devices/state-machine.ts` borgt device states zoals `idle`, `loading`, `playing`, `paused`, `stopped` en `error`.
+- `server/src/devices/manager.ts` gebruikt de state machine rond play/pause/resume/stop en expose `playbackState`/`lastError`.
+- `server/src/devices/sonos.ts` leest Sonos topology en markeert group membership/coordinator metadata.
 - `client/src/components/DeviceSelector.tsx` en `client/src/context/AudioContext.tsx` tonen device status, bewaren de gekozen output en volgen websocket/polling updates.
-
-Gaten:
-
-- Geen expliciete DLNA state machine met states zoals `IDLE`, `LOADING`, `PLAYING`, `PAUSED`, `STOPPED`.
-- Sonos grouping via ZoneGroupTopology is niet aantoonbaar geimplementeerd.
-- De fallback bij device-falen is functioneel, maar de sprint-eis voor een duidelijke browser-fallback UX/toast is nog niet strak afgebakend.
+- `client/src/context/AudioContext.tsx` schakelt bij falende externe Qobuz/radio/lokale playback expliciet terug naar Browser en toont een toast.
 
 Volgende actie:
 
-- Maak een kleine device state machine in de device manager en expose de state naar UI.
-- Voeg Sonos group discovery toe of markeer Sonos grouping expliciet buiten scope.
-- Maak fallback op browser playback expliciet en testbaar.
+- Handmatige acceptatie op NAS met echte Sonos/DLNA/Volumio devices.
 
 ## Sprint 9 - Library Scanner en Metadata
 
@@ -269,7 +264,6 @@ Restpunt:
 
 Prioriteit 1:
 
-- Sprint 8 afronden: device state machine, Sonos grouping-besluit, expliciete browser fallback.
 - Sprint 9 afronden: websocket scan progress in UI, richer metadata, persistente embedded cover-cache.
 
 Prioriteit 2:

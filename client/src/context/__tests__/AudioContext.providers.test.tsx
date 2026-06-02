@@ -59,6 +59,8 @@ describe('AudioProvider streaming providers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.api.getHealth.mockResolvedValue({});
+    mocks.api.devicePlay.mockResolvedValue({});
+    mocks.api.getDeviceStatus.mockResolvedValue({ data: {} });
     localStorage.clear();
   });
 
@@ -112,5 +114,49 @@ describe('AudioProvider streaming providers', () => {
     );
     expect(mocks.api.getTidalStreamUrl).not.toHaveBeenCalled();
     expect(mocks.audio.play).not.toHaveBeenCalled();
+  });
+
+  it('falls back to browser playback when an external Qobuz device fails', async () => {
+    localStorage.setItem('audioserver_device', 'device-1');
+    mocks.api.getQobuzStreamUrl.mockResolvedValue({
+      data: { url: 'https://cdn.qobuz.test/track.flac', formatId: '6' },
+    });
+    mocks.api.devicePlay.mockRejectedValue(new Error('Device rejected URI'));
+
+    render(
+      <AudioProvider>
+        <PlayButton
+          track={{
+            id: 'qobuz:123',
+            title: 'Qobuz Track',
+            artistName: 'Artist',
+            albumTitle: 'Album',
+          }}
+        />
+      </AudioProvider>,
+    );
+
+    screen.getByText('Play').click();
+
+    await waitFor(() =>
+      expect(mocks.api.devicePlay).toHaveBeenCalledWith(
+        'device-1',
+        'https://cdn.qobuz.test/track.flac',
+        {
+          title: 'Qobuz Track',
+          artist: 'Artist',
+          album: 'Album',
+          duration: undefined,
+        },
+      ),
+    );
+    await waitFor(() =>
+      expect(mocks.audio.play).toHaveBeenCalledWith('https://cdn.qobuz.test/track.flac'),
+    );
+    expect(localStorage.getItem('audioserver_device')).toBe('browser');
+    expect(mocks.toast).toHaveBeenCalledWith(
+      'External device failed; switched to browser playback',
+      'info',
+    );
   });
 });
