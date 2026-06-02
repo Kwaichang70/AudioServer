@@ -219,6 +219,12 @@ Scanner finds no music:
 - In Docker, confirm the host music path is mounted to `/music`.
 - Check `/api/library/scan/status` or Settings scan progress.
 
+## Documentation
+
+- [docs/architecture.md](docs/architecture.md) — system + request-lifecycle diagrams, module ownership, key design decisions.
+- [docs/providers.md](docs/providers.md) — per-provider OAuth + scrobbling setup (Tidal, Spotify, Last.fm, ListenBrainz, Qobuz).
+- [CHANGELOG.md](CHANGELOG.md) — sprint-by-sprint history.
+
 ## Sprint Status
 
 See [SPRINT_AUDIT.md](SPRINT_AUDIT.md) for the current sprint audit and remaining work.
