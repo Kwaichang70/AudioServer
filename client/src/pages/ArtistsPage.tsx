@@ -70,8 +70,8 @@ export default function ArtistsPage() {
         Artists <span className="text-sm font-normal text-gray-500">({total})</span>
       </h2>
       {/* Roving-tabindex keyboard nav over the artist cards. Deliberately not
-          role="grid": navigable links, not tabular data. */}
-      {}
+          role="grid": navigable links, not tabular data. The div delegates
+          onKeyDown to its focusable <a> children. */}
       <div
         ref={containerRef}
         onKeyDown={onKeyDown}

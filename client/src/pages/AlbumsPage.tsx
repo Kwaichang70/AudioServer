@@ -68,8 +68,9 @@ export default function AlbumsPage() {
         <>
           {/* Roving-tabindex keyboard nav over the album cards. Deliberately
               not role="grid": these are navigable links, not tabular data, and
-              the cards themselves carry focus. */}
-          {}
+              the cards themselves carry focus. The div carries onKeyDown to
+              delegate to its focusable <a> children (jsx-a11y warns about this;
+              it's the standard event-delegation pattern). */}
           <div
             ref={containerRef}
             onKeyDown={onKeyDown}
