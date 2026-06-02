@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
-import { useInfiniteLoad } from '../hooks/useInfiniteLoad.js';
-import { useAutoLoadMore } from '../hooks/useAutoLoadMore.js';
+import { useInfiniteLoad, useAutoLoadMore } from '../hooks/useInfiniteLoad.js';
 import AlbumCover from '../components/AlbumCover.js';
 import { DEFAULT_LIBRARY_PAGE_SIZE } from '../constants.js';
 
