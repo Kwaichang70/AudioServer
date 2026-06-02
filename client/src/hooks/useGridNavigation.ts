@@ -22,8 +22,20 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
  * measured at runtime from element offsetTop, so it adapts to whatever the
  * responsive grid resolves to at the current breakpoint — no need to tell the
  * hook how many columns there are.
+ *
+ * Orientation:
+ *   - 'grid' (default): 2D. Left/Right move ±1, Up/Down move ±columns.
+ *   - 'vertical': 1D stacked list. Up/Down move ±1; Left/Right are ignored
+ *     (so they stay available for, e.g., text fields or remain inert).
+ *   Home/End always jump to the first/last item.
  */
-export function useGridNavigation<T extends HTMLElement = HTMLDivElement>(itemCount: number) {
+type Orientation = 'grid' | 'vertical';
+
+export function useGridNavigation<T extends HTMLElement = HTMLDivElement>(
+  itemCount: number,
+  options: { orientation?: Orientation } = {},
+) {
+  const { orientation = 'grid' } = options;
   const containerRef = useRef<T>(null);
 
   const getItems = useCallback((): HTMLElement[] => {
@@ -64,13 +76,16 @@ export function useGridNavigation<T extends HTMLElement = HTMLDivElement>(itemCo
       const idx = active ? items.indexOf(active) : -1;
       if (idx === -1) return; // focus isn't on a grid item — let the event be
 
-      const cols = getColumns(items);
+      // In vertical mode every item is its own row, so a "row step" is 1.
+      const cols = orientation === 'vertical' ? 1 : getColumns(items);
       let next = idx;
       switch (e.key) {
         case 'ArrowRight':
+          if (orientation === 'vertical') return; // 1D list: ignore horizontal
           next = Math.min(items.length - 1, idx + 1);
           break;
         case 'ArrowLeft':
+          if (orientation === 'vertical') return;
           next = Math.max(0, idx - 1);
           break;
         case 'ArrowDown':
@@ -95,7 +110,7 @@ export function useGridNavigation<T extends HTMLElement = HTMLDivElement>(itemCo
         items[next].focus();
       }
     },
-    [getItems, getColumns],
+    [getItems, getColumns, orientation],
   );
 
   return { containerRef, onKeyDown };

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import AlbumCover from '../components/AlbumCover.js';
 import { useAudioContext, type TrackInfo } from '../context/AudioContext.js';
+import { useGridNavigation } from '../hooks/useGridNavigation.js';
 import { formatDuration } from '../utils/format.js';
 
 type Tab = 'album' | 'artist' | 'track';
@@ -35,6 +36,7 @@ export default function FavoritesPage() {
   const [tracks, setTracks] = useState<FavTrack[]>([]);
   const [loading, setLoading] = useState(true);
   const { playTrack } = useAudioContext();
+  const trackNav = useGridNavigation<HTMLDivElement>(tracks.length, { orientation: 'vertical' });
 
   useEffect(() => {
     setLoading(true);
@@ -159,12 +161,13 @@ export default function FavoritesPage() {
         (tracks.length === 0 ? (
           <p className="text-gray-500 py-12 text-center">No favorite tracks yet.</p>
         ) : (
-          <div className="space-y-1">
+          <div ref={trackNav.containerRef} onKeyDown={trackNav.onKeyDown} className="space-y-1">
             {tracks.map((track) => (
               <button
                 key={track.id}
+                data-grid-item
                 onClick={() => playTrack(track satisfies TrackInfo)}
-                className="w-full flex items-center gap-4 px-4 py-2 rounded hover:bg-surface-light transition text-left"
+                className="w-full flex items-center gap-4 px-4 py-2 rounded hover:bg-surface-light transition text-left focus:outline-none focus:ring-2 focus:ring-accent"
               >
                 <div className="w-10 h-10 rounded bg-surface-dark overflow-hidden flex-shrink-0">
                   <img

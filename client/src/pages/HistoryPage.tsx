@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAudioContext, type TrackInfo } from '../context/AudioContext.js';
+import { useGridNavigation } from '../hooks/useGridNavigation.js';
 import { DEFAULT_HISTORY_PAGE_SIZE } from '../constants.js';
 import { formatDuration } from '../utils/format.js';
 
@@ -53,6 +54,9 @@ export default function HistoryPage() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const { playTrack } = useAudioContext();
+  const { containerRef, onKeyDown } = useGridNavigation<HTMLDivElement>(entries.length, {
+    orientation: 'vertical',
+  });
 
   useEffect(() => {
     setLoading(true);
@@ -131,10 +135,12 @@ export default function HistoryPage() {
           </p>
         ) : (
           <>
-            <div className="space-y-1">
+            {/* Vertical roving-tabindex keyboard nav over the history rows. */}
+            <div ref={containerRef} onKeyDown={onKeyDown} className="space-y-1">
               {entries.map((entry) => (
                 <button
                   key={entry.id}
+                  data-grid-item
                   onClick={() => {
                     if (!entry.track_id) return;
                     const track: TrackInfo = {
@@ -147,7 +153,7 @@ export default function HistoryPage() {
                     };
                     playTrack(track);
                   }}
-                  className="w-full flex items-center gap-4 px-4 py-2 rounded hover:bg-surface-light transition text-left"
+                  className="w-full flex items-center gap-4 px-4 py-2 rounded hover:bg-surface-light transition text-left focus:outline-none focus:ring-2 focus:ring-accent"
                 >
                   <div className="w-10 h-10 rounded bg-surface-dark overflow-hidden flex-shrink-0">
                     {entry.album_id && (

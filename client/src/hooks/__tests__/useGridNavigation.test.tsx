@@ -68,3 +68,43 @@ describe('useGridNavigation', () => {
     expect(document.activeElement).toBe(document.body);
   });
 });
+
+// Vertical (1D list) orientation: Down/Up move ±1; Left/Right are ignored.
+function VerticalList({ count }: { count: number }) {
+  const { containerRef, onKeyDown } = useGridNavigation<HTMLDivElement>(count, {
+    orientation: 'vertical',
+  });
+  return (
+    <div ref={containerRef} onKeyDown={onKeyDown} data-testid="list">
+      {Array.from({ length: count }, (_, i) => (
+        <button key={i} type="button" data-grid-item data-testid={`row-${i}`}>
+          row {i}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+describe('useGridNavigation (vertical)', () => {
+  it('ArrowDown moves to the next row, ArrowUp back', () => {
+    render(<VerticalList count={3} />);
+    const first = screen.getByTestId('row-0');
+    first.focus();
+
+    fireEvent.keyDown(first, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(screen.getByTestId('row-1'));
+
+    fireEvent.keyDown(screen.getByTestId('row-1'), { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(first);
+  });
+
+  it('ignores ArrowRight / ArrowLeft in vertical mode', () => {
+    render(<VerticalList count={3} />);
+    const first = screen.getByTestId('row-0');
+    first.focus();
+    fireEvent.keyDown(first, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(first, { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(first);
+  });
+});
