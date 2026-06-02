@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useInfiniteLoad } from '../hooks/useInfiniteLoad.js';
+import { useAutoLoadMore } from '../hooks/useAutoLoadMore.js';
 import AlbumCover from '../components/AlbumCover.js';
 import { DEFAULT_LIBRARY_PAGE_SIZE } from '../constants.js';
 
@@ -25,6 +26,11 @@ export default function AlbumsPage() {
     (page, limit) => api.getAlbums(page, limit),
     DEFAULT_LIBRARY_PAGE_SIZE,
   );
+
+  // Infinite-scroll sentinel: fires loadMore when the bottom of the list is
+  // within 400px of the viewport. The "Load More" button below stays as a
+  // keyboard/no-JS fallback.
+  const sentinelRef = useAutoLoadMore(loadMore, hasMore);
 
   const startScan = async () => {
     await api.scanLibrary();
@@ -83,15 +89,18 @@ export default function AlbumsPage() {
           </div>
 
           {hasMore && (
-            <div className="flex justify-center mt-8">
-              <button
-                onClick={loadMore}
-                disabled={loadingMore}
-                className="px-6 py-2 bg-surface-light border border-white/10 rounded hover:border-accent transition disabled:opacity-50"
-              >
-                {loadingMore ? 'Loading...' : `Load More (${albums.length} of ${total})`}
-              </button>
-            </div>
+            <>
+              <div ref={sentinelRef} className="h-10" aria-hidden="true" />
+              <div className="flex justify-center mt-2">
+                <button
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="px-6 py-2 bg-surface-light border border-white/10 rounded hover:border-accent transition disabled:opacity-50"
+                >
+                  {loadingMore ? 'Loading...' : `Load More (${albums.length} of ${total})`}
+                </button>
+              </div>
+            </>
           )}
         </>
       )}

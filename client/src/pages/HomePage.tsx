@@ -50,11 +50,28 @@ export default function HomePage() {
   const [libraryStats, setLibraryStats] = useState<LibraryStats | null>(null);
 
   useEffect(() => {
-    api.getStats().then((res) => setStats(res.data)).catch(() => {});
-    api.getRecentAlbums().then((res) => setRecentAlbums(res.data)).catch(() => {});
-    api.getTopArtists().then((res) => setTopArtists(res.data)).catch(() => {});
-    api.getRecentlyAdded(12).then((res) => setRecentlyAdded(res.data)).catch(() => {});
-    api.getHealth().then((res) => { if (res.libraryStats) setLibraryStats(res.libraryStats); }).catch(() => {});
+    api
+      .getStats()
+      .then((res) => setStats(res.data))
+      .catch(() => {});
+    api
+      .getRecentAlbums()
+      .then((res) => setRecentAlbums(res.data))
+      .catch(() => {});
+    api
+      .getTopArtists()
+      .then((res) => setTopArtists(res.data))
+      .catch(() => {});
+    api
+      .getRecentlyAdded(12)
+      .then((res) => setRecentlyAdded(res.data))
+      .catch(() => {});
+    api
+      .getHealth()
+      .then((res) => {
+        if (res.libraryStats) setLibraryStats(res.libraryStats);
+      })
+      .catch(() => {});
   }, []);
 
   return (
@@ -82,7 +99,9 @@ export default function HomePage() {
         <section>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-semibold">Recently Added</h3>
-            <Link to="/albums" className="text-sm text-gray-400 hover:text-accent transition">View all</Link>
+            <Link to="/albums" className="text-sm text-gray-400 hover:text-accent transition">
+              View all
+            </Link>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
             {recentlyAdded.map((album) => (
@@ -96,10 +115,16 @@ export default function HomePage() {
                     src={api.getAlbumCoverUrl(album.id)}
                     alt={album.title}
                     className="w-full h-full object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    loading="lazy"
+                    decoding="async"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
                   />
                 </div>
-                <p className="text-sm font-medium truncate group-hover:text-accent transition">{album.title}</p>
+                <p className="text-sm font-medium truncate group-hover:text-accent transition">
+                  {album.title}
+                </p>
                 <p className="text-xs text-gray-400 truncate">{album.artistName}</p>
                 {album.year && <p className="text-xs text-gray-500">{album.year}</p>}
               </Link>
@@ -124,10 +149,16 @@ export default function HomePage() {
                     src={api.getAlbumCoverUrl(album.album_id)}
                     alt={album.title}
                     className="w-full h-full object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    loading="lazy"
+                    decoding="async"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
                   />
                 </div>
-                <p className="text-sm font-medium truncate group-hover:text-accent transition">{album.title}</p>
+                <p className="text-sm font-medium truncate group-hover:text-accent transition">
+                  {album.title}
+                </p>
                 <p className="text-xs text-gray-400 truncate">{album.artist_name}</p>
               </Link>
             ))}
@@ -150,7 +181,9 @@ export default function HomePage() {
                   &#9835;
                 </div>
                 <div>
-                  <p className="text-sm font-medium group-hover:text-accent transition">{artist.name}</p>
+                  <p className="text-sm font-medium group-hover:text-accent transition">
+                    {artist.name}
+                  </p>
                   <p className="text-xs text-gray-500">{artist.play_count} plays</p>
                 </div>
               </Link>
@@ -165,12 +198,16 @@ export default function HomePage() {
           <h3 className="text-xl font-semibold mb-4">Library Stats</h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div className="bg-surface-light rounded-lg p-4">
-              <p className="text-2xl font-bold text-white">{formatTotalDuration(libraryStats.totalDuration)}</p>
+              <p className="text-2xl font-bold text-white">
+                {formatTotalDuration(libraryStats.totalDuration)}
+              </p>
               <p className="text-xs text-gray-500">Total playtime</p>
             </div>
             {libraryStats.formats.length > 0 && (
               <div className="bg-surface-light rounded-lg p-4">
-                <p className="text-2xl font-bold text-white">{libraryStats.formats[0].format || 'N/A'}</p>
+                <p className="text-2xl font-bold text-white">
+                  {libraryStats.formats[0].format || 'N/A'}
+                </p>
                 <p className="text-xs text-gray-500">
                   Top format ({libraryStats.formats[0].count} tracks)
                 </p>
@@ -180,7 +217,10 @@ export default function HomePage() {
               <div className="bg-surface-light rounded-lg p-4 col-span-2">
                 <div className="flex flex-wrap gap-1.5">
                   {libraryStats.genres.slice(0, 8).map((g) => (
-                    <span key={g.genre} className="text-xs px-2 py-1 bg-surface-dark rounded-full text-gray-400">
+                    <span
+                      key={g.genre}
+                      className="text-xs px-2 py-1 bg-surface-dark rounded-full text-gray-400"
+                    >
                       {g.genre} <span className="text-gray-600">{g.count}</span>
                     </span>
                   ))}
@@ -197,10 +237,16 @@ export default function HomePage() {
         <section className="text-center py-12">
           <p className="text-gray-500 mb-4">Start playing music to see your history here.</p>
           <div className="flex gap-4 justify-center">
-            <Link to="/albums" className="px-6 py-2 bg-accent rounded-full hover:bg-accent-hover transition">
+            <Link
+              to="/albums"
+              className="px-6 py-2 bg-accent rounded-full hover:bg-accent-hover transition"
+            >
               Browse Albums
             </Link>
-            <Link to="/search" className="px-6 py-2 bg-surface-light border border-white/10 rounded-full hover:border-accent transition">
+            <Link
+              to="/search"
+              className="px-6 py-2 bg-surface-light border border-white/10 rounded-full hover:border-accent transition"
+            >
               Search
             </Link>
           </div>

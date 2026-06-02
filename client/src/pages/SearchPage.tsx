@@ -202,12 +202,16 @@ export default function SearchPage() {
                           src={a.coverUrl}
                           alt={a.title}
                           className="w-full h-full object-cover"
+                          loading="lazy"
+                          decoding="async"
                         />
                       ) : a.source === 'local' ? (
                         <img
                           src={api.getAlbumCoverUrl(a.id)}
                           alt={a.title}
                           className="w-full h-full object-cover"
+                          loading="lazy"
+                          decoding="async"
                           onError={(e) => {
                             (e.target as HTMLImageElement).style.display = 'none';
                           }}
@@ -248,6 +252,8 @@ export default function SearchPage() {
                           src={api.getTrackCoverUrl(t.id)}
                           alt=""
                           className="w-full h-full object-cover"
+                          loading="lazy"
+                          decoding="async"
                           onError={(e) => {
                             (e.target as HTMLImageElement).style.display = 'none';
                           }}

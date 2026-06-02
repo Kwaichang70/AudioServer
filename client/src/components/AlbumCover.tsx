@@ -33,8 +33,12 @@ export default function AlbumCover({ albumId, title, artistName, coverUrl, size 
 
   if (failed) {
     return (
-      <div className={`aspect-square rounded bg-gradient-to-br ${gradient} flex flex-col items-center justify-center`}>
-        <span className={size === 'sm' ? 'text-2xl' : size === 'lg' ? 'text-6xl' : 'text-4xl'}>{initial}</span>
+      <div
+        className={`aspect-square rounded bg-gradient-to-br ${gradient} flex flex-col items-center justify-center`}
+      >
+        <span className={size === 'sm' ? 'text-2xl' : size === 'lg' ? 'text-6xl' : 'text-4xl'}>
+          {initial}
+        </span>
         {size !== 'sm' && artistName && (
           <span className="text-xs text-white/40 mt-1 px-2 truncate max-w-full">{artistName}</span>
         )}
@@ -49,6 +53,7 @@ export default function AlbumCover({ albumId, title, artistName, coverUrl, size 
         alt={title}
         className="w-full h-full object-cover"
         loading="lazy"
+        decoding="async"
         onError={() => setFailed(true)}
       />
     </div>

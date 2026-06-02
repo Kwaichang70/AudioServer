@@ -138,6 +138,8 @@ export default function FavoritesPage() {
                     src={api.getArtistImageUrl(artist.id)}
                     alt={artist.name}
                     className="w-full h-full object-cover"
+                    loading="lazy"
+                    decoding="async"
                     onError={(e) => {
                       (e.target as HTMLImageElement).style.display = 'none';
                     }}
@@ -169,6 +171,8 @@ export default function FavoritesPage() {
                     src={api.getAlbumCoverUrl(track.albumId)}
                     alt=""
                     className="w-full h-full object-cover"
+                    loading="lazy"
+                    decoding="async"
                     onError={(e) => {
                       (e.target as HTMLImageElement).style.display = 'none';
                     }}

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useInfiniteLoad } from '../hooks/useInfiniteLoad.js';
+import { useAutoLoadMore } from '../hooks/useAutoLoadMore.js';
 import { DEFAULT_LIBRARY_PAGE_SIZE } from '../constants.js';
 
 interface Artist {
@@ -35,6 +36,7 @@ function ArtistImage({ artistId, name }: { artistId: string; name: string }) {
         alt={name}
         className="w-full h-full object-cover"
         loading="lazy"
+        decoding="async"
         onError={() => setFailed(true)}
       />
     </div>
@@ -53,6 +55,7 @@ export default function ArtistsPage() {
     (page, limit) => api.getArtists(page, limit),
     DEFAULT_LIBRARY_PAGE_SIZE,
   );
+  const sentinelRef = useAutoLoadMore(loadMore, hasMore);
 
   if (loading) return <p className="text-gray-400">Loading artists...</p>;
 
@@ -81,15 +84,18 @@ export default function ArtistsPage() {
       </div>
 
       {hasMore && (
-        <div className="flex justify-center mt-8">
-          <button
-            onClick={loadMore}
-            disabled={loadingMore}
-            className="px-6 py-2 bg-surface-light border border-white/10 rounded hover:border-accent transition disabled:opacity-50"
-          >
-            {loadingMore ? 'Loading...' : `Load More (${artists.length} of ${total})`}
-          </button>
-        </div>
+        <>
+          <div ref={sentinelRef} className="h-10" aria-hidden="true" />
+          <div className="flex justify-center mt-2">
+            <button
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="px-6 py-2 bg-surface-light border border-white/10 rounded hover:border-accent transition disabled:opacity-50"
+            >
+              {loadingMore ? 'Loading...' : `Load More (${artists.length} of ${total})`}
+            </button>
+          </div>
+        </>
       )}
     </div>
   );
