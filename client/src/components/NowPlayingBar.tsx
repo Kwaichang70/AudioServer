@@ -58,10 +58,12 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
     <div className="relative h-20 bg-surface border-t border-white/10 flex items-center px-2 md:px-4 gap-2 md:gap-4 safe-bottom no-select">
       {/* Cover + Track info */}
       <div className="flex items-center gap-2 md:gap-3 w-40 md:w-72 min-w-0 shrink-0">
-        <div
+        <button
+          type="button"
           className="w-10 h-10 md:w-12 md:h-12 rounded bg-surface-dark overflow-hidden shrink-0 cursor-pointer hover:opacity-80 transition"
           onClick={onExpandClick}
           title="Fullscreen view"
+          aria-label="Open fullscreen player"
         >
           <img
             src={
@@ -75,9 +77,10 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
               (e.target as HTMLImageElement).style.display = 'none';
             }}
           />
-        </div>
-        <div
-          className="min-w-0 cursor-pointer"
+        </button>
+        <button
+          type="button"
+          className="min-w-0 cursor-pointer text-left"
           onClick={() => {
             if (currentTrack.albumId) navigate(`/albums/${currentTrack.albumId}`);
           }}
@@ -105,7 +108,7 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
               </span>
             )}
           </p>
-        </div>
+        </button>
       </div>
 
       {/* Controls */}
@@ -166,11 +169,26 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
           <div className="w-full max-w-lg flex items-center gap-2 text-xs text-gray-400">
             <span className="w-10 text-right">{formatTime(currentTime)}</span>
             <div
-              className="flex-1 relative h-1 bg-white/10 rounded group cursor-pointer"
+              role="slider"
+              tabIndex={0}
+              aria-label="Seek"
+              aria-valuemin={0}
+              aria-valuemax={Math.round(duration)}
+              aria-valuenow={Math.round(currentTime)}
+              className="flex-1 relative h-1 bg-white/10 rounded group cursor-pointer focus:outline-none focus:ring-1 focus:ring-accent"
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const pos = (e.clientX - rect.left) / rect.width;
                 seek(pos * duration);
+              }}
+              onKeyDown={(e) => {
+                // Arrow keys scrub ±5s; Home/End jump to start/end.
+                if (e.key === 'ArrowRight') seek(Math.min(duration, currentTime + 5));
+                else if (e.key === 'ArrowLeft') seek(Math.max(0, currentTime - 5));
+                else if (e.key === 'Home') seek(0);
+                else if (e.key === 'End') seek(duration);
+                else return;
+                e.preventDefault();
               }}
             >
               <div
@@ -197,6 +215,7 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
           <span className="text-xs text-gray-500">&#128264;</span>
           <input
             type="range"
+            aria-label="Volume"
             min={0}
             max={1}
             step={0.01}

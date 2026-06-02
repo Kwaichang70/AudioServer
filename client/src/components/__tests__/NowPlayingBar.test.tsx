@@ -152,7 +152,10 @@ describe('NowPlayingBar', () => {
     fireEvent.click(screen.getByTitle('Previous'));
     fireEvent.click(screen.getByTitle('Next'));
     fireEvent.click(screen.getByTitle('Repeat off'));
-    fireEvent.change(screen.getByRole('slider'), { target: { value: '0.25' } });
+    // Two sliders exist now (Seek + Volume); target the volume control by name.
+    fireEvent.change(screen.getByRole('slider', { name: 'Volume' }), {
+      target: { value: '0.25' },
+    });
 
     expect(mocks.actions.toggleShuffle).toHaveBeenCalled();
     expect(mocks.actions.playPrevious).toHaveBeenCalled();

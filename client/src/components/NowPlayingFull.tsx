@@ -161,11 +161,25 @@ export default function NowPlayingFull({ onClose }: Props) {
         ) : (
           <div className="max-w-2xl mx-auto mb-4">
             <div
-              className="relative h-1.5 bg-white/10 rounded-full cursor-pointer group"
+              role="slider"
+              tabIndex={0}
+              aria-label="Seek"
+              aria-valuemin={0}
+              aria-valuemax={Math.round(duration)}
+              aria-valuenow={Math.round(currentTime)}
+              className="relative h-1.5 bg-white/10 rounded-full cursor-pointer group focus:outline-none focus:ring-1 focus:ring-accent"
               onClick={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const pos = (e.clientX - rect.left) / rect.width;
                 seek(pos * duration);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowRight') seek(Math.min(duration, currentTime + 5));
+                else if (e.key === 'ArrowLeft') seek(Math.max(0, currentTime - 5));
+                else if (e.key === 'Home') seek(0);
+                else if (e.key === 'End') seek(duration);
+                else return;
+                e.preventDefault();
               }}
             >
               <div

@@ -3,6 +3,7 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
+import jsxA11y from 'eslint-plugin-jsx-a11y';
 
 export default tseslint.config(
   {
@@ -62,7 +63,7 @@ export default tseslint.config(
   },
   {
     files: ['client/**/*.{ts,tsx}'],
-    plugins: { 'react-hooks': reactHooks },
+    plugins: { 'react-hooks': reactHooks, 'jsx-a11y': jsxA11y },
     languageOptions: {
       globals: {
         window: 'readonly',
@@ -82,6 +83,17 @@ export default tseslint.config(
     rules: {
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
+      // Accessibility. The recommended set defaults to 'error'; we run it as
+      // 'warn' so CI stays green while the backlog is worked through
+      // incrementally (same policy as no-explicit-any / prefer-const here).
+      // Promote individual rules to 'error' as their violations reach zero.
+      ...jsxA11y.flatConfigs.recommended.rules,
+      'jsx-a11y/no-static-element-interactions': 'warn',
+      'jsx-a11y/click-events-have-key-events': 'warn',
+      'jsx-a11y/no-autofocus': 'warn',
+      'jsx-a11y/no-noninteractive-element-interactions': 'warn',
+      'jsx-a11y/label-has-associated-control': 'warn',
+      'jsx-a11y/media-has-caption': 'off', // album art / audio streams have no captions
     },
   },
   {
