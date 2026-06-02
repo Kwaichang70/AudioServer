@@ -61,9 +61,11 @@ device control.
 
 1. Edit `.env`:
    ```env
-   LIBRESPOT_USERNAME=<your spotify username/email>
-   LIBRESPOT_PASSWORD=<your spotify password>
+   SPOTIFY_USERNAME=<your spotify username/email>
+   SPOTIFY_PASSWORD=<your spotify password>
    ```
+   (These feed librespot's `--username` / `--password`. You can also start
+   librespot on demand from Settings without env vars.)
 2. Rebuild the container — librespot is baked into the image.
 3. Open the Spotify app on your phone / desktop → device picker should now
    show "AudioServer" as a Spotify Connect target.
@@ -76,13 +78,22 @@ You can use both together — Web API for browse, librespot for playback.
 
 ## Qobuz
 
-Currently disabled. Qobuz blocks external API access without a partner
-agreement; the provider class exists in the codebase but `isAvailable`
-stays `false`.
+Full-track playback is supported (added in a later sprint), but streaming
+requires app credentials you supply yourself — Qobuz doesn't issue these
+openly, so you need a working `APP_ID` / `APP_SECRET` pair.
 
-If you have legitimate API credentials and want to re-enable, see
-`server/src/providers/registry.ts` — uncomment the Qobuz import and
-provide credentials via `QOBUZ_USERNAME` / `QOBUZ_PASSWORD`.
+1. Set the app credentials in `.env`:
+   ```env
+   QOBUZ_APP_ID=<your app id>
+   QOBUZ_APP_SECRET=<your app secret>
+   QOBUZ_AUDIO_FORMAT=5   # optional: 5=MP3 320, 6=FLAC 16/44, 7=FLAC ≤24/96, 27=FLAC ≤24/192
+   ```
+   Without `QOBUZ_APP_ID`/`QOBUZ_APP_SECRET`, streaming stays disabled and
+   `/api/providers/qobuz/status` reports it.
+2. Provide user auth one of two ways:
+   - env: `QOBUZ_USERNAME` / `QOBUZ_PASSWORD`, **or**
+   - Settings → Streaming Providers → Qobuz login at runtime.
+3. Verify via `/api/providers/qobuz/status`.
 
 ## Last.fm scrobbling
 
