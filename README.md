@@ -1,126 +1,224 @@
 # AudioServer
 
-Self-hosted music streamer — a Roon alternative you run on your own NAS or VPS.
-Combines a local library scanner with first-class support for Tidal, Spotify
-(via Librespot), Qobuz, and Internet Radio, and pushes audio to browser, Sonos,
-or any DLNA/UPnP renderer on your LAN.
+Self-hosted music streamer for a local NAS library, Qobuz full-track playback, streaming provider metadata, and multi-room output through browser, DLNA, Sonos, Volumio, and Spotify Connect helpers.
 
-> Status: under active development. Phase 1–4 (security foundation, stability,
-> first Roon-feature-parity slice, performance polish) have shipped. See
-> [CHANGELOG.md](./CHANGELOG.md) for the running history.
+## Current Status
 
-## Features
+- Local library playback is the primary source.
+- Qobuz is the preferred external full-playback source.
+- Tidal is treated as catalog/metadata/preview-only.
+- Spotify support is focused on OAuth/catalog/Spotify Connect flows; full generic browser streaming is not implemented.
+- Synology/DiskStation deployment is supported through Docker Compose with host networking for DLNA/SSDP discovery.
 
-**Library**
+## Quick Start
 
-- Recursive scanner for FLAC / MP3 / M4A / AAC / OGG / Opus / WAV / WMA / AIFF
-- Per-track ReplayGain (track + album mode) with peak-aware clip protection
-- Cover-art extraction from embedded tags + background fetch for missing art
-- Artist images via Spotify (when configured)
-- Smart playlists with rule-based filtering (genre, year, format, sample rate, bit depth, artist)
-- Conventional playlists + M3U import/export
-- Favorites for tracks / albums / artists
-
-**Streaming providers**
-
-- **Local** — your own files via SMB/NFS-mounted paths
-- **Tidal** — OAuth2 + PKCE login; browse + play hi-res streams
-- **Spotify** — via Librespot daemon (Spotify Connect receiver)
-- **Qobuz** — present but disabled (Qobuz blocks external API access)
-- **Internet Radio** — RadioBrowser API with Dutch-first curated list
-
-**Playback**
-
-- HTML5 audio with opt-in Web Audio chain for ReplayGain
-- Crossfade between tracks (configurable seconds)
-- Gapless playback for local files
-- Multi-device output: browser, Sonos, generic DLNA/UPnP renderers
-- Last.fm + ListenBrainz scrobbling with retry queue
-
-**Auth & security**
-
-- JWT-based authentication; first-run sets up the admin
-- Signed stream tokens (HMAC, 1h TTL) for `<img>`/`<audio>` tags
-- Strict CORS (allowlist) + Helmet headers
-- Input validation via zod schemas on every mutation route
-- Rate limiting (global + auth-specific)
-
-**Frontend**
-
-- React 19 + Vite + TailwindCSS
-- Lazy-loaded route bundles, native `loading="lazy"` for cover art
-- Auto-load-more via IntersectionObserver on lists
-- Service worker with sensible cache invalidation
-- PWA-ready (manifest + offline shell)
-
-## Quick start (Docker — recommended)
-
-```bash
-cp .env.example .env       # edit values, see below
-docker compose up -d --build
-```
-
-The container exposes port `3001`. Open `http://<host>:3001`, register the
-first user (becomes admin), then add providers from Settings.
-
-### Environment variables (`.env`)
-
-| Variable                                      | Required   | Default                                       | Description                                                                                                                                                              |
-| --------------------------------------------- | ---------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `MUSIC_LIBRARY_PATHS`                         | Yes (prod) | `./test-music`                                | Comma-separated list of paths to scan. Use forward slashes for UNC paths: `//diskstation/Music`.                                                                         |
-| `DATABASE_PATH`                               | No         | `/data/audioserver.db`                        | sqlite file. The `/data` volume persists across container restarts.                                                                                                      |
-| `JWT_SECRET`                                  | Yes (prod) | dev-only auto-gen                             | 32+ char secret. `openssl rand -hex 32`.                                                                                                                                 |
-| `ALLOWED_ORIGINS`                             | No         | `http://localhost:5173,http://127.0.0.1:5173` | CORS allowlist for the dev server. Same-origin always passes.                                                                                                            |
-| `PORT`                                        | No         | `3001`                                        | HTTP port.                                                                                                                                                               |
-| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | No         | —                                             | From [Spotify Developer Dashboard](https://developer.spotify.com). Note: Spotify rejects HTTP redirect URIs on LAN IPs since April 2025 — use HTTPS via a reverse proxy. |
-| `TIDAL_CLIENT_ID` / `TIDAL_CLIENT_SECRET`     | No         | —                                             | From [Tidal for Developers](https://developer.tidal.com).                                                                                                                |
-| `LASTFM_API_KEY` / `LASTFM_API_SECRET`        | No         | —                                             | From [Last.fm API](https://www.last.fm/api).                                                                                                                             |
-| `LISTENBRAINZ_TOKEN`                          | No         | —                                             | User-token from listenbrainz.org.                                                                                                                                        |
-| `DLNA_DEVICES`                                | No         | `auto-discover`                               | Comma-separated `host:port` hints if SSDP discovery is unreliable.                                                                                                       |
-| `VOLUMIO_DEVICES`                             | No         | —                                             | Same idea for Volumio endpoints.                                                                                                                                         |
-| `WATCH_LIBRARY`                               | No         | `false`                                       | Filesystem watcher for incremental scans.                                                                                                                                |
-
-## Quick start (bare metal)
+Install dependencies:
 
 ```bash
 npm install
-npm run dev          # backend on :3001, vite dev server on :5173
 ```
 
-The server requires the `tsx` ESM loader for `music-metadata` compatibility:
+Start backend and frontend in development:
 
 ```bash
+npm run dev
+```
+
+Development ports:
+
+- Backend API: `http://localhost:3001`
+- Vite frontend: `http://localhost:5173`
+
+The backend must run through the ESM loader because `music-metadata` pulls in pure ESM dependencies:
+
+```bash
+node --import tsx/esm server/src/index.ts
 node --import tsx/esm --watch server/src/index.ts
 ```
 
-The `npm run dev` script handles this automatically.
+The workspace scripts already use the correct loader.
 
-## Repository layout
+## Build And Test
 
-Monorepo with npm workspaces:
-
-```
-shared/    # TypeScript types + interfaces (Track, Album, MusicProvider, …)
-server/    # Express + SQLite (better-sqlite3 + Drizzle) + Socket.IO
-client/    # React + Vite + TailwindCSS SPA
-```
-
-See [docs/architecture.md](./docs/architecture.md) for the data-flow diagram.
-
-## Tests
+Build all workspaces:
 
 ```bash
-cd server && npm test    # vitest + supertest integration tests
-cd client && npm test    # vitest + React Testing Library
+npm run build
 ```
 
-## Tooling
+Run tests directly per workspace:
 
-- **TypeScript** strict mode across all workspaces (`npm run typecheck`)
-- **ESLint 9** flat config + Prettier (`npm run lint`, `npm run format`)
-- **Husky + lint-staged** pre-commit hook
-- **GitHub Actions** CI: lint → typecheck → tests → build
+```bash
+cd server && npx vitest run
+cd client && npx vitest run
+```
 
-## License
+Run focused tests:
 
-Private project. Not yet released.
+```bash
+cd server && npx vitest run src/__tests__/scanner.test.ts
+cd client && npx vitest run src/context/__tests__/AudioContext.test.tsx
+```
+
+Production client builds generate `.gz` and `.br` compressed static assets for JS, CSS, HTML, SVG, and JSON files larger than 1 KB. Express still serves the normal files directly; reverse proxies can be configured later to prefer the precompressed variants.
+
+## Project Structure
+
+```text
+shared/  TypeScript domain types and provider/device interfaces
+server/  Express API, SQLite/Drizzle, Socket.IO, scanner, providers, devices
+client/  React/Vite/Tailwind single-page app
+data/    Local development database/covers, ignored by deployment workflows
+```
+
+Key patterns:
+
+- Providers implement `MusicProvider` or `AuthenticatedMusicProvider`.
+- Output devices implement `DeviceController`.
+- Local NAS paths use forward slashes. UNC paths should be written like `//diskstation/Music`; avoid `path.join()` for UNC construction.
+- The production server serves the built client from `client/dist`.
+
+## Environment
+
+Copy `.env.example` to `.env` for local development.
+
+Required production values:
+
+```env
+NODE_ENV=production
+PORT=3001
+DATABASE_PATH=/data/audioserver.db
+MUSIC_LIBRARY_PATHS=/music
+JWT_SECRET=replace-with-openssl-rand-hex-32
+```
+
+Recommended logging:
+
+```env
+LOG_FORMAT=json
+LOG_LEVEL=info
+```
+
+Development defaults to `LOG_FORMAT=text` and `LOG_LEVEL=debug`; production defaults to `json/info`.
+
+Qobuz full playback:
+
+```env
+QOBUZ_APP_ID=your-app-id
+QOBUZ_APP_SECRET=your-app-secret
+QOBUZ_AUDIO_FORMAT=5
+```
+
+Optional auto-login:
+
+```env
+QOBUZ_USERNAME=your-qobuz-email
+QOBUZ_PASSWORD=your-qobuz-password
+```
+
+If username/password are omitted, log in through Settings. The app stores only the Qobuz user auth token and account metadata, not the password.
+
+Qobuz formats:
+
+```text
+5  MP3 320, most compatible
+6  FLAC 16/44.1
+7  FLAC 24/96
+27 FLAC 24/192
+```
+
+Device hints:
+
+```env
+DLNA_DEVICES=192.168.2.42:49152,192.168.2.27:1400
+VOLUMIO_DEVICES=192.168.2.50:3000
+WATCH_LIBRARY=true
+```
+
+## Docker
+
+Build and run locally:
+
+```bash
+MUSIC_PATH=/path/to/music docker compose up -d --build
+```
+
+Synology-style command:
+
+```bash
+cd /volume1/docker/AudioServer
+sudo /usr/local/bin/docker-compose -f docker-compose.yml up -d --build
+```
+
+Health check:
+
+```bash
+curl -s http://localhost:3001/api/health
+```
+
+Docker notes:
+
+- `network_mode: host` is intentional for DLNA/SSDP multicast discovery.
+- The runtime image includes `ffmpeg`, `curl`, and a copied `librespot` binary.
+- Build metadata is attached as OCI labels using `VERSION`, `VCS_REF`, and `BUILD_DATE` build args.
+- Node is major-pinned through the `NODE_IMAGE` build arg. Rust remains on `rust:slim-bookworm` because librespot source builds have been sensitive to toolchain/dependency resolution. Update base images deliberately, then rebuild and run the test/build suite before publishing.
+
+Example labeled build:
+
+```bash
+VCS_REF=$(git rev-parse --short HEAD) BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) docker compose build
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:VCS_REF = git rev-parse --short HEAD
+$env:BUILD_DATE = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+docker compose build
+```
+
+## Synology Deployment
+
+Use [DEPLOY_SYNOLOGY.md](DEPLOY_SYNOLOGY.md) as the runbook. The short version:
+
+```powershell
+git archive --format=tar --output C:\tmp\audioserver-qobuz.tar HEAD
+scp C:\tmp\audioserver-qobuz.tar Danny-a@192.168.2.58:/tmp/audioserver-qobuz.tar
+```
+
+Then on the NAS:
+
+```bash
+cd /volume1/docker/AudioServer
+sudo tar -xf /tmp/audioserver-qobuz.tar -C /volume1/docker/AudioServer
+sudo /usr/local/bin/docker-compose -f docker-compose.yml up -d --build
+curl -s http://localhost:3001/api/health
+```
+
+## Troubleshooting
+
+White screen with asset `500` errors:
+
+- Check CORS/allowed origins in server logs.
+- Use the same host/origin for HTML and static assets, for example `http://diskstation:3001`.
+
+Qobuz cannot stream:
+
+- Check `/api/providers/qobuz/status`.
+- Confirm `QOBUZ_APP_ID` and `QOBUZ_APP_SECRET`.
+- Confirm account login in Settings or env credentials.
+
+No devices found:
+
+- Keep Docker host networking enabled.
+- Add `DLNA_DEVICES` or `VOLUMIO_DEVICES` for direct probing if multicast is blocked.
+
+Scanner finds no music:
+
+- Confirm `MUSIC_LIBRARY_PATHS`.
+- In Docker, confirm the host music path is mounted to `/music`.
+- Check `/api/library/scan/status` or Settings scan progress.
+
+## Sprint Status
+
+See [SPRINT_AUDIT.md](SPRINT_AUDIT.md) for the current sprint audit and remaining work.

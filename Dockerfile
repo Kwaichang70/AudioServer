@@ -1,7 +1,9 @@
 # ───── librespot builder ──────────────────────────────────────────
 # Build the Spotify Connect receiver once, then copy only the binary into the
 # runtime image. The Rust toolchain stays out of production.
-FROM rust:slim-bookworm AS librespot-builder
+ARG NODE_IMAGE=node:22-slim
+ARG RUST_IMAGE=rust:slim-bookworm
+FROM ${RUST_IMAGE} AS librespot-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates pkg-config libasound2-dev libssl-dev \
@@ -14,7 +16,7 @@ RUN cargo install --locked librespot@0.8.0
 # ───── builder ───────────────────────────────────────────────────
 # Heavy stage: full toolchain for native dep builds + a full npm install.
 # Discarded once the runtime stage copies what it needs.
-FROM node:22-slim AS builder
+FROM ${NODE_IMAGE} AS builder
 
 # python3 + make + g++ let better-sqlite3 fall back to node-gyp source build
 # when the prebuilt binary download times out (observed on NAS networks).
@@ -42,7 +44,18 @@ RUN npm prune --omit=dev
 # Lean stage: ffmpeg (audio passthroughs), curl (healthcheck), and the
 # runtime libraries needed by the copied librespot binary.
 # No python3, no make, no g++, no client toolchain.
-FROM node:22-slim
+FROM ${NODE_IMAGE}
+
+ARG BUILD_DATE=unknown
+ARG VCS_REF=unknown
+ARG VERSION=0.1.0
+
+LABEL org.opencontainers.image.title="AudioServer" \
+      org.opencontainers.image.description="Self-hosted music streamer with local library, Qobuz playback, and multi-room output" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.source="https://github.com/Kwaichang70/AudioServer"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg curl ca-certificates libasound2 \

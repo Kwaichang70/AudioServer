@@ -41,6 +41,8 @@ const envSchema = z.object({
   LASTFM_API_KEY: z.string().optional(),
   LASTFM_API_SECRET: z.string().optional(),
   LISTENBRAINZ_TOKEN: z.string().optional(),
+  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).optional(),
+  LOG_FORMAT: z.enum(['text', 'json']).optional(),
 
   // Optional device hints
   DLNA_DEVICES: z.string().optional(),
@@ -102,6 +104,8 @@ export const config = {
   jwtSecret: getJwtSecret(),
   allowedOrigins: csv(env.ALLOWED_ORIGINS),
   watchLibrary: env.WATCH_LIBRARY ?? false,
+  logLevel: env.LOG_LEVEL ?? (env.NODE_ENV === 'production' ? 'info' : 'debug'),
+  logFormat: env.LOG_FORMAT ?? (env.NODE_ENV === 'production' ? 'json' : 'text'),
 } as const;
 
 // ─── Validate runtime accessibility ──────────────────────────────
@@ -112,6 +116,7 @@ export function validateConfig(): void {
   console.log(`  Port: ${config.port}`);
   console.log(`  Music paths: ${config.musicLibraryPaths.join(', ')}`);
   console.log(`  Database: ${config.databasePath}`);
+  console.log(`  Log format: ${config.logFormat} (${config.logLevel})`);
   console.log(`  Allowed origins: ${config.allowedOrigins.join(', ') || '(none)'}`);
   console.log(`  Spotify: ${env.SPOTIFY_CLIENT_ID ? 'configured' : 'not configured'}`);
   console.log(`  Tidal: ${env.TIDAL_CLIENT_ID ? 'configured' : 'not configured'}`);

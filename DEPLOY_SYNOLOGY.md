@@ -9,6 +9,9 @@ On the NAS, edit the deployment env file in `/volume1/docker/AudioServer/.env`.
 Required for this Qobuz release:
 
 ```env
+JWT_SECRET=generate-a-strong-secret-with-openssl-rand-hex-32
+LOG_FORMAT=json
+LOG_LEVEL=info
 QOBUZ_APP_ID=your-qobuz-app-id
 QOBUZ_APP_SECRET=your-qobuz-app-secret
 QOBUZ_AUDIO_FORMAT=5
@@ -71,6 +74,8 @@ sudo tar -xf /tmp/audioserver-qobuz.tar -C /volume1/docker/AudioServer
 Rebuild and restart:
 
 ```bash
+export VCS_REF="$(git rev-parse --short HEAD 2>/dev/null || echo local)"
+export BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 sudo /usr/local/bin/docker-compose -f /volume1/docker/AudioServer/docker-compose.yml up -d --build
 ```
 

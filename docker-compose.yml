@@ -1,12 +1,19 @@
 services:
   audioserver:
-    build: .
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-0.1.0}
+        VCS_REF: ${VCS_REF:-local}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
     # No ports: needed with network_mode: host (container uses host network directly)
     environment:
       - NODE_ENV=production
       - PORT=3001
       - DATABASE_PATH=/data/audioserver.db
       - MUSIC_LIBRARY_PATHS=/music
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
       - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
       - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
       - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}

@@ -17,7 +17,7 @@ Scope: code-audit op de lokale repository. Deze audit controleert implementatie 
 | ------ | --------- | -------------------------------------------------------------------------------------------------------------------------- |
 | 8      | DONE      | Device state machine, Sonos group metadata, health checks en expliciete browser-fallback zijn aanwezig.                    |
 | 9      | DONE      | Incremental scanner, websocket-progress, richer metadata, watcher en persistente embedded cover-cache zijn aanwezig.       |
-| 10     | PARTIAL   | Logging, health, shutdown, Docker en env-validatie bestaan; productie-documentatie en client-build polish blijven open.    |
+| 10     | DONE      | Structured logging, health, shutdown, Docker metadata, env-validatie, README en compressed client assets zijn aanwezig.    |
 | 11     | DONE      | Favorites, history, recent/recently added en navigatie zijn aanwezig.                                                      |
 | 12     | DONE      | Shortcuts, queue-editing, fullscreen now playing en stats zijn aanwezig.                                                   |
 | 13     | DONE      | Drag-and-drop queue/playlist plus M3U import/export zijn aanwezig.                                                         |
@@ -67,7 +67,7 @@ Volgende actie:
 
 ## Sprint 10 - Polish en Production Readiness
 
-Status: PARTIAL
+Status: DONE
 
 Aanwezig:
 
@@ -76,20 +76,15 @@ Aanwezig:
 - `server/src/routes/health.ts` rapporteert DB, library, providerstatus, librespot en memory.
 - `server/src/index.ts` heeft graceful shutdown voor SIGTERM/SIGINT.
 - `server/src/config.ts` valideert env vars met Zod en logt configuratiestatus.
-- `Dockerfile` is multi-stage en bevat een healthcheck.
-
-Gaten:
-
-- `README.md` ontbreekt nog; er zijn wel `DEPLOY_SYNOLOGY.md`, `NEXT_STEPS.md` en release/security docs.
-- Docker gebruikt `node:22-slim`, maar geen exacte patch digest/pin.
-- Client build optimalisatie zoals compression/brotli en bundle-analyse is niet aantoonbaar.
-- Logging is bruikbaar, maar geen volledige JSON/structured production logging.
+- `server/src/logger.ts` ondersteunt production JSON logging via `LOG_FORMAT=json` en configureerbaar `LOG_LEVEL`.
+- `Dockerfile` is multi-stage, bevat een healthcheck en OCI build labels.
+- `docker-compose.yml` geeft build metadata en production logging env vars door.
+- `README.md` documenteert quick start, env, Docker, Synology, troubleshooting en updatebeleid.
+- `client/vite.config.ts` genereert gzip en brotli compressed build assets.
 
 Volgende actie:
 
-- Voeg `README.md` toe met quick start, Docker, Synology, env en troubleshooting.
-- Pin Docker-images preciezer of documenteer updatebeleid.
-- Voeg optionele client build analysis/compression toe.
+- Handmatige acceptatie op NAS: logs bekijken, Docker labels controleren en compressed assets eventueel via reverse proxy serveren.
 
 ## Sprint 11 - Essentials UI
 
@@ -257,7 +252,6 @@ Restpunt:
 
 Prioriteit 1:
 
-- Sprint 10 afronden: README, Docker pinning/updatebeleid, build compression/analyse, structured logging.
 - Sprint 17 afronden: bewijsbare gapless/preload-next flow en DLNA SetNext fallback.
 
 Productbesluit:
