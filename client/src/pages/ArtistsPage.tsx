@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useInfiniteLoad, useAutoLoadMore } from '../hooks/useInfiniteLoad.js';
+import { useGridNavigation } from '../hooks/useGridNavigation.js';
 import { DEFAULT_LIBRARY_PAGE_SIZE } from '../constants.js';
 
 interface Artist {
@@ -55,6 +56,7 @@ export default function ArtistsPage() {
     DEFAULT_LIBRARY_PAGE_SIZE,
   );
   const sentinelRef = useAutoLoadMore(loadMore, hasMore);
+  const { containerRef, onKeyDown } = useGridNavigation<HTMLDivElement>(artists.length);
 
   if (loading) return <p className="text-gray-400">Loading artists...</p>;
 
@@ -67,12 +69,21 @@ export default function ArtistsPage() {
       <h2 className="text-2xl font-bold mb-6">
         Artists <span className="text-sm font-normal text-gray-500">({total})</span>
       </h2>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+      {/* Roving-tabindex keyboard nav over the artist cards. Deliberately not
+          role="grid": navigable links, not tabular data. */}
+      {}
+      <div
+        ref={containerRef}
+        onKeyDown={onKeyDown}
+        aria-label="Artists"
+        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4"
+      >
         {artists.map((artist) => (
           <Link
             key={artist.id}
             to={`/artists/${artist.id}`}
-            className="bg-surface-light rounded-lg p-4 text-center hover:bg-surface transition group"
+            data-grid-item
+            className="bg-surface-light rounded-lg p-4 text-center hover:bg-surface transition group focus:outline-none focus:ring-2 focus:ring-accent"
           >
             <ArtistImage artistId={artist.id} name={artist.name} />
             <p className="text-sm font-medium truncate group-hover:text-accent transition">

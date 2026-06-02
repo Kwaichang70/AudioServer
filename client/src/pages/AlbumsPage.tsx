@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useInfiniteLoad, useAutoLoadMore } from '../hooks/useInfiniteLoad.js';
+import { useGridNavigation } from '../hooks/useGridNavigation.js';
 import AlbumCover from '../components/AlbumCover.js';
 import { DEFAULT_LIBRARY_PAGE_SIZE } from '../constants.js';
 
@@ -30,6 +31,7 @@ export default function AlbumsPage() {
   // within 400px of the viewport. The "Load More" button below stays as a
   // keyboard/no-JS fallback.
   const sentinelRef = useAutoLoadMore(loadMore, hasMore);
+  const { containerRef, onKeyDown } = useGridNavigation<HTMLDivElement>(albums.length);
 
   const startScan = async () => {
     await api.scanLibrary();
@@ -64,12 +66,22 @@ export default function AlbumsPage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+          {/* Roving-tabindex keyboard nav over the album cards. Deliberately
+              not role="grid": these are navigable links, not tabular data, and
+              the cards themselves carry focus. */}
+          {}
+          <div
+            ref={containerRef}
+            onKeyDown={onKeyDown}
+            aria-label="Albums"
+            className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
+          >
             {albums.map((album) => (
               <Link
                 key={album.id}
                 to={`/albums/${album.id}`}
-                className="group bg-surface-light rounded-lg p-3 hover:bg-surface transition"
+                data-grid-item
+                className="group bg-surface-light rounded-lg p-3 hover:bg-surface transition focus:outline-none focus:ring-2 focus:ring-accent"
               >
                 <div className="mb-2">
                   <AlbumCover
