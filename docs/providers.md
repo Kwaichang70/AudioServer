@@ -53,10 +53,10 @@ on it.
    ```
    https://<your-host>/settings/callback/spotify
    ```
-3. Put a reverse proxy in front of AudioServer with a valid TLS cert.
-   Synology DSM has a built-in Let's Encrypt integration:
-   - Control Panel → Security → Certificate → Add → Get from Let's Encrypt
-   - Application Portal → Reverse Proxy → New rule: `https://<sub>.<your-domain>` → `http://<lan-ip>:3001`
+3. Put a reverse proxy in front of AudioServer with a valid TLS cert. On
+   Synology, follow the step-by-step runbook: [synology-https.md](./synology-https.md)
+   (free `*.synology.me` hostname + Let's Encrypt + reverse proxy, no owned
+   domain needed).
 4. Set `.env`:
    ```env
    SPOTIFY_CLIENT_ID=...
