@@ -95,14 +95,19 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
   // ─── OAuth Flow ──────────────────────────────────────────────
 
   getAuthUrl(redirectUri: string): string {
+    // Spotify Development Mode (since the March 2026 changes) rejects the whole
+    // authorize request up front — error=server_error, *before* the consent
+    // screen — if it asks for scopes whose endpoints were pulled from Dev Mode,
+    // i.e. the library/playlist "browse" scopes. We request only what in-browser
+    // playback via the Web Playback SDK needs: streaming + the SDK-required
+    // identity scopes + playback control. (Catalogue browsing inside the app
+    // would need Extended Quota Mode anyway, since those endpoints are gone.)
     const scopes = [
-      'user-read-private',
-      'user-library-read',
-      'playlist-read-private',
-      'playlist-read-collaborative',
-      'streaming',
-      'user-read-playback-state',
-      'user-modify-playback-state',
+      'streaming', // Web Playback SDK: in-browser playback
+      'user-read-email', // required by the Web Playback SDK
+      'user-read-private', // required by the Web Playback SDK
+      'user-read-playback-state', // read player state for the transport UI
+      'user-modify-playback-state', // start / pause / seek on the SDK device
     ].join(' ');
 
     const params = new URLSearchParams({
