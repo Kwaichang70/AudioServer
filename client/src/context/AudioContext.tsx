@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { useAudio } from '../hooks/useAudio.js';
 import { useSocket } from '../hooks/useSocket.js';
+import { useSpotifyWebPlayback } from '../hooks/useSpotifyWebPlayback.js';
 import { api } from '../api/client.js';
 import { useToast } from '../components/Toast.js';
 import { setProgress } from './ProgressStore.js';
@@ -115,6 +116,14 @@ const AudioCtx = createContext<AudioContextValue | null>(null);
 export function AudioProvider({ children }: { children: ReactNode }) {
   const audio = useAudio();
   const socket = useSocket();
+  // Spotify Web Playback SDK: only loaded once the user actually plays a
+  // Spotify track in the browser (lazy — keeps the SDK script + token polling
+  // off the table for users who never touch Spotify). Requires Premium + a
+  // completed Spotify OAuth connection.
+  const [spotifyWebWanted, setSpotifyWebWanted] = useState(false);
+  const spotifyWeb = useSpotifyWebPlayback(spotifyWebWanted);
+  const spotifyWebDeviceIdRef = useRef<string | null>(null);
+  spotifyWebDeviceIdRef.current = spotifyWeb.deviceId;
   const [currentTrack, setCurrentTrack] = useState<TrackInfo | null>(null);
   const [queue, setQueue] = useState<TrackInfo[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
@@ -191,6 +200,14 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const toastRef = useRef(toast);
   toastRef.current = toast;
   const lanAddressRef = useRef<string | null>(null);
+
+  // Surface Web Playback SDK init failures (most commonly "Premium required")
+  // so browser-Spotify doesn't fail silently.
+  useEffect(() => {
+    if (spotifyWeb.error) {
+      toastRef.current(`Spotify browser player: ${spotifyWeb.error}`, 'error');
+    }
+  }, [spotifyWeb.error]);
 
   const fallbackToBrowserPlayback = useCallback(
     (streamUrl: string, reason: string) => {
@@ -309,6 +326,22 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
         const playSpotify = async () => {
           try {
+            // Strategy 0: browser playback via the Web Playback SDK. Lazily kick
+            // off SDK init the first time we need it; if its in-browser device
+            // is already registered, play straight to it. Otherwise fall through
+            // — an external active device handles this track and the SDK becomes
+            // available for the next one.
+            if (deviceId === 'browser') {
+              setSpotifyWebWanted(true);
+              const webId = spotifyWebDeviceIdRef.current;
+              if (webId) {
+                await api.spotifyConnectPlay(spotifyTrackUri, webId);
+                setIsLoading(false);
+                toastRef.current('Playing in browser via Spotify', 'success');
+                return;
+              }
+            }
+
             // Strategy 1: If external device selected, try librespot (streams to any device)
             if (deviceId !== 'browser') {
               try {

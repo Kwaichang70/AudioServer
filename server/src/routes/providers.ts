@@ -326,6 +326,24 @@ providersRouter.get('/qobuz/search', async (req, res) => {
 
 // ─── Spotify Connect ─────────────────────────────────────────────
 
+// Issue a short-lived Spotify access token for the browser Web Playback SDK.
+// The SDK's getOAuthToken callback fetches this; the server holds the OAuth
+// tokens and refreshes them, so the browser never sees the client secret or a
+// refresh token. Requires the user to have completed Spotify OAuth (Premium +
+// the `streaming` scope, both already requested in the auth URL).
+providersRouter.get('/spotify/token', async (_req, res) => {
+  if (!spotify.auth.isAuthenticated) {
+    res.status(401).json({ error: 'Spotify not connected' });
+    return;
+  }
+  try {
+    const token = await spotify.getWebPlaybackToken();
+    res.json({ data: token });
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
 // List Spotify Connect devices (phones, speakers, etc.)
 providersRouter.get('/spotify/connect/devices', async (_req, res) => {
   try {

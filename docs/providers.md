@@ -32,9 +32,20 @@ for Tidal alone.
 > [Redirect URI guidelines](https://developer.spotify.com/documentation/web-api/concepts/redirect_uri).
 > Symptom if you ignore it: the authorize call returns HTTP 400.
 
-You have two ways to use Spotify:
+You have three ways to use Spotify, depending on **where** you want the audio
+to come out:
+
+| Want                                | Use                         | Premium? | Plays where        |
+| ----------------------------------- | --------------------------- | -------- | ------------------ |
+| Full tracks in the browser tab      | Option A + Web Playback SDK | yes      | the browser        |
+| Full tracks on a Sonos/DLNA speaker | Option B (librespot)        | yes      | the speaker        |
+| Just browse/search the catalogue    | Option A                    | no       | n/a (control only) |
 
 ### Option A — Web API via OAuth (requires HTTPS)
+
+The Web API itself does **not** stream audio — it provides metadata and remote
+control of an already-running Spotify device. Browser playback (below) builds
+on it.
 
 1. Create an app in the
    [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
@@ -56,6 +67,33 @@ You have two ways to use Spotify:
 
 Used for: browsing playlists/albums/artists, library sync, Spotify Connect
 device control.
+
+#### Browser playback via the Web Playback SDK
+
+Once Option A's OAuth is connected, AudioServer can play full Spotify tracks
+**in the browser tab itself** (no external Spotify device needed). It's wired
+and lazy — the SDK script only loads the first time you play a Spotify track
+with the output device set to "browser".
+
+How it works:
+
+- The browser loads `sdk.scdn.co/spotify-player.js` and registers an in-tab
+  Spotify Connect device named "AudioServer Web".
+- It authenticates with a short-lived token from `GET /api/providers/spotify/token`
+  (the server holds the OAuth tokens and refreshes them — the browser never
+  sees the client secret or refresh token).
+- Playing a Spotify track routes it to that in-tab device via the Web API.
+
+Hard requirements (Spotify's, not ours):
+
+- **Spotify Premium.** The SDK refuses to initialise on free accounts — you'll
+  get a "Premium required" toast.
+- **OAuth connected** (Option A above), so the token carries the `streaming`
+  scope.
+
+Limitations: the audio is a DRM (EME/Widevine) stream, so it can't be routed to
+Sonos/DLNA from the browser and doesn't pass through the ReplayGain / crossfade
+chain (those apply to local files only). For speaker output, use Option B.
 
 ### Option B — Librespot as a Spotify Connect receiver (no HTTPS)
 

@@ -254,6 +254,8 @@ export const api = {
     fetchApi(`/history/favorites/check?type=${type}&id=${id}`),
 
   // ─── Spotify Connect ────────────────────────────────────────
+  // Short-lived access token for the browser Web Playback SDK.
+  spotifyToken: (): Promise<ApiResult> => fetchApi('/providers/spotify/token'),
   spotifyConnectDevices: (): Promise<ApiResult> => fetchApi('/providers/spotify/connect/devices'),
   spotifyConnectState: (): Promise<ApiResult> => fetchApi('/providers/spotify/connect/state'),
   spotifyConnectPlay: (trackUri: string, deviceId?: string): Promise<ApiResult> =>

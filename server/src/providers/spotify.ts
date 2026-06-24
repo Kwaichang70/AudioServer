@@ -130,7 +130,11 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
 
     if (!res.ok) throw new Error(`Spotify auth failed: ${await res.text()}`);
 
-    const data = await res.json() as { access_token: string; refresh_token: string; expires_in: number };
+    const data = (await res.json()) as {
+      access_token: string;
+      refresh_token: string;
+      expires_in: number;
+    };
     this.tokens = {
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
@@ -158,7 +162,11 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
 
     if (!res.ok) throw new Error('Spotify token refresh failed');
 
-    const data = await res.json() as { access_token: string; refresh_token?: string; expires_in: number };
+    const data = (await res.json()) as {
+      access_token: string;
+      refresh_token?: string;
+      expires_in: number;
+    };
     this.tokens.accessToken = data.access_token;
     if (data.refresh_token) this.tokens.refreshToken = data.refresh_token;
     this.tokens.expiresAt = Date.now() + data.expires_in * 1000;
@@ -171,6 +179,20 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
       await this.refreshAccessToken();
     }
     return { Authorization: `Bearer ${this.tokens.accessToken}` };
+  }
+
+  /**
+   * Return a currently-valid access token for the browser Web Playback SDK.
+   * The SDK's getOAuthToken callback needs a fresh token; we refresh here if
+   * it's within 60s of expiry so the SDK never receives a stale one.
+   * The token already carries the `streaming` scope (requested in getAuthUrl).
+   */
+  async getWebPlaybackToken(): Promise<{ accessToken: string; expiresAt: number }> {
+    if (!this.tokens) throw new Error('Not authenticated');
+    if (Date.now() >= this.tokens.expiresAt - 60_000) {
+      await this.refreshAccessToken();
+    }
+    return { accessToken: this.tokens.accessToken, expiresAt: this.tokens.expiresAt };
   }
 
   private async apiRequest(path: string): Promise<any> {
@@ -281,7 +303,9 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
       const data = await this.apiRequest('/me/following?type=artist&limit=50');
       const artists = (data.artists?.items || []).map((a: any) => this.mapArtist(a));
       return { items: artists, total: data.artists?.total || 0 };
-    } catch { return { items: [] as Artist[], total: 0 }; }
+    } catch {
+      return { items: [] as Artist[], total: 0 };
+    }
   }
 
   async getArtist(id: string): Promise<Artist | null> {
@@ -290,7 +314,9 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
       const spotifyId = id.replace('spotify:', '');
       const data = await this.apiRequest(`/artists/${spotifyId}`);
       return this.mapArtist(data);
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   }
 
   async getAlbums(_page?: number, _pageSize?: number) {
@@ -299,7 +325,9 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
       const data = await this.apiRequest('/me/albums?limit=50');
       const albums = (data.items || []).map((i: any) => this.mapAlbum(i.album));
       return { items: albums, total: data.total || 0 };
-    } catch { return { items: [] as Album[], total: 0 }; }
+    } catch {
+      return { items: [] as Album[], total: 0 };
+    }
   }
 
   async getAlbum(id: string): Promise<Album | null> {
@@ -307,7 +335,9 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     try {
       const spotifyId = id.replace('spotify:', '');
       return this.mapAlbum(await this.apiRequest(`/albums/${spotifyId}`));
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   }
 
   async getAlbumTracks(albumId: string): Promise<Track[]> {
@@ -316,7 +346,9 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
       const spotifyId = albumId.replace('spotify:', '');
       const album = await this.apiRequest(`/albums/${spotifyId}`);
       return (album.tracks?.items || []).map((t: any) => this.mapTrack(t, album));
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   }
 
   async getArtistAlbums(artistId: string): Promise<Album[]> {
@@ -325,7 +357,9 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
       const spotifyId = artistId.replace('spotify:', '');
       const data = await this.apiRequest(`/artists/${spotifyId}/albums?limit=50`);
       return (data.items || []).map((a: any) => this.mapAlbum(a));
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   }
 
   async search(query: string, limit = 20): Promise<SearchResults> {
@@ -334,12 +368,22 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
       return { artists: [], albums: [], tracks: [], playlists: [] };
     }
     try {
-      const data = await this.apiRequest(`/search?q=${encodeURIComponent(query)}&type=artist,album,track,playlist&limit=${Math.min(limit, 10)}`);
+      const data = await this.apiRequest(
+        `/search?q=${encodeURIComponent(query)}&type=artist,album,track,playlist&limit=${Math.min(limit, 10)}`,
+      );
       return {
-        artists: (data.artists?.items || []).filter((a: any) => a?.id).map((a: any) => this.mapArtist(a)),
-        albums: (data.albums?.items || []).filter((a: any) => a?.id).map((a: any) => this.mapAlbum(a)),
-        tracks: (data.tracks?.items || []).filter((t: any) => t?.id).map((t: any) => this.mapTrack(t)),
-        playlists: (data.playlists?.items || []).filter((p: any) => p?.id).map((p: any) => this.mapPlaylist(p)),
+        artists: (data.artists?.items || [])
+          .filter((a: any) => a?.id)
+          .map((a: any) => this.mapArtist(a)),
+        albums: (data.albums?.items || [])
+          .filter((a: any) => a?.id)
+          .map((a: any) => this.mapAlbum(a)),
+        tracks: (data.tracks?.items || [])
+          .filter((t: any) => t?.id)
+          .map((t: any) => this.mapTrack(t)),
+        playlists: (data.playlists?.items || [])
+          .filter((p: any) => p?.id)
+          .map((p: any) => this.mapPlaylist(p)),
       };
     } catch (err) {
       logger.error(`Spotify search failed: ${err}`);
@@ -358,7 +402,9 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     try {
       const data = await this.apiRequest('/me/playlists?limit=50');
       return (data.items || []).map((p: any) => this.mapPlaylist(p));
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   }
 
   async getPlaylistTracks(playlistId: string): Promise<Track[]> {
@@ -366,10 +412,10 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     try {
       const spotifyId = playlistId.replace('spotify:', '');
       const data = await this.apiRequest(`/playlists/${spotifyId}/tracks?limit=100`);
-      return (data.items || [])
-        .filter((i: any) => i.track)
-        .map((i: any) => this.mapTrack(i.track));
-    } catch { return []; }
+      return (data.items || []).filter((i: any) => i.track).map((i: any) => this.mapTrack(i.track));
+    } catch {
+      return [];
+    }
   }
 
   // ─── Mappers ─────────────────────────────────────────────────
