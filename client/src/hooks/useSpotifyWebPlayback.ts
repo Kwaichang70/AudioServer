@@ -4,10 +4,18 @@ import { api } from '../api/client.js';
 // Minimal typings for the slice of the Spotify Web Playback SDK we use. The SDK
 // is loaded at runtime from sdk.scdn.co, so there's no npm package to import
 // types from.
+interface SpotifyPlaybackSnapshot {
+  paused: boolean;
+  position: number; // ms
+  duration: number; // ms
+  track_window?: { current_track?: { id?: string; uri?: string } };
+}
+
 interface SpotifyPlayer {
   connect(): Promise<boolean>;
   disconnect(): void;
   addListener(event: string, cb: (payload: unknown) => void): boolean;
+  getCurrentState(): Promise<SpotifyPlaybackSnapshot | null>;
   pause(): Promise<void>;
   resume(): Promise<void>;
   togglePlay(): Promise<void>;
@@ -33,12 +41,24 @@ declare global {
 const SDK_SRC = 'https://sdk.scdn.co/spotify-player.js';
 const PLAYER_NAME = 'AudioServer Web';
 
+/** Live playback snapshot from the SDK, or null when nothing is loaded. */
+export interface SpotifyPlaybackInfo {
+  paused: boolean;
+  /** Current position in seconds (interpolated between SDK state events). */
+  position: number;
+  /** Track length in seconds. */
+  duration: number;
+  trackId: string | null;
+}
+
 export interface SpotifyWebPlaybackState {
   /** Spotify device id of the in-browser player, once registered. */
   deviceId: string | null;
   ready: boolean;
   /** Set when the SDK can't initialise — usually "not Premium" or auth failure. */
   error: string | null;
+  /** Live playback state, driven by player_state_changed + a 1s position poll. */
+  playback: SpotifyPlaybackInfo | null;
 }
 
 /**
@@ -58,11 +78,27 @@ export function useSpotifyWebPlayback(enabled: boolean): SpotifyWebPlaybackState
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [playback, setPlayback] = useState<SpotifyPlaybackInfo | null>(null);
   const playerRef = useRef<SpotifyPlayer | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
+    let pollId: ReturnType<typeof setInterval> | null = null;
+
+    const applySnapshot = (s: SpotifyPlaybackSnapshot | null) => {
+      if (cancelled) return;
+      if (!s) {
+        setPlayback(null);
+        return;
+      }
+      setPlayback({
+        paused: s.paused,
+        position: s.position / 1000,
+        duration: s.duration / 1000,
+        trackId: s.track_window?.current_track?.id ?? null,
+      });
+    };
 
     const initPlayer = () => {
       if (cancelled || !window.Spotify) return;
@@ -89,6 +125,22 @@ export function useSpotifyWebPlayback(enabled: boolean): SpotifyWebPlaybackState
       player.addListener('not_ready', () => {
         if (!cancelled) setReady(false);
       });
+
+      // player_state_changed fires on play/pause/seek/track-change — but NOT
+      // continuously during playback. We take the snapshot here and, while
+      // playing, poll getCurrentState() every second so the progress bar
+      // advances smoothly.
+      player.addListener('player_state_changed', (payload) => {
+        applySnapshot(payload as SpotifyPlaybackSnapshot | null);
+      });
+      pollId = setInterval(() => {
+        playerRef.current
+          ?.getCurrentState()
+          .then((s) => {
+            if (s && !s.paused) applySnapshot(s);
+          })
+          .catch(() => {});
+      }, 1000);
       // initialization_error fires for unsupported browsers; account_error for
       // non-Premium accounts; authentication_error for a bad/expired token.
       const onErr = (payload: unknown) => {
@@ -121,10 +173,11 @@ export function useSpotifyWebPlayback(enabled: boolean): SpotifyWebPlaybackState
 
     return () => {
       cancelled = true;
+      if (pollId) clearInterval(pollId);
       playerRef.current?.disconnect();
       playerRef.current = null;
     };
   }, [enabled]);
 
-  return { deviceId, ready, error };
+  return { deviceId, ready, error, playback };
 }

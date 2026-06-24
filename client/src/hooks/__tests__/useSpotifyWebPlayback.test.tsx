@@ -19,6 +19,7 @@ function installFakeSdk() {
       listeners.set(event, cb);
       return true;
     }),
+    getCurrentState: vi.fn().mockResolvedValue(null),
     pause: vi.fn(),
     resume: vi.fn(),
     togglePlay: vi.fn(),
@@ -79,5 +80,28 @@ describe('useSpotifyWebPlayback', () => {
     });
 
     await waitFor(() => expect(result.current.error).toBe('Premium required'));
+  });
+
+  it('maps player_state_changed into playback (seconds + trackId)', async () => {
+    const { listeners } = installFakeSdk();
+    const { result } = renderHook(() => useSpotifyWebPlayback(true));
+
+    act(() => {
+      listeners.get('player_state_changed')?.({
+        paused: false,
+        position: 30000,
+        duration: 180000,
+        track_window: { current_track: { id: 'trk1' } },
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.playback).toEqual({
+        paused: false,
+        position: 30,
+        duration: 180,
+        trackId: 'trk1',
+      });
+    });
   });
 });

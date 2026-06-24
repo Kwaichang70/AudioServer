@@ -644,6 +644,39 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       startTrack(queue[0]);
     }
   }, [queue, queueIndex, startTrack, shuffle, repeat]);
+
+  // Mirror playNext in a ref so the Spotify-SDK state effect can call the
+  // latest version without re-subscribing on every queue change.
+  const playNextRef = useRef(playNext);
+  playNextRef.current = playNext;
+
+  // Feed Spotify Web Playback SDK state into the rest of the app when a Spotify
+  // track is playing in the browser: progress bar (ProgressStore), the playing
+  // indicator, and auto-advance when a track finishes. Without this the SDK
+  // plays but the transport UI is dead (it's driven by the <audio> element,
+  // which the SDK bypasses).
+  const spotifyEndedGuardRef = useRef(false);
+  useEffect(() => {
+    const pb = spotifyWeb.playback;
+    const isSpotifyBrowser =
+      selectedDeviceRef.current === 'browser' &&
+      !!currentTrackRef.current?.id.startsWith('spotify:');
+    if (!pb || !isSpotifyBrowser) return;
+
+    setProgress(pb.position, pb.duration);
+
+    // Track-end heuristic: we play single track URIs, so when one finishes the
+    // SDK reports paused at position 0 with a known duration. Guard so we fire
+    // playNext exactly once per track.
+    const ended = pb.paused && pb.position === 0 && pb.duration > 0;
+    if (ended && !spotifyEndedGuardRef.current) {
+      spotifyEndedGuardRef.current = true;
+      playNextRef.current();
+    } else if (!ended && pb.position > 0) {
+      spotifyEndedGuardRef.current = false;
+    }
+  }, [spotifyWeb.playback]);
+
   const playPrevious = useCallback(() => {
     if (queue.length === 0) return;
     if (audio.getCurrentTime() > 3) {
@@ -855,7 +888,13 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     <AudioCtx.Provider
       value={{
         currentTrack,
-        isPlaying: selectedDeviceId === 'browser' ? audio.isPlaying : deviceIsPlaying,
+        isPlaying:
+          selectedDeviceId === 'browser'
+            ? // Spotify-in-browser is driven by the SDK, not the <audio> element.
+              currentTrack?.id.startsWith('spotify:')
+              ? !!spotifyWeb.playback && !spotifyWeb.playback.paused
+              : audio.isPlaying
+            : deviceIsPlaying,
         isLoading,
         volume: selectedDeviceId === 'browser' ? audio.volume : (deviceVolume ?? audio.volume),
         queue,
