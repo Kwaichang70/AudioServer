@@ -87,12 +87,21 @@ export default function SettingsPage() {
 
   const connectProvider = async (provider: 'spotify' | 'tidal' | 'qobuz') => {
     try {
-      // Build redirect URI using LAN IP (Spotify doesn't accept hostnames like 'diskstation')
+      // Decide which origin to register as the OAuth redirect.
       let origin = window.location.origin;
-      if (lanAddress && !origin.includes('127.0.0.1')) {
-        origin = `${window.location.protocol}//${lanAddress}:${window.location.port || '3001'}`;
+      if (window.location.protocol === 'https:') {
+        // Served over HTTPS (reverse proxy + real domain) → use it verbatim.
+        // This is exactly what Spotify requires since April 2025, and the
+        // domain matches the TLS cert. Do NOT rewrite to a LAN IP here.
+        origin = window.location.origin;
       } else if (origin.includes('localhost')) {
+        // Dev: Spotify accepts the http://127.0.0.1 loopback exception.
         origin = origin.replace('localhost', '127.0.0.1');
+      } else if (lanAddress) {
+        // Plain HTTP on a LAN hostname (e.g. http://diskstation:3001). Spotify
+        // rejects bare hostnames; fall back to the LAN IP. (Spotify itself still
+        // needs HTTPS — this path only helps Tidal/Qobuz.)
+        origin = `${window.location.protocol}//${lanAddress}:${window.location.port || '3001'}`;
       }
       const redirectUri = `${origin}/settings/callback/${provider}`;
       const data = await api.providerAuthInit(provider, redirectUri);
