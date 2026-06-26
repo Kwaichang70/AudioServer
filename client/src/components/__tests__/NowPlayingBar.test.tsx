@@ -135,13 +135,13 @@ describe('NowPlayingBar', () => {
   it('toggles playback controls', () => {
     renderBar();
 
-    fireEvent.click(screen.getByText('\u25B6'));
+    fireEvent.click(screen.getByLabelText('Play'));
     expect(mocks.actions.resume).toHaveBeenCalled();
 
     mocks.context = mocks.makeContext({ isPlaying: true });
     renderBar();
 
-    fireEvent.click(screen.getByText('\u23F8'));
+    fireEvent.click(screen.getByLabelText('Pause'));
     expect(mocks.actions.pause).toHaveBeenCalled();
   });
 

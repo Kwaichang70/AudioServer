@@ -5,6 +5,16 @@ import { api } from '../api/client.js';
 import DeviceSelector from './DeviceSelector.js';
 import { formatTime } from '../utils/format.js';
 import SortableList from './SortableList.js';
+import {
+  PlayIcon,
+  PauseIcon,
+  PrevIcon,
+  NextIcon,
+  ShuffleIcon,
+  RepeatIcon,
+  RepeatOneIcon,
+  SpinnerIcon,
+} from './PlayerIcons.js';
 
 interface NowPlayingBarProps {
   onExpandClick?: () => void;
@@ -116,42 +126,54 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
         <div className="flex items-center gap-3">
           <button
             onClick={toggleShuffle}
-            className={`text-sm transition ${shuffle ? 'text-accent' : 'text-gray-500 hover:text-white'}`}
+            className={`transition ${shuffle ? 'text-accent' : 'text-gray-500 hover:text-white'}`}
             title={shuffle ? 'Shuffle on' : 'Shuffle off'}
+            aria-label={shuffle ? 'Shuffle on' : 'Shuffle off'}
+            aria-pressed={shuffle}
           >
-            &#128256;
+            <ShuffleIcon size={18} />
           </button>
           <button
             onClick={playPrevious}
-            className="text-gray-400 hover:text-white transition text-lg"
+            className="text-gray-300 hover:text-white transition"
             title="Previous"
+            aria-label="Previous track"
           >
-            &#9198;
+            <PrevIcon size={22} />
           </button>
           <button
             onClick={isLoading ? undefined : isPlaying ? pause : resume}
             disabled={isLoading}
-            className={`w-9 h-9 rounded-full flex items-center justify-center transition text-sm ${
-              isLoading
-                ? 'bg-gray-500 text-surface animate-pulse'
-                : 'bg-white text-surface hover:scale-105'
+            className={`w-9 h-9 rounded-full flex items-center justify-center transition ${
+              isLoading ? 'bg-gray-500 text-surface' : 'bg-white text-surface hover:scale-105'
             }`}
+            aria-label={isPlaying ? 'Pause' : 'Play'}
           >
-            {isLoading ? '\u23F3' : isPlaying ? '\u23F8' : '\u25B6'}
+            {isLoading ? (
+              <SpinnerIcon size={18} />
+            ) : isPlaying ? (
+              <PauseIcon size={18} />
+            ) : (
+              <PlayIcon size={18} />
+            )}
           </button>
           <button
             onClick={playNext}
-            className="text-gray-400 hover:text-white transition text-lg"
+            className="text-gray-300 hover:text-white transition"
             title="Next"
+            aria-label="Next track"
           >
-            &#9197;
+            <NextIcon size={22} />
           </button>
           <button
             onClick={toggleRepeat}
-            className={`text-sm transition ${repeat !== 'off' ? 'text-accent' : 'text-gray-500 hover:text-white'}`}
+            className={`transition ${repeat !== 'off' ? 'text-accent' : 'text-gray-500 hover:text-white'}`}
             title={repeat === 'off' ? 'Repeat off' : repeat === 'all' ? 'Repeat all' : 'Repeat one'}
+            aria-label={
+              repeat === 'off' ? 'Repeat off' : repeat === 'all' ? 'Repeat all' : 'Repeat one'
+            }
           >
-            {repeat === 'one' ? '\u{1F502}' : '\u{1F501}'}
+            {repeat === 'one' ? <RepeatOneIcon size={18} /> : <RepeatIcon size={18} />}
           </button>
         </div>
         {selectedDeviceId !== 'browser' && (

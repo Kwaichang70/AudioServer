@@ -2,6 +2,18 @@ import { useState, lazy, Suspense } from 'react';
 import { useAudioContext, useProgress } from '../context/AudioContext.js';
 import { api } from '../api/client.js';
 import { formatTime } from '../utils/format.js';
+import {
+  PlayIcon,
+  PauseIcon,
+  PrevIcon,
+  NextIcon,
+  ShuffleIcon,
+  RepeatIcon,
+  RepeatOneIcon,
+  VolumeIcon,
+  ChevronDownIcon,
+  SpinnerIcon,
+} from './PlayerIcons.js';
 
 const LyricsDisplay = lazy(() => import('./LyricsDisplay.js'));
 
@@ -61,10 +73,11 @@ export default function NowPlayingFull({ onClose }: Props) {
       <div className="relative flex items-center justify-between px-6 py-4">
         <button
           onClick={onClose}
-          className="text-gray-400 hover:text-white transition text-2xl"
+          className="text-gray-300 hover:text-white transition"
           title="Close (Esc)"
+          aria-label="Close full player"
         >
-          &#9660;
+          <ChevronDownIcon size={26} />
         </button>
         <p className="text-xs text-gray-500 uppercase tracking-widest">Now Playing</p>
         <button
@@ -202,42 +215,61 @@ export default function NowPlayingFull({ onClose }: Props) {
         <div className="flex items-center justify-center gap-6">
           <button
             onClick={toggleShuffle}
-            className={`text-lg transition ${shuffle ? 'text-accent' : 'text-gray-500 hover:text-white'}`}
+            className={`transition ${shuffle ? 'text-accent' : 'text-gray-500 hover:text-white'}`}
+            title={shuffle ? 'Shuffle on' : 'Shuffle off'}
+            aria-label={shuffle ? 'Shuffle on' : 'Shuffle off'}
+            aria-pressed={shuffle}
           >
-            &#128256;
+            <ShuffleIcon size={22} />
           </button>
           <button
             onClick={playPrevious}
-            className="text-gray-400 hover:text-white transition text-2xl"
+            className="text-gray-300 hover:text-white transition"
+            title="Previous"
+            aria-label="Previous track"
           >
-            &#9198;
+            <PrevIcon size={28} />
           </button>
           <button
             onClick={isLoading ? undefined : isPlaying ? pause : resume}
             disabled={isLoading}
-            className={`w-14 h-14 rounded-full flex items-center justify-center transition text-lg ${
-              isLoading
-                ? 'bg-gray-500 text-surface animate-pulse'
-                : 'bg-white text-surface hover:scale-105'
+            className={`w-14 h-14 rounded-full flex items-center justify-center transition ${
+              isLoading ? 'bg-gray-500 text-surface' : 'bg-white text-surface hover:scale-105'
             }`}
+            aria-label={isPlaying ? 'Pause' : 'Play'}
           >
-            {isLoading ? '\u23F3' : isPlaying ? '\u23F8' : '\u25B6'}
+            {isLoading ? (
+              <SpinnerIcon size={26} />
+            ) : isPlaying ? (
+              <PauseIcon size={26} />
+            ) : (
+              <PlayIcon size={26} />
+            )}
           </button>
-          <button onClick={playNext} className="text-gray-400 hover:text-white transition text-2xl">
-            &#9197;
+          <button
+            onClick={playNext}
+            className="text-gray-300 hover:text-white transition"
+            title="Next"
+            aria-label="Next track"
+          >
+            <NextIcon size={28} />
           </button>
           <button
             onClick={toggleRepeat}
-            className={`text-lg transition ${repeat !== 'off' ? 'text-accent' : 'text-gray-500 hover:text-white'}`}
+            className={`transition ${repeat !== 'off' ? 'text-accent' : 'text-gray-500 hover:text-white'}`}
+            title={repeat === 'off' ? 'Repeat off' : repeat === 'all' ? 'Repeat all' : 'Repeat one'}
+            aria-label={
+              repeat === 'off' ? 'Repeat off' : repeat === 'all' ? 'Repeat all' : 'Repeat one'
+            }
           >
-            {repeat === 'one' ? '\u{1F502}' : '\u{1F501}'}
+            {repeat === 'one' ? <RepeatOneIcon size={22} /> : <RepeatIcon size={22} />}
           </button>
         </div>
 
         {/* Volume + Crossfade */}
         <div className="flex items-center justify-center gap-6 mt-4">
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">&#128264;</span>
+            <VolumeIcon size={18} className="text-gray-400" />
             <input
               type="range"
               min={0}
