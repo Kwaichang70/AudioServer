@@ -13,6 +13,19 @@ interface Device {
   isGroupCoordinator?: boolean;
 }
 
+// A device from Spotify's own /me/player/devices list (Sonos, CocktailAudio,
+// phones, …). We surface these directly so the user can send Spotify straight
+// to them via Spotify Connect, instead of relying on fuzzy name-matching.
+interface SpotifyDevice {
+  id: string;
+  name: string;
+  type: string;
+  is_active?: boolean;
+  is_restricted?: boolean;
+}
+
+const SPOTIFY_CONNECT_PREFIX = 'spotify-connect:';
+
 const deviceTypeIcons: Record<string, string> = {
   browser: '\u{1F4BB}',
   dlna: '\u{1F50A}',
@@ -36,6 +49,7 @@ interface Props {
 
 export default function DeviceSelector({ selectedDeviceId, onSelect }: Props) {
   const [devices, setDevices] = useState<Device[]>([]);
+  const [spotifyDevices, setSpotifyDevices] = useState<SpotifyDevice[]>([]);
   const [open, setOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -51,9 +65,24 @@ export default function DeviceSelector({ selectedDeviceId, onSelect }: Props) {
       .catch(() => setScanning(false));
   };
 
+  // Spotify's own device list — empty/absent when Spotify isn't connected.
+  const loadSpotifyDevices = () => {
+    api
+      .spotifyConnectDevices()
+      .then((res) => setSpotifyDevices(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setSpotifyDevices([]));
+  };
+
   useEffect(() => {
     loadDevices();
+    loadSpotifyDevices();
   }, []);
+
+  // Refresh the Spotify device list each time the dropdown opens — devices come
+  // and go (a speaker only appears once it's awake / recently used).
+  useEffect(() => {
+    if (open) loadSpotifyDevices();
+  }, [open]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -66,6 +95,13 @@ export default function DeviceSelector({ selectedDeviceId, onSelect }: Props) {
   const selected = devices.find((d) => d.id === selectedDeviceId);
   const onlineDevices = devices.filter((d) => d.isOnline);
   const offlineDevices = devices.filter((d) => !d.isOnline);
+  const selectedSpotify = spotifyDevices.find(
+    (d) => `${SPOTIFY_CONNECT_PREFIX}${d.id}` === selectedDeviceId,
+  );
+  const selectedLabel = selected?.name ?? selectedSpotify?.name ?? 'Browser';
+  const selectedIcon = selectedSpotify
+    ? '\u{1F7E2}'
+    : deviceTypeIcons[selected?.type || 'browser'] || '\u{1F50A}';
 
   return (
     <div className="relative" ref={ref}>
@@ -74,8 +110,8 @@ export default function DeviceSelector({ selectedDeviceId, onSelect }: Props) {
         className="flex items-center gap-1.5 px-2 py-1 text-xs rounded bg-surface-dark border border-white/10 hover:border-accent transition"
         title="Select output device"
       >
-        <span>{deviceTypeIcons[selected?.type || 'browser'] || '\u{1F50A}'}</span>
-        <span className="max-w-[100px] truncate">{selected?.name || 'Browser'}</span>
+        <span>{selectedIcon}</span>
+        <span className="max-w-[100px] truncate">{selectedLabel}</span>
         {selected?.playbackState === 'error' && <span className="text-red-400">!</span>}
       </button>
 
@@ -84,7 +120,10 @@ export default function DeviceSelector({ selectedDeviceId, onSelect }: Props) {
           <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
             <p className="text-xs text-gray-500 uppercase tracking-wider">Output Devices</p>
             <button
-              onClick={() => loadDevices(true)}
+              onClick={() => {
+                loadDevices(true);
+                loadSpotifyDevices();
+              }}
               disabled={scanning}
               className="text-xs text-accent hover:text-accent-hover transition disabled:opacity-50"
             >
@@ -126,6 +165,42 @@ export default function DeviceSelector({ selectedDeviceId, onSelect }: Props) {
                 )}
               </button>
             ))}
+
+            {spotifyDevices.length > 0 && (
+              <>
+                <div className="px-3 py-1 mt-1 border-t border-white/10">
+                  <p className="text-xs text-green-500 uppercase tracking-wider">Spotify Connect</p>
+                </div>
+                {spotifyDevices.map((d) => {
+                  const id = `${SPOTIFY_CONNECT_PREFIX}${d.id}`;
+                  return (
+                    <button
+                      key={id}
+                      onClick={() => {
+                        onSelect(id);
+                        setOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-2 flex items-center gap-3 transition cursor-pointer
+                        ${id === selectedDeviceId ? 'bg-accent/20 text-accent' : 'hover:bg-surface-light'}
+                      `}
+                    >
+                      <span className="text-lg">{'\u{1F7E2}'}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{d.name}</p>
+                        <p className="text-xs text-gray-500">
+                          Spotify
+                          {d.type && ` · ${d.type}`}
+                          {d.is_active && ` · Active`}
+                        </p>
+                      </div>
+                      {id === selectedDeviceId && (
+                        <span className="text-accent text-sm">&#10003;</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </>
+            )}
 
             {offlineDevices.length > 0 && (
               <>

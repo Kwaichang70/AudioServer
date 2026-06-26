@@ -240,7 +240,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
   // Subscribe to device updates via WebSocket (replaces client-side polling)
   useEffect(() => {
-    if (selectedDeviceId === 'browser') {
+    if (selectedDeviceId === 'browser' || selectedDeviceId.startsWith('spotify-connect:')) {
+      // Browser playback and Spotify Connect targets aren't backend-registered
+      // DLNA devices — there's no device status to subscribe to.
       socket.unsubscribeDevice(selectedDeviceId);
       setDevicePosition(0);
       setDeviceDuration(0);
@@ -281,6 +283,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   // Fallback: if WebSocket disconnected, use polling
   useEffect(() => {
     if (socket.connected || selectedDeviceId === 'browser' || !currentTrack) return;
+    if (selectedDeviceId.startsWith('spotify-connect:')) return;
     if (currentTrack.id.startsWith('spotify:')) return;
 
     const poll = setInterval(() => {
@@ -317,9 +320,13 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         },
       });
 
-      const deviceId = selectedDeviceRef.current;
+      const rawDeviceId = selectedDeviceRef.current;
       const isSpotify = track.id.startsWith('spotify:');
       const isQobuz = track.id.startsWith('qobuz:');
+      // A Spotify Connect target (Sonos, CocktailAudio, …) only accepts Spotify.
+      // For any other source, route to the browser so the track still plays.
+      const deviceId =
+        rawDeviceId.startsWith('spotify-connect:') && !isSpotify ? 'browser' : rawDeviceId;
 
       console.log(
         `[AudioServer] Playing "${track.title}" on device: ${deviceId}, spotify: ${isSpotify}`,
@@ -344,6 +351,19 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
         const playSpotify = async () => {
           try {
+            // Strategy: an explicit Spotify Connect device was picked in the
+            // device selector (Sonos, CocktailAudio, …). Play straight to it via
+            // the Web API — no fuzzy name-matching, no librespot needed.
+            if (deviceId.startsWith('spotify-connect:')) {
+              await api.spotifyConnectPlay(
+                spotifyTrackUri,
+                deviceId.slice('spotify-connect:'.length),
+              );
+              setIsLoading(false);
+              toastRef.current('Speelt via Spotify Connect', 'success');
+              return;
+            }
+
             // Strategy 0: browser playback via the Web Playback SDK. Lazily kick
             // off SDK init the first time we need it; if its in-browser device
             // is already registered, play straight to it. Otherwise fall through
