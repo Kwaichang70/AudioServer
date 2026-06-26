@@ -124,6 +124,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const spotifyWeb = useSpotifyWebPlayback(spotifyWebWanted);
   const spotifyWebDeviceIdRef = useRef<string | null>(null);
   spotifyWebDeviceIdRef.current = spotifyWeb.deviceId;
+  const spotifyWebSetVolumeRef = useRef(spotifyWeb.setVolume);
+  spotifyWebSetVolumeRef.current = spotifyWeb.setVolume;
   const [currentTrack, setCurrentTrack] = useState<TrackInfo | null>(null);
   const [queue, setQueue] = useState<TrackInfo[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
@@ -737,8 +739,17 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       const deviceId = selectedDeviceRef.current;
       const isSpotify = currentTrackRef.current?.id.startsWith('spotify:');
 
-      if (deviceId === 'browser' && !isSpotify) {
+      if (deviceId === 'browser') {
+        // Browser output: keep the <audio> element's volume in sync — the
+        // slider reads audio.volume for the browser device, and local tracks
+        // play through that element.
         audio.setVolume(v);
+        // A Spotify track on the browser device actually comes out of the Web
+        // Playback SDK, so set its volume locally. NOT via the Web API: that
+        // fires a request per slider tick and trips the rate limit (429).
+        if (isSpotify) {
+          spotifyWebSetVolumeRef.current?.(v);
+        }
         return;
       }
 

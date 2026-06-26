@@ -24,7 +24,7 @@ function installFakeSdk() {
     resume: vi.fn(),
     togglePlay: vi.fn(),
     seek: vi.fn(),
-    setVolume: vi.fn(),
+    setVolume: vi.fn().mockResolvedValue(undefined),
   };
   // Must be a real function (not an arrow) so it works with `new`.
   const PlayerCtor = vi.fn(function PlayerCtor() {
@@ -103,5 +103,22 @@ describe('useSpotifyWebPlayback', () => {
         trackId: 'trk1',
       });
     });
+  });
+
+  it('setVolume drives the SDK player locally (clamped, no network)', async () => {
+    const { player } = installFakeSdk();
+    const { result } = renderHook(() => useSpotifyWebPlayback(true));
+    await waitFor(() => expect(player.connect).toHaveBeenCalled());
+
+    act(() => {
+      result.current.setVolume(0.42);
+    });
+    expect(player.setVolume).toHaveBeenCalledWith(0.42);
+
+    // Out-of-range values are clamped to [0, 1].
+    act(() => {
+      result.current.setVolume(1.7);
+    });
+    expect(player.setVolume).toHaveBeenLastCalledWith(1);
   });
 });

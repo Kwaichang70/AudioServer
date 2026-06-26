@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client.js';
 
 // Minimal typings for the slice of the Spotify Web Playback SDK we use. The SDK
@@ -59,6 +59,12 @@ export interface SpotifyWebPlaybackState {
   error: string | null;
   /** Live playback state, driven by player_state_changed + a 1s position poll. */
   playback: SpotifyPlaybackInfo | null;
+  /**
+   * Set the in-browser player's output volume (0..1) locally via the SDK.
+   * No network call — safe to fire on every volume-slider tick (unlike the
+   * Web API's /me/player/volume, which is rate-limited).
+   */
+  setVolume: (v: number) => void;
 }
 
 /**
@@ -179,5 +185,12 @@ export function useSpotifyWebPlayback(enabled: boolean): SpotifyWebPlaybackState
     };
   }, [enabled]);
 
-  return { deviceId, ready, error, playback };
+  // Local volume control — stable identity (playerRef is a ref), so callers can
+  // depend on it without re-creating their own callbacks.
+  const setVolume = useCallback((v: number) => {
+    const clamped = Math.max(0, Math.min(1, v));
+    playerRef.current?.setVolume(clamped).catch(() => {});
+  }, []);
+
+  return { deviceId, ready, error, playback, setVolume };
 }
