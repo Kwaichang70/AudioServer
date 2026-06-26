@@ -65,6 +65,8 @@ export interface SpotifyWebPlaybackState {
    * Web API's /me/player/volume, which is rate-limited).
    */
   setVolume: (v: number) => void;
+  /** Pause the in-browser player locally (no Web API round-trip). */
+  pause: () => void;
 }
 
 /**
@@ -192,5 +194,11 @@ export function useSpotifyWebPlayback(enabled: boolean): SpotifyWebPlaybackState
     playerRef.current?.setVolume(clamped).catch(() => {});
   }, []);
 
-  return { deviceId, ready, error, playback, setVolume };
+  // Pause locally so callers can stop the SDK instantly when switching to
+  // another source (a local track, Qobuz, radio) — no Web API round-trip.
+  const pause = useCallback(() => {
+    playerRef.current?.pause().catch(() => {});
+  }, []);
+
+  return { deviceId, ready, error, playback, setVolume, pause };
 }

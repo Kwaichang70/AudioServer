@@ -126,6 +126,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   spotifyWebDeviceIdRef.current = spotifyWeb.deviceId;
   const spotifyWebSetVolumeRef = useRef(spotifyWeb.setVolume);
   spotifyWebSetVolumeRef.current = spotifyWeb.setVolume;
+  const spotifyWebPauseRef = useRef(spotifyWeb.pause);
+  spotifyWebPauseRef.current = spotifyWeb.pause;
   const [currentTrack, setCurrentTrack] = useState<TrackInfo | null>(null);
   const [queue, setQueue] = useState<TrackInfo[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
@@ -322,6 +324,20 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       console.log(
         `[AudioServer] Playing "${track.title}" on device: ${deviceId}, spotify: ${isSpotify}`,
       );
+
+      // Stop whatever the previous track was using if the new track won't reuse
+      // it. Without this, switching between a Spotify track (Web Playback SDK)
+      // and a local/Qobuz/radio track leaves both streams playing at once — and
+      // the transport then follows the new source, so the orphaned Spotify
+      // stream can no longer be paused/stopped from the UI.
+      const willUseSpotifyWeb = isSpotify && deviceId === 'browser';
+      const willUseAudioElement = !isSpotify && deviceId === 'browser';
+      if (!willUseSpotifyWeb) {
+        spotifyWebPauseRef.current?.();
+      }
+      if (!willUseAudioElement) {
+        audio.pause();
+      }
 
       if (isSpotify) {
         const spotifyTrackUri = `spotify:track:${track.id.replace('spotify:', '')}`;

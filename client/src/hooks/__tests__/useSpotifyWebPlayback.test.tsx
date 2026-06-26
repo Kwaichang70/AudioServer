@@ -20,7 +20,7 @@ function installFakeSdk() {
       return true;
     }),
     getCurrentState: vi.fn().mockResolvedValue(null),
-    pause: vi.fn(),
+    pause: vi.fn().mockResolvedValue(undefined),
     resume: vi.fn(),
     togglePlay: vi.fn(),
     seek: vi.fn(),
