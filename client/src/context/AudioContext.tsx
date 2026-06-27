@@ -715,6 +715,81 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     }
   }, [spotifyWeb.playback]);
 
+  // External Spotify Connect playback (Sonos, CocktailAudio): Spotify streams
+  // straight to the speaker, so there's no <audio> element or SDK to read. Poll
+  // Spotify's own player state to drive the transport UI (progress bar +
+  // play/pause indicator + volume), interpolating locally between polls so the
+  // bar advances smoothly, and auto-advance our queue when the track ends (we
+  // send single-track URIs, so the speaker would otherwise just stop).
+  useEffect(() => {
+    const active =
+      selectedDeviceId.startsWith('spotify-connect:') && !!currentTrack?.id.startsWith('spotify:');
+    if (!active) return;
+
+    let pos = 0;
+    let dur = 0;
+    let playing = false;
+    let endedFired = false;
+
+    // Fail-safe end detection: only advance when the last known position was
+    // genuinely at the end of the track (≥ dur − 1.5s). A manual stop or pause
+    // mid-track leaves pos well short of the end, so it never mis-skips.
+    const advanceIfEnded = () => {
+      if (!endedFired && dur > 0 && pos >= dur - 1.5) {
+        endedFired = true;
+        playNextRef.current();
+        return true;
+      }
+      return false;
+    };
+
+    const poll = () => {
+      api
+        .spotifyConnectState()
+        .then((res) => {
+          const st = res?.data as {
+            is_playing?: boolean;
+            progress_ms?: number;
+            item?: { duration_ms?: number };
+            device?: { volume_percent?: number };
+          } | null;
+          // Speaker went idle (single-track URI finished) — advance if we were
+          // at the end.
+          if (!st || !st.item) {
+            advanceIfEnded();
+            return;
+          }
+          // Stopped exactly at the end (some devices freeze at dur, others
+          // reset) — advance.
+          if (!st.is_playing && advanceIfEnded()) return;
+          if (st.is_playing) endedFired = false;
+          pos = (st.progress_ms ?? 0) / 1000;
+          dur = (st.item.duration_ms ?? 0) / 1000;
+          playing = !!st.is_playing;
+          setDeviceIsPlaying(playing);
+          if (dur > 0) setProgress(pos, dur);
+          if (typeof st.device?.volume_percent === 'number') {
+            setDeviceVolume(st.device.volume_percent / 100);
+          }
+        })
+        .catch(() => {});
+    };
+
+    poll();
+    const pollId = setInterval(poll, 3000);
+    const tickId = setInterval(() => {
+      if (playing && dur > 0) {
+        pos = Math.min(dur, pos + 1);
+        setProgress(pos, dur);
+      }
+    }, 1000);
+
+    return () => {
+      clearInterval(pollId);
+      clearInterval(tickId);
+    };
+  }, [selectedDeviceId, currentTrack]);
+
   const playPrevious = useCallback(() => {
     if (queue.length === 0) return;
     if (audio.getCurrentTime() > 3) {
