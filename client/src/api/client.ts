@@ -156,6 +156,7 @@ export const api = {
     fetchApi(`/library/artists?page=${page}&limit=${limit}`),
   getArtist: (id: string): Promise<ApiResult> => fetchApi(`/library/artists/${id}`),
   getArtistAlbums: (id: string): Promise<ApiResult> => fetchApi(`/library/artists/${id}/albums`),
+  getSimilarArtists: (id: string): Promise<ApiResult> => fetchApi(`/library/artists/${id}/similar`),
   getAlbums: (page = 1, limit = 50): Promise<ApiResult> =>
     fetchApi(`/library/albums?page=${page}&limit=${limit}`),
   getAlbum: (id: string): Promise<ApiResult> => fetchApi(`/library/albums/${id}`),

@@ -17,6 +17,7 @@ import {
   getArtistFetchStatus,
 } from '../services/coverart-fetch.js';
 import { parsePagination, buildMeta } from '../utils/pagination.js';
+import { getSimilarArtists, similarArtistsAvailable } from '../services/similar-artists.js';
 
 export const libraryRouter = Router();
 
@@ -58,6 +59,19 @@ libraryRouter.get('/artists/:id/albums', (req, res) => {
   const db = getDb();
   const result = db.select().from(albums).where(eq(albums.artistId, req.params.id)).all();
   res.json({ data: result, meta: { total: result.length } });
+});
+
+// "Listeners also like" — similar artists (Last.fm), matched to the library.
+libraryRouter.get('/artists/:id/similar', async (req, res) => {
+  const db = getDb();
+  const artist = db.select().from(artists).where(eq(artists.id, req.params.id)).get();
+  if (!artist) return res.status(404).json({ error: 'Artist not found' });
+  try {
+    const similar = await getSimilarArtists(artist.name);
+    res.json({ data: { available: similarArtistsAvailable(), similar } });
+  } catch (err) {
+    res.status(502).json({ error: String(err) });
+  }
 });
 
 // ─── Albums ──────────────────────────────────────────────────────
