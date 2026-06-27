@@ -31,13 +31,17 @@ scrobbleRouter.get('/config', (_req, res) => {
   });
 });
 
-// Last.fm: get auth URL
-scrobbleRouter.get('/lastfm/auth-url', (_req, res) => {
+// Last.fm: get auth URL (fetches a request token + builds api_key+token URL)
+scrobbleRouter.get('/lastfm/auth-url', async (_req, res) => {
   if (!process.env.LASTFM_API_KEY) {
     res.status(400).json({ error: 'LASTFM_API_KEY not configured' });
     return;
   }
-  res.json({ data: { url: scrobbler.getLastfmAuthUrl() } });
+  try {
+    res.json({ data: await scrobbler.getLastfmAuthUrl() });
+  } catch (err) {
+    res.status(502).json({ error: String(err) });
+  }
 });
 
 // Last.fm: complete auth with token

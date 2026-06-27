@@ -28,7 +28,13 @@ function getConfig(): ScrobbleConfig {
   const db = getRawDb();
   const row = db.prepare('SELECT * FROM scrobble_config WHERE id = 1').get() as any;
   if (!row) {
-    return { lastfmEnabled: false, lastfmSessionKey: null, lastfmUsername: null, listenbrainzEnabled: false, listenbrainzToken: null };
+    return {
+      lastfmEnabled: false,
+      lastfmSessionKey: null,
+      lastfmUsername: null,
+      listenbrainzEnabled: false,
+      listenbrainzToken: null,
+    };
   }
   return {
     lastfmEnabled: !!row.lastfm_enabled,
@@ -47,11 +53,26 @@ function saveConfig(config: Partial<ScrobbleConfig>): void {
   }
   const sets: string[] = [];
   const params: any[] = [];
-  if (config.lastfmEnabled !== undefined) { sets.push('lastfm_enabled = ?'); params.push(config.lastfmEnabled ? 1 : 0); }
-  if (config.lastfmSessionKey !== undefined) { sets.push('lastfm_session_key = ?'); params.push(config.lastfmSessionKey); }
-  if (config.lastfmUsername !== undefined) { sets.push('lastfm_username = ?'); params.push(config.lastfmUsername); }
-  if (config.listenbrainzEnabled !== undefined) { sets.push('listenbrainz_enabled = ?'); params.push(config.listenbrainzEnabled ? 1 : 0); }
-  if (config.listenbrainzToken !== undefined) { sets.push('listenbrainz_token = ?'); params.push(config.listenbrainzToken); }
+  if (config.lastfmEnabled !== undefined) {
+    sets.push('lastfm_enabled = ?');
+    params.push(config.lastfmEnabled ? 1 : 0);
+  }
+  if (config.lastfmSessionKey !== undefined) {
+    sets.push('lastfm_session_key = ?');
+    params.push(config.lastfmSessionKey);
+  }
+  if (config.lastfmUsername !== undefined) {
+    sets.push('lastfm_username = ?');
+    params.push(config.lastfmUsername);
+  }
+  if (config.listenbrainzEnabled !== undefined) {
+    sets.push('listenbrainz_enabled = ?');
+    params.push(config.listenbrainzEnabled ? 1 : 0);
+  }
+  if (config.listenbrainzToken !== undefined) {
+    sets.push('listenbrainz_token = ?');
+    params.push(config.listenbrainzToken);
+  }
   if (sets.length > 0) {
     db.prepare(`UPDATE scrobble_config SET ${sets.join(', ')} WHERE id = 1`).run(...params);
   }
@@ -60,8 +81,13 @@ function saveConfig(config: Partial<ScrobbleConfig>): void {
 // ─── Last.fm ─────────────────────────────────────────────────────
 
 function lastfmSign(params: Record<string, string>): string {
-  const sorted = Object.keys(params).sort().map((k) => `${k}${params[k]}`).join('');
-  return createHash('md5').update(sorted + LASTFM_API_SECRET).digest('hex');
+  const sorted = Object.keys(params)
+    .sort()
+    .map((k) => `${k}${params[k]}`)
+    .join('');
+  return createHash('md5')
+    .update(sorted + LASTFM_API_SECRET)
+    .digest('hex');
 }
 
 async function lastfmGetSession(token: string): Promise<{ key: string; name: string }> {
@@ -75,12 +101,29 @@ async function lastfmGetSession(token: string): Promise<{ key: string; name: str
 
   const qs = new URLSearchParams(params).toString();
   const res = await fetch(`${LASTFM_API_URL}?${qs}`);
-  const data = await res.json() as any;
+  const data = (await res.json()) as any;
   if (data.error) throw new Error(data.message || 'Last.fm auth failed');
   return { key: data.session.key, name: data.session.name };
 }
 
-async function lastfmScrobble(track: ScrobbleTrack, timestamp: number, sessionKey: string): Promise<boolean> {
+// auth.getToken (signed) → a request token to put in the authorize URL. The
+// proper flow is api/auth/?api_key=…&token=…; the bare ?api_key= form drops the
+// key and Last.fm reports "Invalid API key".
+async function lastfmGetToken(): Promise<string> {
+  const params: Record<string, string> = { method: 'auth.getToken', api_key: LASTFM_API_KEY };
+  params.api_sig = lastfmSign(params);
+  params.format = 'json';
+  const res = await fetch(`${LASTFM_API_URL}?${new URLSearchParams(params).toString()}`);
+  const data = (await res.json()) as any;
+  if (data.error || !data.token) throw new Error(data.message || 'Last.fm getToken failed');
+  return data.token as string;
+}
+
+async function lastfmScrobble(
+  track: ScrobbleTrack,
+  timestamp: number,
+  sessionKey: string,
+): Promise<boolean> {
   if (!LASTFM_API_KEY || !LASTFM_API_SECRET) return false;
 
   const params: Record<string, string> = {
@@ -101,7 +144,7 @@ async function lastfmScrobble(track: ScrobbleTrack, timestamp: number, sessionKe
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(params),
   });
-  const data = await res.json() as any;
+  const data = (await res.json()) as any;
   return !data.error;
 }
 
@@ -129,20 +172,26 @@ async function lastfmUpdateNowPlaying(track: ScrobbleTrack, sessionKey: string):
 
 // ─── ListenBrainz ────────────────────────────────────────────────
 
-async function listenbrainzSubmit(track: ScrobbleTrack, timestamp: number, token: string): Promise<boolean> {
+async function listenbrainzSubmit(
+  track: ScrobbleTrack,
+  timestamp: number,
+  token: string,
+): Promise<boolean> {
   const payload = {
     listen_type: 'single',
-    payload: [{
-      listened_at: timestamp,
-      track_metadata: {
-        artist_name: track.artist,
-        track_name: track.title,
-        release_name: track.album || undefined,
-        additional_info: {
-          duration_ms: track.duration ? track.duration * 1000 : undefined,
+    payload: [
+      {
+        listened_at: timestamp,
+        track_metadata: {
+          artist_name: track.artist,
+          track_name: track.title,
+          release_name: track.album || undefined,
+          additional_info: {
+            duration_ms: track.duration ? track.duration * 1000 : undefined,
+          },
         },
       },
-    }],
+    ],
   };
 
   const res = await fetch(`${LISTENBRAINZ_API_URL}/submit-listens`, {
@@ -159,13 +208,15 @@ async function listenbrainzSubmit(track: ScrobbleTrack, timestamp: number, token
 async function listenbrainzNowPlaying(track: ScrobbleTrack, token: string): Promise<void> {
   const payload = {
     listen_type: 'playing_now',
-    payload: [{
-      track_metadata: {
-        artist_name: track.artist,
-        track_name: track.title,
-        release_name: track.album || undefined,
+    payload: [
+      {
+        track_metadata: {
+          artist_name: track.artist,
+          track_name: track.title,
+          release_name: track.album || undefined,
+        },
       },
-    }],
+    ],
   };
 
   await fetch(`${LISTENBRAINZ_API_URL}/submit-listens`, {
@@ -183,9 +234,11 @@ async function listenbrainzNowPlaying(track: ScrobbleTrack, token: string): Prom
 async function processQueue(): Promise<void> {
   const db = getRawDb();
   const config = getConfig();
-  const pending = db.prepare(
-    "SELECT * FROM scrobble_queue WHERE status = 'pending' AND retries < 5 ORDER BY timestamp ASC LIMIT 50"
-  ).all() as any[];
+  const pending = db
+    .prepare(
+      "SELECT * FROM scrobble_queue WHERE status = 'pending' AND retries < 5 ORDER BY timestamp ASC LIMIT 50",
+    )
+    .all() as any[];
 
   for (const item of pending) {
     const track: ScrobbleTrack = {
@@ -199,7 +252,11 @@ async function processQueue(): Promise<void> {
     try {
       if (item.service === 'lastfm' && config.lastfmEnabled && config.lastfmSessionKey) {
         success = await lastfmScrobble(track, item.timestamp, config.lastfmSessionKey);
-      } else if (item.service === 'listenbrainz' && config.listenbrainzEnabled && config.listenbrainzToken) {
+      } else if (
+        item.service === 'listenbrainz' &&
+        config.listenbrainzEnabled &&
+        config.listenbrainzToken
+      ) {
         success = await listenbrainzSubmit(track, item.timestamp, config.listenbrainzToken);
       }
     } catch (err) {
@@ -209,7 +266,9 @@ async function processQueue(): Promise<void> {
     if (success) {
       db.prepare("UPDATE scrobble_queue SET status = 'sent' WHERE id = ?").run(item.id);
     } else {
-      db.prepare("UPDATE scrobble_queue SET retries = retries + 1, status = CASE WHEN retries >= 4 THEN 'failed' ELSE 'pending' END WHERE id = ?").run(item.id);
+      db.prepare(
+        "UPDATE scrobble_queue SET retries = retries + 1, status = CASE WHEN retries >= 4 THEN 'failed' ELSE 'pending' END WHERE id = ?",
+      ).run(item.id);
     }
   }
 }
@@ -230,7 +289,10 @@ export const scrobbler = {
   },
 
   stop() {
-    if (queueInterval) { clearInterval(queueInterval); queueInterval = null; }
+    if (queueInterval) {
+      clearInterval(queueInterval);
+      queueInterval = null;
+    }
   },
 
   /** Called when a track starts playing */
@@ -252,14 +314,28 @@ export const scrobbler = {
 
     if (config.lastfmEnabled && config.lastfmSessionKey) {
       db.prepare(
-        'INSERT INTO scrobble_queue (service, track_title, artist_name, album_title, duration, timestamp) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run('lastfm', track.title, track.artist, track.album || null, track.duration || null, timestamp);
+        'INSERT INTO scrobble_queue (service, track_title, artist_name, album_title, duration, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
+      ).run(
+        'lastfm',
+        track.title,
+        track.artist,
+        track.album || null,
+        track.duration || null,
+        timestamp,
+      );
     }
 
     if (config.listenbrainzEnabled && config.listenbrainzToken) {
       db.prepare(
-        'INSERT INTO scrobble_queue (service, track_title, artist_name, album_title, duration, timestamp) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run('listenbrainz', track.title, track.artist, track.album || null, track.duration || null, timestamp);
+        'INSERT INTO scrobble_queue (service, track_title, artist_name, album_title, duration, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
+      ).run(
+        'listenbrainz',
+        track.title,
+        track.artist,
+        track.album || null,
+        track.duration || null,
+        timestamp,
+      );
     }
 
     // Process immediately
@@ -267,13 +343,21 @@ export const scrobbler = {
   },
 
   /** Last.fm auth helpers */
-  getLastfmAuthUrl(): string {
-    return `https://www.last.fm/api/auth/?api_key=${LASTFM_API_KEY}`;
+  async getLastfmAuthUrl(): Promise<{ url: string; token: string }> {
+    const token = await lastfmGetToken();
+    return {
+      url: `https://www.last.fm/api/auth/?api_key=${LASTFM_API_KEY}&token=${token}`,
+      token,
+    };
   },
 
   async authenticateLastfm(token: string): Promise<string> {
     const session = await lastfmGetSession(token);
-    saveConfig({ lastfmEnabled: true, lastfmSessionKey: session.key, lastfmUsername: session.name });
+    saveConfig({
+      lastfmEnabled: true,
+      lastfmSessionKey: session.key,
+      lastfmUsername: session.name,
+    });
     return session.name;
   },
 
@@ -282,7 +366,7 @@ export const scrobbler = {
     const res = await fetch(`${LISTENBRAINZ_API_URL}/validate-token`, {
       headers: { Authorization: `Token ${token}` },
     });
-    const data = await res.json() as any;
+    const data = (await res.json()) as any;
     if (data.valid) {
       saveConfig({ listenbrainzEnabled: true, listenbrainzToken: token });
       return true;

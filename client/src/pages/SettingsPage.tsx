@@ -714,8 +714,11 @@ function ScrobblingSection() {
     } else {
       try {
         const res = await api.getLastfmAuthUrl();
+        // Remember the request token so "Submit" can exchange it — no manual
+        // paste needed. The opened URL carries api_key + this token.
+        setLastfmToken(res.data.token);
         window.open(res.data.url, '_blank');
-        toast('Authorize in the browser tab, then paste the token here', 'info');
+        toast('Allow access in the new tab, then click Submit here', 'info');
       } catch (err: unknown) {
         toast(getErrorMessage(err, 'Failed to get Last.fm auth URL'), 'error');
       }
@@ -776,7 +779,7 @@ function ScrobblingSection() {
                 type="text"
                 value={lastfmToken}
                 onChange={(e) => setLastfmToken(e.target.value)}
-                placeholder="Paste Last.fm token after authorizing..."
+                placeholder="Click Authorize, allow access, then Submit"
                 className="flex-1 px-3 py-1.5 text-sm bg-surface-dark border border-white/10 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent"
               />
               <button
