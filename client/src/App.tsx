@@ -17,6 +17,7 @@ const PlaylistsPage = lazy(() => import('./pages/PlaylistsPage.js'));
 const PlaylistPage = lazy(() => import('./pages/PlaylistPage.js'));
 const FavoritesPage = lazy(() => import('./pages/FavoritesPage.js'));
 const HistoryPage = lazy(() => import('./pages/HistoryPage.js'));
+const StatsPage = lazy(() => import('./pages/StatsPage.js'));
 const GenresPage = lazy(() => import('./pages/GenresPage.js'));
 const RadioPage = lazy(() => import('./pages/RadioPage.js'));
 const SmartPlaylistsPage = lazy(() => import('./pages/SmartPlaylistsPage.js'));
@@ -82,6 +83,7 @@ export default function App() {
             <Route path="/albums/:id" element={<AlbumPage />} />
             <Route path="/favorites" element={<FavoritesPage />} />
             <Route path="/history" element={<HistoryPage />} />
+            <Route path="/stats" element={<StatsPage />} />
             <Route path="/genres" element={<GenresPage />} />
             <Route path="/genres/:genre" element={<GenresPage />} />
             <Route path="/radio" element={<RadioPage />} />

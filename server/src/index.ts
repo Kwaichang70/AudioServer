@@ -20,6 +20,7 @@ import { librespotRouter } from './routes/librespot.js';
 import { playlistsRouter } from './routes/playlists.js';
 import { smartPlaylistsRouter } from './routes/smart-playlists.js';
 import { scrobbleRouter } from './routes/scrobble.js';
+import { listenbrainzRouter } from './routes/listenbrainz.js';
 import { scrobbler } from './services/scrobbler.js';
 import { initDatabase } from './db/index.js';
 import { providers } from './providers/registry.js';
@@ -97,6 +98,7 @@ app.use('/api/radio', radioRouter);
 app.use('/api/playlists', playlistsRouter);
 app.use('/api/smart-playlists', smartPlaylistsRouter);
 app.use('/api/scrobble', scrobbleRouter);
+app.use('/api/listenbrainz', listenbrainzRouter);
 app.use('/api/librespot', librespotRouter);
 
 // In production, serve client static files

@@ -424,6 +424,11 @@ export const api = {
   disconnectListenbrainz: (): Promise<ApiResult> =>
     fetchApi('/scrobble/listenbrainz/disconnect', { method: 'POST' }),
 
+  // ─── ListenBrainz read API (stats / discovery) ──────────────
+  listenbrainzStatus: (): Promise<ApiResult> => fetchApi('/listenbrainz/status'),
+  listenbrainzStats: (range = 'month'): Promise<ApiResult> =>
+    fetchApi(`/listenbrainz/stats?range=${encodeURIComponent(range)}`),
+
   // ─── Cover art fetch ────────────────────────────────────────
   fetchCovers: (): Promise<ApiResult> => fetchApi('/library/covers/fetch', { method: 'POST' }),
   getCoverFetchStatus: (): Promise<ApiResult> => fetchApi('/library/covers/fetch/status'),

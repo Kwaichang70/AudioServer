@@ -14,6 +14,7 @@ const navItems = [
   { to: '/radio', label: 'Radio' },
   { to: '/favorites', label: 'Favorites' },
   { to: '/history', label: 'History' },
+  { to: '/stats', label: 'Stats' },
   { to: '/playlists', label: 'Playlists' },
   { to: '/smart-playlists', label: 'Smart' },
   { to: '/search', label: 'Search' },
