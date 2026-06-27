@@ -1,12 +1,12 @@
 import { readdir, stat } from 'node:fs/promises';
-import { extname, basename } from 'path';
+import { extname, basename, dirname } from 'path';
 // @ts-expect-error - music-metadata types don't export parseFile in ESM mode
 import { parseFile, selectCover } from 'music-metadata';
 import { v4 as uuid } from 'uuid';
 import { getDb, getRawDb } from '../db/index.js';
 import { artists, albums, tracks } from '../db/schema.js';
 import { logger } from '../logger.js';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { cacheEmbeddedCover } from './coverart-fetch.js';
 
 const SUPPORTED_EXTENSIONS = new Set([
@@ -379,8 +379,12 @@ async function processFile(filePath: string): Promise<void> {
     }
   }
 
-  // Upsert album
-  const albumKey = `${artistId}:${albumTitle.toLowerCase()}`;
+  // Upsert album. The folder is part of the identity: the same album ripped at
+  // multiple qualities (each in its own folder) becomes separate album entries
+  // instead of one album with every track duplicated. The quality (format /
+  // sample rate / bit depth) is stored so the UI can tell those editions apart.
+  const albumDir = dirname(filePath);
+  const albumKey = `${artistId}:${albumTitle.toLowerCase()}:${albumDir.toLowerCase()}`;
   let albumId = albumCache.get(albumKey);
   if (!albumId) {
     albumId = uuid();
@@ -389,9 +393,14 @@ async function processFile(filePath: string): Promise<void> {
     const existing = db
       .select()
       .from(albums)
-      .where(eq(albums.title, albumTitle))
-      .all()
-      .find((a) => a.artistId === artistId);
+      .where(
+        and(
+          eq(albums.title, albumTitle),
+          eq(albums.artistId, artistId),
+          eq(albums.dirPath, albumDir),
+        ),
+      )
+      .get();
     if (existing) {
       albumId = existing.id;
       albumCache.set(albumKey, albumId);
@@ -406,6 +415,10 @@ async function processFile(filePath: string): Promise<void> {
           genre: common.genre?.[0],
           isCompilation,
           source: 'local',
+          dirPath: albumDir,
+          format: extname(filePath).slice(1).toLowerCase(),
+          sampleRate: format.sampleRate,
+          bitDepth: format.bitsPerSample,
         })
         .run();
       scanStatus.albums++;

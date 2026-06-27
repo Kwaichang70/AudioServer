@@ -85,6 +85,7 @@ libraryRouter.get('/albums', (req, res) => {
       `
     SELECT id, title, artist_id as artistId, artist_name as artistName, year,
       cover_url as coverUrl, genre, track_count as trackCount, source,
+      format, sample_rate as sampleRate, bit_depth as bitDepth,
       replay_gain_album as replayGainAlbum, replay_gain_album_peak as replayGainAlbumPeak,
       created_at as createdAt, updated_at as updatedAt
     FROM albums ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?

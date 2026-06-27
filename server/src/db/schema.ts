@@ -25,6 +25,15 @@ export const albums = sqliteTable('albums', {
   // metadata at scan time. NULL means "no replay-gain metadata available".
   replayGainAlbum: real('replay_gain_album'),
   replayGainAlbumPeak: real('replay_gain_album_peak'),
+  // Folder of this album's files. Part of the album identity so the same album
+  // ripped at multiple qualities (each in its own folder) stays as separate
+  // album entries instead of being merged into one with duplicated tracks.
+  dirPath: text('dir_path'),
+  // Audio quality of the album (from a representative track) so the UI can tell
+  // those quality editions apart.
+  format: text('format'),
+  sampleRate: integer('sample_rate'),
+  bitDepth: integer('bit_depth'),
   source: text('source').notNull().default('local'),
   createdAt: integer('created_at', { mode: 'timestamp' }),
   updatedAt: integer('updated_at', { mode: 'timestamp' }),

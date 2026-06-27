@@ -29,8 +29,10 @@ interface Album {
   trackCount?: number;
   coverUrl?: string;
   source?: string;
+  format?: string;
+  sampleRate?: number;
+  bitDepth?: number;
 }
-
 
 export default function AlbumPage() {
   const { id } = useParams<{ id: string }>();
@@ -39,30 +41,54 @@ export default function AlbumPage() {
   const [favorited, setFavorited] = useState(false);
   const { playTrack, playAlbum, currentTrack, isPlaying } = useAudioContext();
 
-  const providerType = id?.startsWith('spotify:') ? 'spotify'
-    : id?.startsWith('qobuz:') ? 'qobuz'
-    : id?.startsWith('tidal:') ? 'tidal'
-    : 'local';
+  const providerType = id?.startsWith('spotify:')
+    ? 'spotify'
+    : id?.startsWith('qobuz:')
+      ? 'qobuz'
+      : id?.startsWith('tidal:')
+        ? 'tidal'
+        : 'local';
 
   useEffect(() => {
     if (!id) return;
 
     if (providerType === 'spotify') {
       const spotifyId = id.replace('spotify:', '');
-      api.getSpotifyAlbum(spotifyId).then((res) => setAlbum(res.data)).catch(() => {});
-      api.getSpotifyAlbumTracks(spotifyId).then((res) => setTracks(res.data)).catch(() => {});
+      api
+        .getSpotifyAlbum(spotifyId)
+        .then((res) => setAlbum(res.data))
+        .catch(() => {});
+      api
+        .getSpotifyAlbumTracks(spotifyId)
+        .then((res) => setTracks(res.data))
+        .catch(() => {});
     } else if (providerType === 'qobuz') {
       const qobuzId = id.replace('qobuz:', '');
-      api.getQobuzAlbum(qobuzId).then((res) => setAlbum(res.data)).catch(() => {});
-      api.getQobuzAlbumTracks(qobuzId).then((res) => setTracks(res.data)).catch(() => {});
+      api
+        .getQobuzAlbum(qobuzId)
+        .then((res) => setAlbum(res.data))
+        .catch(() => {});
+      api
+        .getQobuzAlbumTracks(qobuzId)
+        .then((res) => setTracks(res.data))
+        .catch(() => {});
     } else if (providerType === 'tidal') {
       const tidalId = id.replace('tidal:', '');
-      api.getTidalAlbum(tidalId).then((res) => setAlbum(res.data)).catch(() => {});
-      api.getTidalAlbumTracks(tidalId).then((res) => setTracks(res.data)).catch(() => {});
+      api
+        .getTidalAlbum(tidalId)
+        .then((res) => setAlbum(res.data))
+        .catch(() => {});
+      api
+        .getTidalAlbumTracks(tidalId)
+        .then((res) => setTracks(res.data))
+        .catch(() => {});
     } else {
       api.getAlbum(id).then((res) => setAlbum(res.data));
       api.getAlbumTracks(id).then((res) => setTracks(res.data));
-      api.checkFavorite('album', id).then((res) => setFavorited(res.data.favorited)).catch(() => {});
+      api
+        .checkFavorite('album', id)
+        .then((res) => setFavorited(res.data.favorited))
+        .catch(() => {});
     }
   }, [id, providerType]);
 
@@ -82,7 +108,13 @@ export default function AlbumPage() {
       {/* Album header */}
       <div className="flex gap-6 mb-8">
         <div className="w-56 h-56 shrink-0 shadow-lg">
-          <AlbumCover albumId={album.id} title={album.title} artistName={album.artistName} coverUrl={album.coverUrl} size="lg" />
+          <AlbumCover
+            albumId={album.id}
+            title={album.title}
+            artistName={album.artistName}
+            coverUrl={album.coverUrl}
+            size="lg"
+          />
         </div>
         <div className="flex flex-col justify-end">
           <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Album</p>
@@ -91,6 +123,11 @@ export default function AlbumPage() {
             {album.artistName}
             {album.year && <span> &middot; {album.year}</span>}
             {album.genre && <span> &middot; {album.genre}</span>}
+            {formatQuality(album) && (
+              <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-white/5 text-gray-400">
+                {formatQuality(album)}
+              </span>
+            )}
           </p>
           <p className="text-sm text-gray-500 mt-1">
             {tracks.length} tracks &middot; {totalMin} min
@@ -105,7 +142,9 @@ export default function AlbumPage() {
             <button
               onClick={toggleFavorite}
               className={`w-9 h-9 rounded-full border flex items-center justify-center transition text-lg ${
-                favorited ? 'border-accent text-accent' : 'border-white/20 text-gray-500 hover:border-accent hover:text-accent'
+                favorited
+                  ? 'border-accent text-accent'
+                  : 'border-white/20 text-gray-500 hover:border-accent hover:text-accent'
               }`}
               title={favorited ? 'Remove from favorites' : 'Add to favorites'}
             >
@@ -150,9 +189,15 @@ export default function AlbumPage() {
                     <p className="text-xs text-gray-500">{track.artistName}</p>
                   )}
                 </td>
-                <td className="py-2.5 text-xs text-gray-500 hidden md:table-cell">{formatQuality(track)}</td>
-                <td className="py-2.5 text-sm text-gray-400 text-right">{formatDuration(track.duration)}</td>
-                <td className="py-2.5"><AddToPlaylist trackId={track.id} /></td>
+                <td className="py-2.5 text-xs text-gray-500 hidden md:table-cell">
+                  {formatQuality(track)}
+                </td>
+                <td className="py-2.5 text-sm text-gray-400 text-right">
+                  {formatDuration(track.duration)}
+                </td>
+                <td className="py-2.5">
+                  <AddToPlaylist trackId={track.id} />
+                </td>
               </tr>
             );
           })}

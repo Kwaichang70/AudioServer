@@ -3,6 +3,7 @@ import { api } from '../api/client.js';
 import { useInfiniteLoad, useAutoLoadMore } from '../hooks/useInfiniteLoad.js';
 import { useGridNavigation } from '../hooks/useGridNavigation.js';
 import AlbumCover from '../components/AlbumCover.js';
+import { formatQuality } from '../utils/format.js';
 import { DEFAULT_LIBRARY_PAGE_SIZE } from '../constants.js';
 
 interface Album {
@@ -11,6 +12,9 @@ interface Album {
   artistName: string;
   year?: number;
   trackCount?: number;
+  format?: string;
+  sampleRate?: number;
+  bitDepth?: number;
 }
 
 export default function AlbumsPage() {
@@ -95,7 +99,14 @@ export default function AlbumsPage() {
                   {album.title}
                 </p>
                 <p className="text-xs text-gray-400 truncate">{album.artistName}</p>
-                {album.year && <p className="text-xs text-gray-500">{album.year}</p>}
+                <div className="flex items-center gap-1.5">
+                  {album.year && <span className="text-xs text-gray-500">{album.year}</span>}
+                  {formatQuality(album) && (
+                    <span className="text-[10px] px-1 py-0.5 rounded bg-white/5 text-gray-500 truncate">
+                      {formatQuality(album)}
+                    </span>
+                  )}
+                </div>
               </Link>
             ))}
           </div>
