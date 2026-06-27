@@ -4,6 +4,41 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Sprint 5 — Spotify everywhere + polish
+
+**Spotify in the browser** ([b32592c](https://github.com/Kwaichang70/AudioServer/commit/b32592c), [d853f91](https://github.com/Kwaichang70/AudioServer/commit/d853f91))
+
+- Web Playback SDK as a lazy in-tab Spotify Connect device ("AudioServer
+  Web"). `player_state_changed` + a 1s poll drive progress / play-pause /
+  auto-next. Needs Premium + HTTPS + a completed OAuth.
+
+**OAuth, the long way** ([2eb7246](https://github.com/Kwaichang70/AudioServer/commit/2eb7246), [b0128e5](https://github.com/Kwaichang70/AudioServer/commit/b0128e5))
+
+- Redirect URI uses the HTTPS origin verbatim (no more LAN-IP rewrite).
+- Scopes trimmed to the Dev-Mode-allowed Web Playback SDK set — the
+  library/playlist "browse" scopes make `/authorize` `server_error` outright
+  since Spotify's March 2026 Dev-Mode changes. A legacy app stuck in a broken
+  Dev-Mode state was replaced with a fresh one. See [synology-https.md](docs/synology-https.md).
+
+**Multi-room Spotify** ([9593ab8](https://github.com/Kwaichang70/AudioServer/commit/9593ab8), [f7d9b09](https://github.com/Kwaichang70/AudioServer/commit/f7d9b09))
+
+- Device picker lists real Spotify Connect devices (Sonos, CocktailAudio) as
+  their own section; playing routes straight to them via `connectPlay` — no
+  fuzzy name-matching, no librespot. Spotify's cloud streams to the speaker.
+- External Connect playback polls Spotify's player state for a live transport
+  UI and fail-safe auto-advance (single-track URIs would otherwise stop).
+
+**Player fixes + bold icons** ([2482bd4](https://github.com/Kwaichang70/AudioServer/commit/2482bd4), [ce9c19a](https://github.com/Kwaichang70/AudioServer/commit/ce9c19a), [fcbfe3e](https://github.com/Kwaichang70/AudioServer/commit/fcbfe3e))
+
+- Browser-Spotify volume set locally via the SDK (was spamming the Web API →
+  429). Switching source stops the previous one (no more double audio /
+  un-stoppable Spotify). Transport buttons are hand-rolled bold SVGs, not
+  Unicode glyphs.
+
+**OpenAPI** ([d71e74f](https://github.com/Kwaichang70/AudioServer/commit/d71e74f))
+
+- Curated OpenAPI 3.1 spec at `GET /api/openapi.json` (public).
+
 ## Sprint 4 — performance polish
 
 **Lazy + auto-load on list pages** ([e6fa0f1](https://github.com/Kwaichang70/AudioServer/commit/e6fa0f1), [6b094c5](https://github.com/Kwaichang70/AudioServer/commit/6b094c5))
