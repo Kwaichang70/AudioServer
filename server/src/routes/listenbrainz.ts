@@ -37,3 +37,22 @@ listenbrainzRouter.get('/stats', async (req, res) => {
     res.status(502).json({ error: String(err) });
   }
 });
+
+// Discovery: fresh releases from your artists + the "Created for you"
+// recommendation playlists. Local items deep-link; the rest can be searched
+// across your providers.
+listenbrainzRouter.get('/discover', async (_req, res) => {
+  if (!lb.isConfigured()) {
+    res.json({ data: { configured: false, freshReleases: [], playlists: [] } });
+    return;
+  }
+  try {
+    const [freshReleases, playlists] = await Promise.all([
+      lb.freshReleases(),
+      lb.recommendationPlaylists(),
+    ]);
+    res.json({ data: { configured: true, freshReleases, playlists } });
+  } catch (err) {
+    res.status(502).json({ error: String(err) });
+  }
+});

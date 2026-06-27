@@ -163,3 +163,80 @@ export async function topRecordings(range: StatRange): Promise<TopRecording[]> {
     };
   });
 }
+
+// ─── Discovery (fresh releases + recommendation playlists) ───────────────────
+
+export interface FreshRelease {
+  title: string;
+  artist: string;
+  releaseDate: string | null;
+  localAlbumId: string | null;
+}
+export interface DiscoverTrack {
+  title: string;
+  artist: string;
+  localTrackId: string | null;
+  localAlbumId: string | null;
+}
+export interface DiscoverPlaylist {
+  title: string;
+  tracks: DiscoverTrack[];
+}
+
+/** New + upcoming releases from artists the user listens to. */
+export async function freshReleases(): Promise<FreshRelease[]> {
+  const user = await getUserName();
+  const token = getToken();
+  if (!user || !token) return [];
+  const data = await lbFetch<{
+    payload?: {
+      releases?: Array<{ release_name: string; artist_credit_name: string; release_date?: string }>;
+    };
+  }>(`/user/${encodeURIComponent(user)}/fresh_releases?sort=release_date`, token);
+  return (data?.payload?.releases ?? []).slice(0, 40).map((r) => ({
+    title: r.release_name,
+    artist: r.artist_credit_name,
+    releaseDate: r.release_date ?? null,
+    localAlbumId: matchAlbum(r.release_name, r.artist_credit_name),
+  }));
+}
+
+/**
+ * The "Created for you" recommendation playlists (Weekly Jams / Exploration).
+ * The list endpoint only returns metadata, so we fetch each playlist's tracks
+ * (capped) and resolve them against the local library.
+ */
+export async function recommendationPlaylists(): Promise<DiscoverPlaylist[]> {
+  const user = await getUserName();
+  const token = getToken();
+  if (!user || !token) return [];
+  const list = await lbFetch<{
+    playlists?: Array<{ playlist?: { identifier?: string; title?: string } }>;
+  }>(`/user/${encodeURIComponent(user)}/playlists/createdfor`, token);
+  const entries = (list?.playlists ?? []).slice(0, 4);
+
+  const out: DiscoverPlaylist[] = [];
+  for (const e of entries) {
+    const mbid = e.playlist?.identifier?.split('/').pop();
+    const title = e.playlist?.title ?? 'Playlist';
+    if (!mbid) continue;
+    try {
+      const pl = await lbFetch<{
+        playlist?: { track?: Array<{ title?: string; creator?: string }> };
+      }>(`/playlist/${mbid}`, token);
+      const tracks = (pl?.playlist?.track ?? []).slice(0, 25).map((t) => {
+        const m = t.title && t.creator ? matchTrack(t.title, t.creator) : null;
+        return {
+          title: t.title ?? '',
+          artist: t.creator ?? '',
+          localTrackId: m?.id ?? null,
+          localAlbumId: m?.albumId ?? null,
+        };
+      });
+      if (tracks.length) out.push({ title, tracks });
+    } catch {
+      // a playlist that won't resolve is skipped, not fatal
+    }
+  }
+  return out;
+}

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import type { ProviderType } from '@audioserver/shared';
 import { api } from '../api/client.js';
 import { useAudioContext, type TrackInfo } from '../context/AudioContext.js';
@@ -79,22 +79,23 @@ function isPlayableTrack(track: SearchTrack): boolean {
 }
 
 export default function SearchPage() {
-  const [query, setQuery] = useState('');
+  const [searchParams] = useSearchParams();
+  const [query, setQuery] = useState(searchParams.get('q') ?? '');
   const [results, setResults] = useState<SearchResults | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchMode, setSearchMode] = useState<'all' | 'local'>('all');
   const { playTrack } = useAudioContext();
-  const doSearch = async (mode: 'all' | 'local') => {
-    if (!query.trim()) return;
+  const doSearch = async (mode: 'all' | 'local', q: string = query) => {
+    if (!q.trim()) return;
     setLoading(true);
     try {
       if (mode === 'all') {
         // Unified search already includes local + active providers and performs
         // provider-priority deduplication on the server.
-        const res = await api.providerSearch(query);
+        const res = await api.providerSearch(q);
         setResults(res.data as SearchResults);
       } else {
-        const res = await api.search(query);
+        const res = await api.search(q);
         setResults(res.data as SearchResults);
       }
     } catch {
@@ -102,6 +103,17 @@ export default function SearchPage() {
     }
     setLoading(false);
   };
+
+  // Deep-linked search (e.g. from a ListenBrainz recommendation): pick up ?q=
+  // and run it. Re-runs if the param changes while staying on the page.
+  useEffect(() => {
+    const q = searchParams.get('q') ?? '';
+    if (q.trim()) {
+      setQuery(q);
+      doSearch('all', q);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   return (
     <div>

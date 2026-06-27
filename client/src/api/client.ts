@@ -428,6 +428,7 @@ export const api = {
   listenbrainzStatus: (): Promise<ApiResult> => fetchApi('/listenbrainz/status'),
   listenbrainzStats: (range = 'month'): Promise<ApiResult> =>
     fetchApi(`/listenbrainz/stats?range=${encodeURIComponent(range)}`),
+  listenbrainzDiscover: (): Promise<ApiResult> => fetchApi('/listenbrainz/discover'),
 
   // ─── Cover art fetch ────────────────────────────────────────
   fetchCovers: (): Promise<ApiResult> => fetchApi('/library/covers/fetch', { method: 'POST' }),

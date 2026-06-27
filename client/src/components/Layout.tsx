@@ -15,6 +15,7 @@ const navItems = [
   { to: '/favorites', label: 'Favorites' },
   { to: '/history', label: 'History' },
   { to: '/stats', label: 'Stats' },
+  { to: '/discover', label: 'Discover' },
   { to: '/playlists', label: 'Playlists' },
   { to: '/smart-playlists', label: 'Smart' },
   { to: '/search', label: 'Search' },
