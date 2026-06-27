@@ -5,18 +5,23 @@ import { validate } from '../utils/validate.js';
 
 export const playbackRouter = Router();
 
+// Optional fields use .nullish() (null | undefined), not .optional(): the client
+// forwards track objects straight from the DB/provider, where columns like
+// bitDepth/sampleRate (MP3) or albumId can be null. .optional() rejects null,
+// which made playing such a track 400 — and on an external device that meant
+// the track silently failed to register on the server.
 const trackSchema = z
   .object({
     id: z.string(),
-    title: z.string().optional(),
-    artistName: z.string().optional(),
-    albumTitle: z.string().optional(),
-    albumId: z.string().optional(),
-    duration: z.number().optional(),
-    format: z.string().optional(),
-    sampleRate: z.number().optional(),
-    bitDepth: z.number().optional(),
-    source: z.string().optional(),
+    title: z.string().nullish(),
+    artistName: z.string().nullish(),
+    albumTitle: z.string().nullish(),
+    albumId: z.string().nullish(),
+    duration: z.number().nullish(),
+    format: z.string().nullish(),
+    sampleRate: z.number().nullish(),
+    bitDepth: z.number().nullish(),
+    source: z.string().nullish(),
   })
   .passthrough();
 

@@ -344,23 +344,29 @@ providersRouter.get('/spotify/token', async (_req, res) => {
   }
 });
 
-// List Spotify Connect devices (phones, speakers, etc.)
+// List Spotify Connect devices (phones, speakers, etc.). Best-effort UI poll:
+// degrade to an empty list on any error (e.g. a transient 429 cooldown) instead
+// of a 500, so a rate-limit blip doesn't spam the client console with errors.
 providersRouter.get('/spotify/connect/devices', async (_req, res) => {
   try {
     const devices = await spotify.getConnectDevices();
     res.json({ data: devices });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    logger.warn(`spotify connect/devices unavailable: ${String(err)}`);
+    res.json({ data: [] });
   }
 });
 
-// Get current Spotify playback state
+// Get current Spotify playback state. Best-effort poll: return null on error
+// rather than 500 (the client polls this every few seconds while a Connect
+// device plays; a transient failure shouldn't surface as a console error).
 providersRouter.get('/spotify/connect/state', async (_req, res) => {
   try {
     const state = await spotify.getPlaybackState();
     res.json({ data: state });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    logger.warn(`spotify connect/state unavailable: ${String(err)}`);
+    res.json({ data: null });
   }
 });
 

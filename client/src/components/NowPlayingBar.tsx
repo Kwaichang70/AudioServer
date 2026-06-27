@@ -30,8 +30,12 @@ interface SortableQueueTrack extends TrackInfo {
 // art was only fetched under a different album id, or the album has none).
 function TrackThumb({ track }: { track: TrackInfo }) {
   const [step, setStep] = useState(track.albumId ? 0 : 1);
-  const src =
-    step === 0 && track.albumId
+  // Provider tracks (spotify:/qobuz:/tidal:) aren't served by our cover
+  // endpoints — skip straight to the gradient instead of firing 404s.
+  const isProvider = /^(?:spotify|qobuz|tidal):/.test(track.albumId || track.id);
+  const src = isProvider
+    ? null
+    : step === 0 && track.albumId
       ? api.getAlbumCoverUrl(track.albumId)
       : step <= 1
         ? api.getTrackCoverUrl(track.id)

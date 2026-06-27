@@ -124,6 +124,13 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const spotifyWeb = useSpotifyWebPlayback(spotifyWebWanted);
   const spotifyWebDeviceIdRef = useRef<string | null>(null);
   spotifyWebDeviceIdRef.current = spotifyWeb.deviceId;
+  // Briefly cache the Spotify Connect device list. A single play tries two
+  // strategies that each need the list, and auto-advancing an album fires a
+  // play per track — without this we'd hit /me/player/devices several times in
+  // a row and trip Spotify's rate limit (→ 429 → connect calls start failing).
+  const connectDevicesCacheRef = useRef<{ at: number; devices: SpotifyConnectDevice[] } | null>(
+    null,
+  );
   const spotifyWebSetVolumeRef = useRef(spotifyWeb.setVolume);
   spotifyWebSetVolumeRef.current = spotifyWeb.setVolume;
   const spotifyWebPauseRef = useRef(spotifyWeb.pause);
@@ -375,6 +382,18 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       if (isSpotify) {
         const spotifyTrackUri = `spotify:track:${track.id.replace('spotify:', '')}`;
 
+        // Fetch the Spotify Connect device list, reusing a recent result (≤15s)
+        // so the two strategies below — and back-to-back track plays — don't
+        // each re-query Spotify.
+        const getConnectDevicesCached = async (): Promise<SpotifyConnectDevice[]> => {
+          const cached = connectDevicesCacheRef.current;
+          if (cached && Date.now() - cached.at < 15_000) return cached.devices;
+          const res = await api.spotifyConnectDevices();
+          const devices = (res.data || []) as SpotifyConnectDevice[];
+          connectDevicesCacheRef.current = { at: Date.now(), devices };
+          return devices;
+        };
+
         const playSpotify = async () => {
           try {
             // Strategy: an explicit Spotify Connect device was picked in the
@@ -413,8 +432,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
                 if (lsStatus.data.isRunning) {
                   // Librespot is running — route through it
                   // First tell Spotify to play on the "AudioServer" librespot device
-                  const devRes = await api.spotifyConnectDevices();
-                  const audioServerDevice = ((devRes.data || []) as SpotifyConnectDevice[]).find(
+                  const audioServerDevice = (await getConnectDevicesCached()).find(
                     (d) => d.name === SPOTIFY_CONNECT_RECEIVER_NAME,
                   );
                   if (audioServerDevice) {
@@ -431,8 +449,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
               }
 
               // Strategy 2: Try matching selected AudioServer device with a Spotify Connect device
-              const devRes = await api.spotifyConnectDevices();
-              const connectDevices = (devRes.data || []) as SpotifyConnectDevice[];
+              const connectDevices = await getConnectDevicesCached();
               // Get the selected device name from cached devices
               const selectedDevice = await api
                 .getDevices()
