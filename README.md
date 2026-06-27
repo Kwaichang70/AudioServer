@@ -29,6 +29,10 @@ Development ports:
 - Backend API: `http://localhost:3001`
 - Vite frontend: `http://localhost:5173`
 
+The HTTP API is described by an OpenAPI 3.1 document at `GET /api/openapi.json`
+(public — no auth). Paste it into [editor.swagger.io](https://editor.swagger.io)
+or Postman to browse the endpoints, request bodies, and auth schemes.
+
 The backend must run through the ESM loader because `music-metadata` pulls in pure ESM dependencies:
 
 ```bash

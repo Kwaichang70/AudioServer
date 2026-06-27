@@ -31,6 +31,7 @@ import { globalLimiter } from './middleware/rateLimiter.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { attachUser, requireAuth } from './middleware/auth.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import { openApiSpec } from './openapi.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -80,6 +81,11 @@ app.use(attachUser);
 app.use(requireAuth);
 
 // Routes
+// Machine-readable API description (public — it's documentation). View it in
+// editor.swagger.io / Postman, or any OpenAPI-aware IDE.
+app.get('/api/openapi.json', (_req, res) => {
+  res.json(openApiSpec);
+});
 app.use('/api/auth', authRouter);
 app.use('/api/health', healthRouter);
 app.use('/api/library', libraryRouter);

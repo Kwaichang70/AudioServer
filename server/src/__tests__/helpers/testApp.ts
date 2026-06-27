@@ -11,6 +11,7 @@ import { libraryRouter } from '../../routes/library.js';
 import { playbackRouter } from '../../routes/playback.js';
 import { playlistsRouter } from '../../routes/playlists.js';
 import { providersRouter } from '../../routes/providers.js';
+import { openApiSpec } from '../../openapi.js';
 
 /**
  * Build an isolated Express app + sqlite DB for a single test suite.
@@ -30,6 +31,9 @@ export async function createTestApp() {
   app.use(express.json());
   app.use(attachUser);
   app.use(requireAuth);
+  app.get('/api/openapi.json', (_req, res) => {
+    res.json(openApiSpec);
+  });
   app.use('/api/auth', authRouter);
   app.use('/api/health', healthRouter);
   app.use('/api/library', libraryRouter);
