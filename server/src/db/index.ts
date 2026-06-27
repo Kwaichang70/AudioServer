@@ -50,6 +50,7 @@ export async function initDatabase(overridePath?: string) {
   runMigration(sqlite, 'albums', 'replay_gain_album', 'REAL');
   runMigration(sqlite, 'albums', 'replay_gain_album_peak', 'REAL');
   runMigration(sqlite, 'albums', 'dir_path', 'TEXT');
+  runMigration(sqlite, 'albums', 'edition_key', 'TEXT');
   runMigration(sqlite, 'albums', 'format', 'TEXT');
   runMigration(sqlite, 'albums', 'sample_rate', 'INTEGER');
   runMigration(sqlite, 'albums', 'bit_depth', 'INTEGER');

@@ -138,6 +138,11 @@ export async function scanLibrary(libraryPaths: string[]): Promise<ScanStatus> {
       await cleanOrphans(seenFilePaths, scanStatus.successfulRoots);
     }
 
+    // Re-keying albums (e.g. splitting quality editions) moves tracks to new
+    // album rows and leaves the old merged albums empty — cleanOrphans only
+    // handles deleted files, so sweep up any now-empty albums + refresh counts.
+    pruneEmptyAlbums();
+
     scanStatus.phase = 'done';
     scanStatus.isScanning = false;
     scanStatus.currentDir = undefined;
@@ -290,6 +295,27 @@ async function countSupportedFiles(dir: string): Promise<number> {
   return count;
 }
 
+// Delete albums that have no tracks left (orphaned by a re-key) and refresh
+// every album's track_count. Safe to run after every scan: only genuinely
+// empty albums are removed.
+function pruneEmptyAlbums(): void {
+  const db = getRawDb();
+  const albumsList = db.prepare('SELECT id FROM albums').all() as { id: string }[];
+  let removed = 0;
+  for (const a of albumsList) {
+    const count =
+      (db.prepare('SELECT COUNT(*) as c FROM tracks WHERE album_id = ?').get(a.id) as { c: number })
+        ?.c ?? 0;
+    if (count === 0) {
+      db.prepare('DELETE FROM albums WHERE id = ?').run(a.id);
+      removed++;
+    } else {
+      db.prepare('UPDATE albums SET track_count = ? WHERE id = ?').run(count, a.id);
+    }
+  }
+  if (removed > 0) logger.info(`Pruned ${removed} empty albums`);
+}
+
 async function cleanOrphans(seenFiles: Set<string>, successfulRoots: string[]): Promise<void> {
   const db = getRawDb();
   const allTracks = db
@@ -384,7 +410,12 @@ async function processFile(filePath: string): Promise<void> {
   // instead of one album with every track duplicated. The quality (format /
   // sample rate / bit depth) is stored so the UI can tell those editions apart.
   const albumDir = dirname(filePath);
-  const albumKey = `${artistId}:${albumTitle.toLowerCase()}:${albumDir.toLowerCase()}`;
+  const fileFormat = extname(filePath).slice(1).toLowerCase();
+  // Edition = folder + quality. So the same album at multiple qualities — even
+  // FLAC and MP3 sitting side by side in ONE folder — becomes separate album
+  // entries, instead of one album with every track listed twice.
+  const editionKey = `${albumDir.toLowerCase()}|${fileFormat}|${format.sampleRate ?? ''}|${format.bitsPerSample ?? ''}`;
+  const albumKey = `${artistId}:${albumTitle.toLowerCase()}:${editionKey}`;
   let albumId = albumCache.get(albumKey);
   if (!albumId) {
     albumId = uuid();
@@ -397,7 +428,7 @@ async function processFile(filePath: string): Promise<void> {
         and(
           eq(albums.title, albumTitle),
           eq(albums.artistId, artistId),
-          eq(albums.dirPath, albumDir),
+          eq(albums.editionKey, editionKey),
         ),
       )
       .get();
@@ -416,7 +447,8 @@ async function processFile(filePath: string): Promise<void> {
           isCompilation,
           source: 'local',
           dirPath: albumDir,
-          format: extname(filePath).slice(1).toLowerCase(),
+          editionKey,
+          format: fileFormat,
           sampleRate: format.sampleRate,
           bitDepth: format.bitsPerSample,
         })
