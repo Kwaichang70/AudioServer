@@ -6,7 +6,7 @@ import { useAudioContext, type TrackInfo } from '../context/AudioContext.js';
 import { useGridNavigation } from '../hooks/useGridNavigation.js';
 import { formatDuration } from '../utils/format.js';
 
-type Tab = 'album' | 'artist' | 'track';
+type Tab = 'album' | 'artist' | 'track' | 'station';
 
 interface FavAlbum {
   id: string;
@@ -29,35 +29,52 @@ interface FavTrack {
   duration: number;
 }
 
+interface FavStation {
+  id: string;
+  uuid: string;
+  name: string;
+  genre?: string;
+  country?: string;
+  faviconUrl?: string;
+}
+
 export default function FavoritesPage() {
   const [tab, setTab] = useState<Tab>('album');
   const [albums, setAlbums] = useState<FavAlbum[]>([]);
   const [artists, setArtists] = useState<FavArtist[]>([]);
   const [tracks, setTracks] = useState<FavTrack[]>([]);
+  const [stations, setStations] = useState<FavStation[]>([]);
   const [loading, setLoading] = useState(true);
   const { playTrack } = useAudioContext();
   const trackNav = useGridNavigation<HTMLDivElement>(tracks.length, { orientation: 'vertical' });
 
   useEffect(() => {
     setLoading(true);
+    const done = () => setLoading(false);
     if (tab === 'album') {
       api
         .getFavorites('album')
         .then((res) => setAlbums(res.data))
         .catch(() => {})
-        .finally(() => setLoading(false));
+        .finally(done);
     } else if (tab === 'artist') {
       api
         .getFavorites('artist')
         .then((res) => setArtists(res.data))
         .catch(() => {})
-        .finally(() => setLoading(false));
+        .finally(done);
+    } else if (tab === 'station') {
+      api
+        .getFavorites('station')
+        .then((res) => setStations(res.data))
+        .catch(() => {})
+        .finally(done);
     } else {
       api
         .getFavoriteTracks()
         .then((res) => setTracks(res.data))
         .catch(() => {})
-        .finally(() => setLoading(false));
+        .finally(done);
     }
   }, [tab]);
 
@@ -65,6 +82,7 @@ export default function FavoritesPage() {
     { key: 'album', label: 'Albums' },
     { key: 'artist', label: 'Artists' },
     { key: 'track', label: 'Tracks' },
+    { key: 'station', label: 'Radio' },
   ];
 
   return (
@@ -190,6 +208,56 @@ export default function FavoritesPage() {
                 <span className="text-xs text-gray-500 flex-shrink-0">
                   {track.duration ? formatDuration(track.duration) : ''}
                 </span>
+              </button>
+            ))}
+          </div>
+        ))}
+
+      {/* Radio stations */}
+      {!loading &&
+        tab === 'station' &&
+        (stations.length === 0 ? (
+          <p className="text-gray-500 py-12 text-center">
+            No favorite stations yet. Tap the heart on a station in Radio.
+          </p>
+        ) : (
+          <div className="space-y-1">
+            {stations.map((s) => (
+              <button
+                key={s.id}
+                onClick={() =>
+                  playTrack({
+                    id: s.id,
+                    title: s.name,
+                    artistName: 'Live Radio',
+                    albumTitle: s.genre || 'Online Radio',
+                    duration: 0,
+                  })
+                }
+                className="w-full flex items-center gap-4 px-4 py-2 rounded hover:bg-surface-light transition text-left focus:outline-none focus:ring-2 focus:ring-accent"
+              >
+                <div className="w-10 h-10 rounded bg-surface-dark overflow-hidden flex-shrink-0 flex items-center justify-center text-gray-500">
+                  {s.faviconUrl ? (
+                    <img
+                      src={s.faviconUrl}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <span aria-hidden="true">📻</span>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{s.name}</p>
+                  <p className="text-xs text-gray-400 truncate">
+                    {[s.genre, s.country].filter(Boolean).join(' · ') || 'Online Radio'}
+                  </p>
+                </div>
               </button>
             ))}
           </div>

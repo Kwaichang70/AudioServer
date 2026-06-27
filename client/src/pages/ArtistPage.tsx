@@ -26,6 +26,7 @@ export default function ArtistPage() {
   const [artist, setArtist] = useState<Artist | null>(null);
   const [albums, setAlbums] = useState<Album[]>([]);
   const [similar, setSimilar] = useState<SimilarArtist[]>([]);
+  const [favorited, setFavorited] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -36,7 +37,21 @@ export default function ArtistPage() {
       .getSimilarArtists(id)
       .then((res) => setSimilar(res.data?.similar ?? []))
       .catch(() => setSimilar([]));
+    api
+      .checkFavorite('artist', id)
+      .then((res) => setFavorited(res.data.favorited))
+      .catch(() => {});
   }, [id]);
+
+  const toggleFavorite = async () => {
+    if (!id) return;
+    try {
+      const res = await api.toggleFavorite('artist', id);
+      setFavorited(res.data.favorited);
+    } catch {
+      // ignore — UI state stays as-is
+    }
+  };
 
   if (!artist) return <p className="text-gray-400">Loading...</p>;
 
@@ -44,7 +59,20 @@ export default function ArtistPage() {
     <div>
       <div className="mb-8">
         <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Artist</p>
-        <h2 className="text-3xl font-bold">{artist.name}</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-3xl font-bold">{artist.name}</h2>
+          <button
+            onClick={toggleFavorite}
+            className={`text-2xl leading-none transition ${
+              favorited ? 'text-accent' : 'text-gray-500 hover:text-accent'
+            }`}
+            title={favorited ? 'Remove from favorites' : 'Add to favorites'}
+            aria-label={favorited ? 'Remove from favorites' : 'Add to favorites'}
+            aria-pressed={favorited}
+          >
+            {favorited ? '♥' : '♡'}
+          </button>
+        </div>
         <p className="text-sm text-gray-500 mt-1">{albums.length} albums</p>
       </div>
 
