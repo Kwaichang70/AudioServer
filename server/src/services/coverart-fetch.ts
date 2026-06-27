@@ -28,6 +28,16 @@ async function rateLimitedFetch(url: string): Promise<Response> {
   });
 }
 
+// Spotify search shares the user's app-wide rate limit, so space out the
+// cover-fetch's Spotify calls (≥1.5s apart) to avoid 429s that would also
+// break the user's own searches.
+let lastSpotifyCall = 0;
+async function throttleSpotify(): Promise<void> {
+  const wait = Math.max(0, 1500 - (Date.now() - lastSpotifyCall));
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  lastSpotifyCall = Date.now();
+}
+
 interface FetchStatus {
   isRunning: boolean;
   total: number;
@@ -212,6 +222,7 @@ async function fetchFromSpotify(artist: string, title: string): Promise<Buffer |
     const { providers } = await import('../providers/registry.js');
     if (!providers.spotify.auth.isAuthenticated) return null;
 
+    await throttleSpotify();
     const results = await providers.spotify.search(`album:${title} artist:${artist}`, 3);
     const album = results.albums?.[0];
     if (!album?.coverUrl) return null;
@@ -308,6 +319,7 @@ async function fetchArtistImage(artistId: string, artistName: string): Promise<b
     const { providers } = await import('../providers/registry.js');
     if (!providers.spotify.auth.isAuthenticated) return false;
 
+    await throttleSpotify();
     const results = await providers.spotify.search(`artist:${artistName}`, 3);
     const match =
       results.artists?.find(

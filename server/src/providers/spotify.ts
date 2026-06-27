@@ -41,6 +41,10 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
   private tokens: SpotifyTokens | null = null;
   private clientId: string;
   private clientSecret: string;
+  // When Spotify returns 429, pause GET/search calls until this timestamp so a
+  // background batch (cover-art fetch) can't keep the whole account rate-limited
+  // — which would also break the user's own searches.
+  private rateLimitedUntil = 0;
 
   auth: ProviderAuth = {
     isAuthenticated: false,
@@ -201,9 +205,21 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
   }
 
   private async apiRequest(path: string): Promise<any> {
+    if (Date.now() < this.rateLimitedUntil) {
+      throw new Error('Spotify API error: 429 (cooling down)');
+    }
     const headers = await this.getHeaders();
     const url = `${SPOTIFY_API_URL}${path}`;
     const res = await fetch(url, { headers });
+    if (res.status === 429) {
+      // Honor Retry-After (capped) and pause all GET/search calls for that
+      // window so we stop hammering — that's what lets the rolling rate-limit
+      // window drain and the user's own searches start working again.
+      const retryAfter = Math.min(Number(res.headers.get('Retry-After')) || 5, 30);
+      this.rateLimitedUntil = Date.now() + retryAfter * 1000;
+      logger.warn(`Spotify rate-limited (429); pausing API GETs for ${retryAfter}s`);
+      throw new Error('Spotify API error: 429 Too many requests');
+    }
     if (!res.ok) {
       const text = await res.text();
       logger.error(`Spotify API ${res.status}: ${url} → ${text.slice(0, 200)}`);
