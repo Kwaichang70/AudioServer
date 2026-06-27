@@ -263,8 +263,15 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     return () => socket.unsubscribeDevice(selectedDeviceId);
   }, [selectedDeviceId]);
 
-  // Process WebSocket device updates. Queue advancement is decided server-side
-  // by PlaybackService and delivered as playback:track-changed.
+  // Process WebSocket device updates. The server's playbackService queue isn't
+  // synced from the client, so it can't auto-advance an external device on its
+  // own — we detect track-end here and advance the client's queue (same
+  // heuristic the server's device-monitor uses). Browser playback advances via
+  // <audio>'s 'ended'; Spotify Connect has its own poll. Guarded to fire once.
+  const lastDeviceUpdateRef = useRef<{ state: string; position: number; duration: number } | null>(
+    null,
+  );
+  const deviceEndedGuardRef = useRef(false);
   useEffect(() => {
     if (!socket.deviceUpdate || socket.deviceUpdate.deviceId !== selectedDeviceRef.current) return;
 
@@ -278,6 +285,25 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       // regardless of whether the user picked the browser or a remote device.
       setProgress(u.position, u.duration);
     }
+
+    const isExternalLocal =
+      selectedDeviceRef.current !== 'browser' &&
+      !selectedDeviceRef.current.startsWith('spotify-connect:') &&
+      !currentTrackRef.current?.id.startsWith('spotify:');
+    if (isExternalLocal) {
+      const last = lastDeviceUpdateRef.current;
+      const ended =
+        last?.state === 'playing' &&
+        u.state === 'stopped' &&
+        ((last.duration > 0 && last.position >= last.duration - 2) || u.position === 0);
+      if (ended && !deviceEndedGuardRef.current) {
+        deviceEndedGuardRef.current = true;
+        playNextRef.current();
+      } else if (u.state === 'playing') {
+        deviceEndedGuardRef.current = false;
+      }
+    }
+    lastDeviceUpdateRef.current = { state: u.state, position: u.position, duration: u.duration };
   }, [socket.deviceUpdate]);
 
   // Fallback: if WebSocket disconnected, use polling
