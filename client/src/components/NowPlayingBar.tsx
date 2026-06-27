@@ -24,6 +24,35 @@ interface SortableQueueTrack extends TrackInfo {
   _index: number;
 }
 
+// Cover thumbnail with a fallback chain: album cover → the track file's own
+// embedded art → a gradient initial. Keyed by track id so state resets per
+// track. Fixes blank thumbnails when an album's cover can't be resolved (e.g.
+// art was only fetched under a different album id, or the album has none).
+function TrackThumb({ track }: { track: TrackInfo }) {
+  const [step, setStep] = useState(track.albumId ? 0 : 1);
+  const src =
+    step === 0 && track.albumId
+      ? api.getAlbumCoverUrl(track.albumId)
+      : step <= 1
+        ? api.getTrackCoverUrl(track.id)
+        : null;
+  if (!src) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-violet-900 to-indigo-800 text-white/70 text-lg font-semibold">
+        {(track.title || '?').charAt(0).toUpperCase()}
+      </div>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt=""
+      className="w-full h-full object-cover"
+      onError={() => setStep((s) => s + 1)}
+    />
+  );
+}
+
 export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
   const navigate = useNavigate();
   const {
@@ -75,18 +104,7 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
           title="Fullscreen view"
           aria-label="Open fullscreen player"
         >
-          <img
-            src={
-              currentTrack.albumId
-                ? api.getAlbumCoverUrl(currentTrack.albumId)
-                : api.getTrackCoverUrl(currentTrack.id)
-            }
-            alt=""
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none';
-            }}
-          />
+          <TrackThumb key={currentTrack.id} track={currentTrack} />
         </button>
         <button
           type="button"
