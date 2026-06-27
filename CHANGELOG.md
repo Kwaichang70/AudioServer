@@ -4,6 +4,30 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Sprint 6 — ListenBrainz, beyond scrobbling
+
+AudioServer now _consumes_ ListenBrainz data, not just feeds it. Three slices,
+each matching results back to the local library by name so owned items
+deep-link and the rest open a unified search (local + Spotify + Qobuz).
+
+**Listening stats** ([feff496](https://github.com/Kwaichang70/AudioServer/commit/feff496))
+
+- New `/stats` page: top artists / albums / tracks per week / month / year /
+  all-time from the ListenBrainz stats API (token reused from scrobble config,
+  username resolved + cached via /validate-token).
+
+**Discover** ([c039f6b](https://github.com/Kwaichang70/AudioServer/commit/c039f6b))
+
+- New `/discover` page: the "Created for you" recommendation playlists (Weekly
+  Jams / Exploration) and fresh releases from your artists. Also wired `?q=` on
+  the search page so recommendation links actually run a search.
+
+**Listeners also like** ([99174a0](https://github.com/Kwaichang70/AudioServer/commit/99174a0))
+
+- Similar-artists pills on the artist page. ListenBrainz's own similar-artists
+  API is MBID-based, so this uses Last.fm's name-based artist.getSimilar
+  (LASTFM_API_KEY); hides itself when there's no key or no matches.
+
 ## Sprint 5 — Spotify everywhere + polish
 
 **Spotify in the browser** ([b32592c](https://github.com/Kwaichang70/AudioServer/commit/b32592c), [d853f91](https://github.com/Kwaichang70/AudioServer/commit/d853f91))
