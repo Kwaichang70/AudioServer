@@ -5,25 +5,13 @@ import { validate } from '../utils/validate.js';
 
 export const playbackRouter = Router();
 
-// Optional fields use .nullish() (null | undefined), not .optional(): the client
-// forwards track objects straight from the DB/provider, where columns like
-// bitDepth/sampleRate (MP3) or albumId can be null. .optional() rejects null,
-// which made playing such a track 400 — and on an external device that meant
-// the track silently failed to register on the server.
-const trackSchema = z
-  .object({
-    id: z.string(),
-    title: z.string().nullish(),
-    artistName: z.string().nullish(),
-    albumTitle: z.string().nullish(),
-    albumId: z.string().nullish(),
-    duration: z.number().nullish(),
-    format: z.string().nullish(),
-    sampleRate: z.number().nullish(),
-    bitDepth: z.number().nullish(),
-    source: z.string().nullish(),
-  })
-  .passthrough();
+// Only `id` is required and load-bearing — playbackService stores the rest of
+// the track verbatim as display metadata and never type-checks it. The client
+// forwards objects straight from the DB/providers, where any "optional" field
+// can be null or an unexpected type (e.g. bitDepth/sampleRate on MP3, a numeric
+// id from a provider). A strict schema here bought no safety but rejected real
+// tracks with a 400 — so accept any shape with a string id and pass it through.
+const trackSchema = z.object({ id: z.string() }).passthrough();
 
 playbackRouter.get('/now-playing', (_req, res) => {
   res.json({ data: playbackService.getState() });
@@ -67,7 +55,7 @@ playbackRouter.post(
 
 playbackRouter.post(
   '/play',
-  validate({ body: z.object({ track: trackSchema.optional(), deviceId: z.string().optional() }) }),
+  validate({ body: z.object({ track: trackSchema.optional(), deviceId: z.string().nullish() }) }),
   (req, res) => {
     if (req.body.track) {
       playbackService.play(req.body.track, req.body.deviceId);
