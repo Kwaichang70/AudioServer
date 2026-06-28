@@ -6,6 +6,10 @@ interface Props {
   title: string;
   artistName?: string;
   coverUrl?: string; // For Spotify/Qobuz external covers
+  // When the album list reports there's no art, skip the cover request entirely
+  // and render the gradient — avoids a 404 per tile. Undefined = unknown, request
+  // as before (back-compat for callers that don't pass it).
+  hasCover?: boolean;
   size?: 'sm' | 'md' | 'lg';
 }
 
@@ -24,14 +28,23 @@ function getColorFromTitle(title: string): string {
   return colors[Math.abs(hash) % colors.length];
 }
 
-export default function AlbumCover({ albumId, title, artistName, coverUrl, size = 'md' }: Props) {
+export default function AlbumCover({
+  albumId,
+  title,
+  artistName,
+  coverUrl,
+  hasCover,
+  size = 'md',
+}: Props) {
   const [failed, setFailed] = useState(false);
 
   const src = coverUrl || api.getAlbumCoverUrl(albumId);
   const gradient = getColorFromTitle(title);
   const initial = title.charAt(0).toUpperCase();
+  // No external URL and the server says there's no art → don't even request it.
+  const noArt = !coverUrl && hasCover === false;
 
-  if (failed) {
+  if (failed || noArt) {
     return (
       <div
         className={`aspect-square rounded bg-gradient-to-br ${gradient} flex flex-col items-center justify-center`}

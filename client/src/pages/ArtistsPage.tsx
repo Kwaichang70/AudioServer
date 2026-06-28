@@ -8,9 +8,18 @@ import { DEFAULT_LIBRARY_PAGE_SIZE } from '../constants.js';
 interface Artist {
   id: string;
   name: string;
+  hasImage?: boolean;
 }
 
-function ArtistImage({ artistId, name }: { artistId: string; name: string }) {
+function ArtistImage({
+  artistId,
+  name,
+  hasImage,
+}: {
+  artistId: string;
+  name: string;
+  hasImage?: boolean;
+}) {
   const [failed, setFailed] = useState(false);
   const initial = name.charAt(0).toUpperCase();
 
@@ -18,7 +27,8 @@ function ArtistImage({ artistId, name }: { artistId: string; name: string }) {
   for (let i = 0; i < name.length; i++) hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
   const hue = Math.abs(hash) % 360;
 
-  if (failed) {
+  // Server says there's no picture → render the initial, skip the 404 request.
+  if (failed || hasImage === false) {
     return (
       <div
         className="w-24 h-24 mx-auto mb-3 rounded-full flex items-center justify-center text-3xl font-bold text-white/80"
@@ -85,7 +95,7 @@ export default function ArtistsPage() {
             data-grid-item
             className="bg-surface-light rounded-lg p-4 text-center hover:bg-surface transition group focus:outline-none focus:ring-2 focus:ring-accent"
           >
-            <ArtistImage artistId={artist.id} name={artist.name} />
+            <ArtistImage artistId={artist.id} name={artist.name} hasImage={artist.hasImage} />
             <p className="text-sm font-medium truncate group-hover:text-accent transition">
               {artist.name}
             </p>

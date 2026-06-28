@@ -15,6 +15,8 @@ import {
   readCachedArtistImage,
   fetchMissingArtistImages,
   getArtistFetchStatus,
+  getLocalCoverPath,
+  getLocalArtistImagePath,
 } from '../services/coverart-fetch.js';
 import { parsePagination, buildMeta } from '../utils/pagination.js';
 import { getSimilarArtists, similarArtistsAvailable } from '../services/similar-artists.js';
@@ -37,14 +39,21 @@ libraryRouter.get('/artists', (req, res) => {
   const { page, limit, offset } = parsePagination(req, 50);
   const raw = getRawDb();
   const total = (raw.prepare('SELECT COUNT(*) as count FROM artists').get() as any).count;
-  const data = raw
+  const rows = raw
     .prepare(
       `
     SELECT id, name, image_url as imageUrl, source, created_at as createdAt, updated_at as updatedAt
     FROM artists ORDER BY name COLLATE NOCASE LIMIT ? OFFSET ?
   `,
     )
-    .all(limit, offset);
+    .all(limit, offset) as Array<{ id: string; imageUrl: string | null }>;
+  // hasImage lets the client skip requesting /artists/:id/image for artists that
+  // have no picture (provider URL or a fetched file on disk) — avoiding a 404 per
+  // artist tile. A scan/fetch keeps the on-disk state authoritative.
+  const data = rows.map((r) => ({
+    ...r,
+    hasImage: !!r.imageUrl || getLocalArtistImagePath(r.id) !== null,
+  }));
   res.json({ data, meta: buildMeta(page, limit, total) });
 });
 
@@ -80,7 +89,7 @@ libraryRouter.get('/albums', (req, res) => {
   const { page, limit, offset } = parsePagination(req, 50);
   const raw = getRawDb();
   const total = (raw.prepare('SELECT COUNT(*) as count FROM albums').get() as any).count;
-  const data = raw
+  const rows = raw
     .prepare(
       `
     SELECT id, title, artist_id as artistId, artist_name as artistName, year,
@@ -91,7 +100,15 @@ libraryRouter.get('/albums', (req, res) => {
     FROM albums ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?
   `,
     )
-    .all(limit, offset);
+    .all(limit, offset) as Array<{ id: string; coverUrl: string | null }>;
+  // hasCover lets the client skip requesting /albums/:id/cover when no art exists
+  // — avoiding a 404 per album tile. The scanner caches embedded art to disk and
+  // the cover-fetch job stores fetched art there too, so an on-disk file (or a
+  // provider cover_url) is an authoritative "has art" signal after a scan/fetch.
+  const data = rows.map((r) => ({
+    ...r,
+    hasCover: !!r.coverUrl || getLocalCoverPath(r.id) !== null,
+  }));
   res.json({ data, meta: buildMeta(page, limit, total) });
 });
 

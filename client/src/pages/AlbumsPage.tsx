@@ -15,6 +15,8 @@ interface Album {
   format?: string;
   sampleRate?: number;
   bitDepth?: number;
+  coverUrl?: string;
+  hasCover?: boolean;
 }
 
 export default function AlbumsPage() {
@@ -93,6 +95,8 @@ export default function AlbumsPage() {
                     albumId={album.id}
                     title={album.title}
                     artistName={album.artistName}
+                    coverUrl={album.coverUrl}
+                    hasCover={album.hasCover}
                   />
                 </div>
                 <p className="text-sm font-medium truncate group-hover:text-accent transition">
