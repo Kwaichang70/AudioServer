@@ -376,9 +376,12 @@ libraryRouter.post('/scan', (_req, res) => {
     res.json({ data: status, message: 'Scan already in progress' });
     return;
   }
-  // Start scan in background, respond immediately
+  // Start scan in background, respond immediately. Catch rejections — an
+  // unhandled one would crash the whole process.
   logger.info('Library scan requested');
-  scanLibrary(config.musicLibraryPaths);
+  scanLibrary(config.musicLibraryPaths).catch((err) =>
+    logger.error(`Library scan crashed: ${err}`),
+  );
   res.json({ data: getScanStatus(), message: 'Scan started' });
 });
 
@@ -395,7 +398,8 @@ libraryRouter.post('/covers/fetch', (_req, res) => {
     return;
   }
   logger.info('Cover art fetch requested');
-  fetchMissingCovers();
+  // Fire-and-forget: an unhandled rejection would crash the whole process
+  fetchMissingCovers().catch((err) => logger.error(`Cover art fetch crashed: ${err}`));
   res.json({ data: getCoverFetchStatus(), message: 'Cover art fetch started' });
 });
 
@@ -412,7 +416,8 @@ libraryRouter.post('/artists/images/fetch', (_req, res) => {
     return;
   }
   logger.info('Artist image fetch requested');
-  fetchMissingArtistImages();
+  // Fire-and-forget: an unhandled rejection would crash the whole process
+  fetchMissingArtistImages().catch((err) => logger.error(`Artist image fetch crashed: ${err}`));
   res.json({ data: getArtistFetchStatus(), message: 'Artist image fetch started' });
 });
 

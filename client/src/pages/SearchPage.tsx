@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { ProviderType } from '@audioserver/shared';
 import { api } from '../api/client.js';
@@ -85,23 +85,30 @@ export default function SearchPage() {
   const [loading, setLoading] = useState(false);
   const [searchMode, setSearchMode] = useState<'all' | 'local'>('all');
   const { playTrack } = useAudioContext();
+  // Monotonic sequence guards against out-of-order responses: a slow 'all
+  // sources' search must not overwrite the results of a newer query.
+  const searchSeqRef = useRef(0);
   const doSearch = async (mode: 'all' | 'local', q: string = query) => {
     if (!q.trim()) return;
+    const seq = ++searchSeqRef.current;
     setLoading(true);
     try {
       if (mode === 'all') {
         // Unified search already includes local + active providers and performs
         // provider-priority deduplication on the server.
         const res = await api.providerSearch(q);
+        if (seq !== searchSeqRef.current) return;
         setResults(res.data as SearchResults);
       } else {
         const res = await api.search(q);
+        if (seq !== searchSeqRef.current) return;
         setResults(res.data as SearchResults);
       }
     } catch {
+      if (seq !== searchSeqRef.current) return;
       setResults(null);
     }
-    setLoading(false);
+    if (seq === searchSeqRef.current) setLoading(false);
   };
 
   // Deep-linked search (e.g. from a ListenBrainz recommendation): pick up ?q=

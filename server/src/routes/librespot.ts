@@ -1,10 +1,15 @@
 import { Router } from 'express';
 import {
-  startLibrespot, stopLibrespot, getLibrespotState,
-  handleStreamRequest, checkLibrespotAvailable, checkFfmpegAvailable,
+  startLibrespot,
+  stopLibrespot,
+  getLibrespotState,
+  handleStreamRequest,
+  checkLibrespotAvailable,
+  checkFfmpegAvailable,
 } from '../services/librespot.js';
 import { deviceManager } from '../devices/manager.js';
 import { logger } from '../logger.js';
+import { config } from '../config.js';
 
 export const librespotRouter = Router();
 
@@ -34,7 +39,9 @@ librespotRouter.post('/start', async (req, res) => {
   if (ok) {
     res.json({ data: { started: true } });
   } else {
-    res.status(500).json({ error: 'Failed to start librespot. Check if librespot and ffmpeg are installed.' });
+    res
+      .status(500)
+      .json({ error: 'Failed to start librespot. Check if librespot and ffmpeg are installed.' });
   }
 });
 
@@ -67,7 +74,9 @@ librespotRouter.post('/play-to-device', async (req, res) => {
 
   const state = getLibrespotState();
   if (!state.isRunning) {
-    res.status(400).json({ error: 'Librespot is not running. Start it first via /api/librespot/start' });
+    res
+      .status(400)
+      .json({ error: 'Librespot is not running. Start it first via /api/librespot/start' });
     return;
   }
 
@@ -75,9 +84,11 @@ librespotRouter.post('/play-to-device', async (req, res) => {
     // Step 1: Tell Spotify to play on the "AudioServer" librespot device
     // (This is done via the Spotify Connect API from the frontend)
 
-    // Step 2: Build the stream URL that the target device will connect to
+    // Step 2: Build the stream URL that the target device will connect to.
+    // Use the configured port — 3001 was hardcoded, so a custom PORT broke
+    // DLNA playback with a connection-refused on the device.
     const lanAddress = req.headers.host?.split(':')[0] || '127.0.0.1';
-    const streamUrl = `http://${lanAddress}:3001/api/librespot/stream`;
+    const streamUrl = `http://${lanAddress}:${config.port}/api/librespot/stream`;
 
     // Step 3: Send the stream URL to the target DLNA/Volumio device
     await deviceManager.play(deviceId, streamUrl, {

@@ -52,6 +52,13 @@ export default function AlbumPage() {
   useEffect(() => {
     if (!id) return;
 
+    // Reset before fetching: navigating album → album must not keep showing
+    // the previous album's data (or its favorite state) under the new URL
+    // while the new fetch is in flight — or forever, if the new id 404s.
+    setAlbum(null);
+    setTracks([]);
+    setFavorited(false);
+
     if (providerType === 'spotify') {
       const spotifyId = id.replace('spotify:', '');
       api
@@ -83,8 +90,16 @@ export default function AlbumPage() {
         .then((res) => setTracks(res.data))
         .catch(() => {});
     } else {
-      api.getAlbum(id).then((res) => setAlbum(res.data));
-      api.getAlbumTracks(id).then((res) => setTracks(res.data));
+      // .catch: an album pruned by a re-scan 404s here — swallow it (the page
+      // keeps its Loading state) instead of surfacing an unhandled rejection.
+      api
+        .getAlbum(id)
+        .then((res) => setAlbum(res.data))
+        .catch(() => {});
+      api
+        .getAlbumTracks(id)
+        .then((res) => setTracks(res.data))
+        .catch(() => {});
       api
         .checkFavorite('album', id)
         .then((res) => setFavorited(res.data.favorited))

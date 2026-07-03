@@ -6,7 +6,7 @@ import { v4 as uuid } from 'uuid';
 import { getDb, getRawDb } from '../db/index.js';
 import { artists, albums, tracks } from '../db/schema.js';
 import { logger } from '../logger.js';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { cacheEmbeddedCover } from './coverart-fetch.js';
 
 const SUPPORTED_EXTENSIONS = new Set([
@@ -307,6 +307,7 @@ function pruneEmptyAlbums(): void {
       (db.prepare('SELECT COUNT(*) as c FROM tracks WHERE album_id = ?').get(a.id) as { c: number })
         ?.c ?? 0;
     if (count === 0) {
+      db.prepare("DELETE FROM favorites WHERE item_type = 'album' AND item_id = ?").run(a.id);
       db.prepare('DELETE FROM albums WHERE id = ?').run(a.id);
       removed++;
     } else {
@@ -344,10 +345,28 @@ async function cleanOrphans(seenFiles: Set<string>, successfulRoots: string[]): 
 
   logger.info(`Cleaning ${orphanTrackIds.length} orphan tracks`);
 
-  // Delete orphan tracks
+  // Delete orphan tracks. foreign_keys=ON means rows in playlist_tracks and
+  // play_history that reference a track BLOCK its deletion (no ON DELETE
+  // CASCADE) — and every played track has history rows — so delete the
+  // referencing rows first inside the same transaction, or the whole cleanup
+  // aborts with a FK error and the scan fails.
+  const deletePlaylistRefs = db.prepare('DELETE FROM playlist_tracks WHERE track_id = ?');
+  const deleteHistory = db.prepare('DELETE FROM play_history WHERE track_id = ?');
+  const deleteTrackFavorite = db.prepare(
+    "DELETE FROM favorites WHERE item_type = 'track' AND item_id = ?",
+  );
   const deleteTracks = db.prepare('DELETE FROM tracks WHERE id = ?');
   const deleteAll = db.transaction(() => {
-    for (const id of orphanTrackIds) deleteTracks.run(id);
+    for (const id of orphanTrackIds) {
+      deletePlaylistRefs.run(id);
+      deleteHistory.run(id);
+      deleteTrackFavorite.run(id);
+      deleteTracks.run(id);
+    }
+    // Playlist counts must reflect the rows we just removed
+    db.prepare(
+      'UPDATE playlists SET track_count = (SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = playlists.id)',
+    ).run();
   });
   deleteAll();
   scanStatus.removedTracks = orphanTrackIds.length;
@@ -358,6 +377,7 @@ async function cleanOrphans(seenFiles: Set<string>, successfulRoots: string[]): 
       (db.prepare('SELECT COUNT(*) as c FROM tracks WHERE album_id = ?').get(albumId) as any)?.c ??
       0;
     if (count === 0) {
+      db.prepare("DELETE FROM favorites WHERE item_type = 'album' AND item_id = ?").run(albumId);
       db.prepare('DELETE FROM albums WHERE id = ?').run(albumId);
     } else {
       db.prepare('UPDATE albums SET track_count = ? WHERE id = ?').run(count, albumId);
@@ -370,6 +390,7 @@ async function cleanOrphans(seenFiles: Set<string>, successfulRoots: string[]): 
       (db.prepare('SELECT COUNT(*) as c FROM albums WHERE artist_id = ?').get(artistId) as any)
         ?.c ?? 0;
     if (count === 0) {
+      db.prepare("DELETE FROM favorites WHERE item_type = 'artist' AND item_id = ?").run(artistId);
       db.prepare('DELETE FROM artists WHERE id = ?').run(artistId);
     }
   }
@@ -395,7 +416,14 @@ async function processFile(filePath: string): Promise<void> {
     artistId = uuid();
     artistCache.set(artistKey, artistId);
     const db = getDb();
-    const existing = db.select().from(artists).where(eq(artists.name, albumArtistName)).get();
+    // COLLATE NOCASE: the in-scan cache key is lowercased, but a fresh scan
+    // starts with an empty cache — a case-sensitive lookup would then miss
+    // "ABBA" when this file is tagged "Abba" and create a duplicate artist.
+    const existing = db
+      .select()
+      .from(artists)
+      .where(sql`${artists.name} = ${albumArtistName} COLLATE NOCASE`)
+      .get();
     if (existing) {
       artistId = existing.id;
       artistCache.set(artistKey, artistId);
@@ -426,7 +454,9 @@ async function processFile(filePath: string): Promise<void> {
       .from(albums)
       .where(
         and(
-          eq(albums.title, albumTitle),
+          // NOCASE for the same reason as the artist lookup: mixed-case album
+          // tags across files/scans must not spawn duplicate album rows.
+          sql`${albums.title} = ${albumTitle} COLLATE NOCASE`,
           eq(albums.artistId, artistId),
           eq(albums.editionKey, editionKey),
         ),

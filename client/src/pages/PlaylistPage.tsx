@@ -64,12 +64,26 @@ export default function PlaylistPage() {
     }
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (!id) return;
-    const token = localStorage.getItem(STORAGE_KEYS.authToken);
-    const url = api.exportPlaylist(id);
-    // Download via hidden link with auth
-    window.open(`${url}${url.includes('?') ? '&' : '?'}token=${token}`, '_blank');
+    // The API only accepts Bearer auth — a ?token= query param is ignored, so
+    // the old window.open() approach always got a 401. Fetch with the header
+    // and download the result as a blob instead.
+    try {
+      const token = localStorage.getItem(STORAGE_KEYS.authToken);
+      const res = await fetch(api.exportPlaylist(id), {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`Export failed (${res.status})`);
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${playlist?.name || 'playlist'}.m3u`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      // network/auth failure — nothing to download
+    }
   };
 
   if (!playlist) return <p className="text-gray-400">Loading...</p>;

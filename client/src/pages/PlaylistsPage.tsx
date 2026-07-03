@@ -19,10 +19,17 @@ export default function PlaylistsPage() {
   const { toast } = useToast();
 
   const load = () => {
-    api.getPlaylists().then((res) => { setPlaylists(res.data); setLoading(false); });
+    // .finally so a failed GET doesn't leave the page on "Loading..." forever
+    api
+      .getPlaylists()
+      .then((res) => setPlaylists(res.data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
@@ -44,7 +51,10 @@ export default function PlaylistsPage() {
     const name = file.name.replace(/\.(m3u8?|pls)$/i, '');
     try {
       const res = await api.importPlaylist(name, content);
-      toast(`Imported "${name}": ${res.meta?.matched || 0} of ${res.meta?.total || 0} tracks matched`, 'success');
+      toast(
+        `Imported "${name}": ${res.meta?.matched || 0} of ${res.meta?.total || 0} tracks matched`,
+        'success',
+      );
       load();
     } catch (err) {
       toast(`Import failed: ${(err as Error).message}`, 'error');
@@ -94,21 +104,32 @@ export default function PlaylistsPage() {
             className="flex-1 px-4 py-2 bg-surface-light border border-white/10 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent"
             autoFocus
           />
-          <button onClick={handleCreate} className="px-4 py-2 bg-accent rounded hover:bg-accent-hover transition">
+          <button
+            onClick={handleCreate}
+            className="px-4 py-2 bg-accent rounded hover:bg-accent-hover transition"
+          >
             Create
           </button>
-          <button onClick={() => setShowCreate(false)} className="px-4 py-2 text-gray-400 hover:text-white transition">
+          <button
+            onClick={() => setShowCreate(false)}
+            className="px-4 py-2 text-gray-400 hover:text-white transition"
+          >
             Cancel
           </button>
         </div>
       )}
 
       {playlists.length === 0 ? (
-        <p className="text-gray-500 text-center py-12">No playlists yet. Create one to get started.</p>
+        <p className="text-gray-500 text-center py-12">
+          No playlists yet. Create one to get started.
+        </p>
       ) : (
         <div className="space-y-1">
           {playlists.map((pl) => (
-            <div key={pl.id} className="flex items-center gap-4 px-4 py-3 rounded-lg hover:bg-surface-light transition group">
+            <div
+              key={pl.id}
+              className="flex items-center gap-4 px-4 py-3 rounded-lg hover:bg-surface-light transition group"
+            >
               <Link to={`/playlists/${pl.id}`} className="flex-1 min-w-0">
                 <p className="text-sm font-medium group-hover:text-accent transition">{pl.name}</p>
                 <p className="text-xs text-gray-500">

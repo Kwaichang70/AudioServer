@@ -59,22 +59,30 @@ export function useInfiniteLoad<T>(
   fetchRef.current = fetchFn;
   const pageRef = useRef(1);
   const loadingRef = useRef(false);
+  // Bumped by reload() to invalidate in-flight requests. Without it, a reload
+  // during an in-flight loadMore was silently dropped (the loading guard ate
+  // it) and the stale response then appended onto the just-cleared list —
+  // leaving a single middle page rendered.
+  const epochRef = useRef(0);
 
   const loadPage = useCallback(
     async (pageNum: number, append: boolean) => {
       if (loadingRef.current) return;
       loadingRef.current = true;
+      const epoch = epochRef.current;
 
       if (append) setLoadingMore(true);
       else setLoading(true);
 
       try {
         const res = await fetchRef.current(pageNum, limit);
+        if (epoch !== epochRef.current) return; // superseded by reload — it owns the flags now
         setItems((prev) => (append ? [...prev, ...res.data] : res.data));
         setTotal(res.meta.total);
         setHasMore(pageNum < res.meta.totalPages);
         pageRef.current = pageNum;
       } catch {
+        if (epoch !== epochRef.current) return;
         // Keep existing items on error
       }
 
@@ -95,6 +103,8 @@ export function useInfiniteLoad<T>(
   }, [loadPage, hasMore]);
 
   const reload = useCallback(() => {
+    epochRef.current++;
+    loadingRef.current = false; // take ownership from any in-flight load
     setItems([]);
     pageRef.current = 1;
     loadPage(1, false);

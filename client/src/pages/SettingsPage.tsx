@@ -66,6 +66,18 @@ export default function SettingsPage() {
   const socket = useSocket();
   const scanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const scanCompleteToastRef = useRef(false);
+  // Cover/artist-image fetch progress polls. Kept in refs so they can be
+  // cleared on unmount, on error, and before starting a new one (a double
+  // click used to stack intervals that then leaked forever).
+  const coverPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const artistPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(
+    () => () => {
+      if (coverPollRef.current) clearInterval(coverPollRef.current);
+      if (artistPollRef.current) clearInterval(artistPollRef.current);
+    },
+    [],
+  );
 
   const loadStatus = () => {
     api
@@ -164,9 +176,15 @@ export default function SettingsPage() {
   const startScan = async () => {
     setScanning(true);
     scanCompleteToastRef.current = false;
-    const res = await api.scanLibrary();
-    applyScanStatus(res.data);
-    if (!socket.connected) startScanPolling();
+    try {
+      const res = await api.scanLibrary();
+      applyScanStatus(res.data);
+      if (!socket.connected) startScanPolling();
+    } catch (err) {
+      // Without this, a failed POST left the button stuck on "Scanning..."
+      setScanning(false);
+      toast(`Scan failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+    }
   };
 
   const { replayGainMode, setReplayGainMode, replayGainPreamp, setReplayGainPreamp } =
@@ -265,20 +283,35 @@ export default function SettingsPage() {
             </div>
             <button
               onClick={async () => {
-                // Use the api client so the Bearer token is attached — requireAuth
-                // would otherwise 401 these /api/* calls.
-                const data = await api.fetchCovers();
-                toast(data.message || 'Cover fetch started', 'info');
-                const interval = setInterval(async () => {
-                  const statusRes = await api.getCoverFetchStatus();
-                  const s = statusRes.data;
-                  if (s.isRunning) {
-                    toast(`Covers: ${s.processed}/${s.total} (${s.found} found)`, 'info');
-                  } else {
-                    clearInterval(interval);
-                    toast(`Cover art done: ${s.found} found, ${s.notFound} not found`, 'success');
-                  }
-                }, 10000);
+                try {
+                  // Use the api client so the Bearer token is attached — requireAuth
+                  // would otherwise 401 these /api/* calls.
+                  const data = await api.fetchCovers();
+                  toast(data.message || 'Cover fetch started', 'info');
+                  if (coverPollRef.current) clearInterval(coverPollRef.current);
+                  coverPollRef.current = setInterval(async () => {
+                    try {
+                      const statusRes = await api.getCoverFetchStatus();
+                      const s = statusRes.data;
+                      if (s.isRunning) {
+                        toast(`Covers: ${s.processed}/${s.total} (${s.found} found)`, 'info');
+                      } else {
+                        if (coverPollRef.current) clearInterval(coverPollRef.current);
+                        coverPollRef.current = null;
+                        toast(
+                          `Cover art done: ${s.found} found, ${s.notFound} not found`,
+                          'success',
+                        );
+                      }
+                    } catch {
+                      // A failing status poll must stop the interval, not loop forever
+                      if (coverPollRef.current) clearInterval(coverPollRef.current);
+                      coverPollRef.current = null;
+                    }
+                  }, 10000);
+                } catch (err) {
+                  toast(`Cover fetch failed: ${String(err)}`, 'error');
+                }
               }}
               className="px-4 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-accent transition"
             >
@@ -296,18 +329,29 @@ export default function SettingsPage() {
             </div>
             <button
               onClick={async () => {
-                const data = await api.fetchArtistImages();
-                toast(data.message || 'Artist image fetch started', 'info');
-                const interval = setInterval(async () => {
-                  const statusRes = await api.getArtistImageFetchStatus();
-                  const s = statusRes.data;
-                  if (s.isRunning) {
-                    toast(`Artists: ${s.processed}/${s.total} (${s.found} found)`, 'info');
-                  } else {
-                    clearInterval(interval);
-                    toast(`Artist images done: ${s.found} found`, 'success');
-                  }
-                }, 10000);
+                try {
+                  const data = await api.fetchArtistImages();
+                  toast(data.message || 'Artist image fetch started', 'info');
+                  if (artistPollRef.current) clearInterval(artistPollRef.current);
+                  artistPollRef.current = setInterval(async () => {
+                    try {
+                      const statusRes = await api.getArtistImageFetchStatus();
+                      const s = statusRes.data;
+                      if (s.isRunning) {
+                        toast(`Artists: ${s.processed}/${s.total} (${s.found} found)`, 'info');
+                      } else {
+                        if (artistPollRef.current) clearInterval(artistPollRef.current);
+                        artistPollRef.current = null;
+                        toast(`Artist images done: ${s.found} found`, 'success');
+                      }
+                    } catch {
+                      if (artistPollRef.current) clearInterval(artistPollRef.current);
+                      artistPollRef.current = null;
+                    }
+                  }, 10000);
+                } catch (err) {
+                  toast(`Artist image fetch failed: ${String(err)}`, 'error');
+                }
               }}
               className="px-4 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-accent transition"
             >

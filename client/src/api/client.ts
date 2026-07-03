@@ -89,12 +89,36 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
 let streamToken: string | null = null;
 let streamTokenExpiresAt = 0;
 let streamTokenInflight: Promise<string> | null = null;
+let streamTokenTimer: ReturnType<typeof setTimeout> | null = null;
+
+// withToken() is synchronous (it runs during render), so the cached token must
+// be kept fresh proactively: without this, every cover <img> and local stream
+// silently starts failing ~1h into a listening session.
+function scheduleStreamTokenRefresh(delayMs: number): void {
+  if (streamTokenTimer) clearTimeout(streamTokenTimer);
+  streamTokenTimer = setTimeout(() => {
+    if (!localStorage.getItem(STORAGE_KEYS.authToken)) return; // logged out
+    fetchStreamToken().catch(() => scheduleStreamTokenRefresh(60_000));
+  }, delayMs);
+}
 
 async function fetchStreamToken(): Promise<string> {
   const res = await fetchApi<{ data: { token: string; expiresIn: number } }>('/auth/stream-token');
   streamToken = res.data.token;
   streamTokenExpiresAt = Date.now() + (res.data.expiresIn - 300) * 1000;
+  // Renew well before the cached copy goes stale (timers in background tabs
+  // may be throttled; the visibilitychange hook below covers that gap).
+  scheduleStreamTokenRefresh(Math.max((res.data.expiresIn - 600) * 1000, 60_000));
   return streamToken;
+}
+
+// Returning to a tab that slept past the renewal timer: refresh immediately.
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && streamToken && Date.now() >= streamTokenExpiresAt) {
+      ensureStreamToken().catch(() => {});
+    }
+  });
 }
 
 export async function ensureStreamToken(): Promise<string> {
@@ -110,6 +134,10 @@ export async function ensureStreamToken(): Promise<string> {
 export function clearStreamToken(): void {
   streamToken = null;
   streamTokenExpiresAt = 0;
+  if (streamTokenTimer) {
+    clearTimeout(streamTokenTimer);
+    streamTokenTimer = null;
+  }
 }
 
 function withToken(url: string): string {

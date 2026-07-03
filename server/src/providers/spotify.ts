@@ -154,7 +154,21 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     logger.info('Spotify: Authenticated successfully');
   }
 
-  private async refreshAccessToken(): Promise<void> {
+  // Single-flight: the 3s Connect poll, searches, and the Web Playback token
+  // endpoint can all hit an expired token at once. Spotify may rotate refresh
+  // tokens, so parallel refreshes risk invalidating each other — share one.
+  private refreshInflight: Promise<void> | null = null;
+
+  private refreshAccessToken(): Promise<void> {
+    if (!this.refreshInflight) {
+      this.refreshInflight = this.doRefreshAccessToken().finally(() => {
+        this.refreshInflight = null;
+      });
+    }
+    return this.refreshInflight;
+  }
+
+  private async doRefreshAccessToken(): Promise<void> {
     if (!this.tokens?.refreshToken) throw new Error('No refresh token');
 
     const res = await fetch(`${SPOTIFY_AUTH_URL}/api/token`, {
@@ -169,7 +183,21 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
       }),
     });
 
-    if (!res.ok) throw new Error('Spotify token refresh failed');
+    if (!res.ok) {
+      // 400/401 = refresh token revoked/invalid (e.g. app access withdrawn).
+      // Without deauthing here, every 3s poll would retry the refresh POST
+      // forever while the UI keeps claiming "connected". Transient errors
+      // (5xx, network) fall through and just throw.
+      if (res.status === 400 || res.status === 401) {
+        logger.error(
+          `Spotify refresh token rejected (${res.status}) — disconnecting; re-connect Spotify in Settings`,
+        );
+        this.tokens = null;
+        this.auth.isAuthenticated = false;
+        deleteTokens('spotify');
+      }
+      throw new Error(`Spotify token refresh failed (${res.status})`);
+    }
 
     const data = (await res.json()) as {
       access_token: string;
@@ -204,6 +232,16 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     return { accessToken: this.tokens.accessToken, expiresAt: this.tokens.expiresAt };
   }
 
+  // Honor Retry-After (capped) and pause API calls for that window so we stop
+  // hammering — that's what lets the rolling rate-limit window drain and the
+  // user's own searches start working again. Shared by every request path so
+  // whichever call first sees the 429 starts the cooldown for all of them.
+  private noteRateLimit(res: { headers: { get(name: string): string | null } }): void {
+    const retryAfter = Math.min(Number(res.headers.get('Retry-After')) || 5, 30);
+    this.rateLimitedUntil = Date.now() + retryAfter * 1000;
+    logger.warn(`Spotify rate-limited (429); pausing API calls for ${retryAfter}s`);
+  }
+
   private async apiRequest(path: string): Promise<any> {
     if (Date.now() < this.rateLimitedUntil) {
       throw new Error('Spotify API error: 429 (cooling down)');
@@ -212,12 +250,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     const url = `${SPOTIFY_API_URL}${path}`;
     const res = await fetch(url, { headers });
     if (res.status === 429) {
-      // Honor Retry-After (capped) and pause all GET/search calls for that
-      // window so we stop hammering — that's what lets the rolling rate-limit
-      // window drain and the user's own searches start working again.
-      const retryAfter = Math.min(Number(res.headers.get('Retry-After')) || 5, 30);
-      this.rateLimitedUntil = Date.now() + retryAfter * 1000;
-      logger.warn(`Spotify rate-limited (429); pausing API GETs for ${retryAfter}s`);
+      this.noteRateLimit(res);
       throw new Error('Spotify API error: 429 Too many requests');
     }
     if (!res.ok) {
@@ -228,6 +261,9 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     return res.json();
   }
 
+  // PUT/POST are direct user actions (play/pause/volume): they still run
+  // during a cooldown — failing them fast wouldn't make them succeed — but a
+  // 429 here does START the cooldown so the GET/search paths back off.
   private async apiPut(path: string, body?: any): Promise<void> {
     const headers = await this.getHeaders();
     const res = await fetch(`${SPOTIFY_API_URL}${path}`, {
@@ -236,6 +272,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
       body: body ? JSON.stringify(body) : undefined,
     });
     if (!res.ok) {
+      if (res.status === 429) this.noteRateLimit(res);
       const text = await res.text();
       throw new Error(`Spotify API error: ${res.status} ${text}`);
     }
@@ -249,6 +286,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
       body: body ? JSON.stringify(body) : undefined,
     });
     if (!res.ok) {
+      if (res.status === 429) this.noteRateLimit(res);
       const text = await res.text();
       throw new Error(`Spotify API error: ${res.status} ${text}`);
     }
@@ -264,8 +302,16 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
 
   async getPlaybackState(): Promise<any> {
     if (!this.auth.isAuthenticated) return null;
+    // Polled every 3s by the client during Connect playback — the most
+    // frequent Spotify call in the app, so it must honor the 429 cooldown
+    // (and set it when it's the first to see a 429).
+    if (Date.now() < this.rateLimitedUntil) return null;
     const headers = await this.getHeaders();
     const res = await fetch(`${SPOTIFY_API_URL}/me/player`, { headers });
+    if (res.status === 429) {
+      this.noteRateLimit(res);
+      return null;
+    }
     if (res.status === 204) return null; // No active playback
     if (!res.ok) return null;
     return res.json();

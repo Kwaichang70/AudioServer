@@ -213,7 +213,7 @@ export default function DeviceSelector({ selectedDeviceId, onSelect }: Props) {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm truncate">{device.name}</p>
                       <p className="text-xs text-gray-600">
-                        {device.type.toUpperCase()} \u00B7 Offline
+                        {device.type.toUpperCase()} &middot; Offline
                       </p>
                     </div>
                   </div>

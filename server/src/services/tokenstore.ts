@@ -44,11 +44,20 @@ export function saveTokens(provider: string, tokens: StoredTokens): void {
   const db = getRawDb();
   const encAccess = encrypt(tokens.accessToken);
   const encRefresh = encrypt(tokens.refreshToken);
-  db.prepare(`
+  db.prepare(
+    `
     INSERT OR REPLACE INTO provider_tokens (provider, access_token, refresh_token, expires_at)
     VALUES (?, ?, ?, ?)
-  `).run(provider, encAccess, encRefresh, tokens.expiresAt);
+  `,
+  ).run(provider, encAccess, encRefresh, tokens.expiresAt);
   logger.info(`Tokens saved for ${provider} (encrypted)`);
+}
+
+// Our encrypted format is exactly three base64 chunks joined by ':'. Real
+// OAuth tokens never look like that, so this cleanly separates "legacy
+// plaintext row" from "encrypted row we failed to decrypt".
+function looksEncrypted(value: unknown): boolean {
+  return typeof value === 'string' && value.split(':').length === 3;
 }
 
 export function loadTokens(provider: string): StoredTokens | null {
@@ -63,6 +72,18 @@ export function loadTokens(provider: string): StoredTokens | null {
       expiresAt: row.expires_at,
     };
   } catch {
+    // Only rows that DON'T look encrypted are legacy plaintext tokens. A row
+    // that looks encrypted but fails to decrypt (JWT_SECRET changed, corrupt
+    // data) must NOT be treated as plaintext — doing so would hand ciphertext
+    // to the provider as if it were a token AND re-encrypt it, permanently
+    // destroying the original. Leave the row intact (a restored JWT_SECRET
+    // can still decrypt it) and report as not authenticated.
+    if (looksEncrypted(row.access_token) || looksEncrypted(row.refresh_token)) {
+      logger.error(
+        `Cannot decrypt stored ${provider} tokens (JWT_SECRET changed or data corrupt) — re-connect the provider in Settings`,
+      );
+      return null;
+    }
     // Plaintext migration: old tokens stored unencrypted, re-encrypt them
     logger.info(`Migrating plaintext tokens for ${provider} to encrypted storage`);
     const tokens: StoredTokens = {

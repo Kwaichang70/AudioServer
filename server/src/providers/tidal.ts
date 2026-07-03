@@ -100,7 +100,8 @@ export class TidalProvider implements AuthenticatedMusicProvider {
       redirect_uri: redirectUri,
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
-      scope: 'user.read collection.read collection.write playlists.read playlists.write entitlements.read recommendations.read playback search.read search.write',
+      scope:
+        'user.read collection.read collection.write playlists.read playlists.write entitlements.read recommendations.read playback search.read search.write',
     });
     return `https://login.tidal.com/authorize?${params}`;
   }
@@ -132,7 +133,11 @@ export class TidalProvider implements AuthenticatedMusicProvider {
       throw new Error(`Tidal auth failed: ${error}`);
     }
 
-    const data = await res.json() as { access_token: string; refresh_token: string; expires_in: number };
+    const data = (await res.json()) as {
+      access_token: string;
+      refresh_token: string;
+      expires_in: number;
+    };
     this.tokens = {
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
@@ -160,7 +165,11 @@ export class TidalProvider implements AuthenticatedMusicProvider {
 
     if (!res.ok) throw new Error('Tidal token refresh failed');
 
-    const data = await res.json() as { access_token: string; refresh_token?: string; expires_in: number };
+    const data = (await res.json()) as {
+      access_token: string;
+      refresh_token?: string;
+      expires_in: number;
+    };
     this.tokens.accessToken = data.access_token;
     if (data.refresh_token) this.tokens.refreshToken = data.refresh_token;
     this.tokens.expiresAt = Date.now() + data.expires_in * 1000;
@@ -257,7 +266,9 @@ export class TidalProvider implements AuthenticatedMusicProvider {
         artistId: artist ? `tidal:${artist.id}` : '',
         artistName: artist?.attributes?.name || 'Unknown',
         year: attrs.releaseDate ? new Date(attrs.releaseDate).getFullYear() : undefined,
-        coverUrl: attrs.imageLinks?.find((l: any) => l.meta?.width >= 320)?.href || attrs.imageLinks?.[0]?.href,
+        coverUrl:
+          attrs.imageLinks?.find((l: any) => l.meta?.width >= 320)?.href ||
+          attrs.imageLinks?.[0]?.href,
         trackCount: attrs.numberOfItems,
         source: 'tidal',
       };
@@ -272,7 +283,9 @@ export class TidalProvider implements AuthenticatedMusicProvider {
     try {
       const rawId = albumId.replace('tidal:', '');
       // Use v2 API relationships endpoint
-      const response = await this.apiRequest(`/albums/${rawId}/relationships/items?include=items&page[limit]=100`);
+      const response = await this.apiRequest(
+        `/albums/${rawId}/relationships/items?include=items&page[limit]=100`,
+      );
       const tracks = (response.included || []).filter((i: any) => i.type === 'tracks');
       logger.info(`Tidal getAlbumTracks: found ${tracks.length} tracks`);
       if (tracks[0]) logger.info(`Tidal track sample: ${JSON.stringify(tracks[0]).slice(0, 500)}`);
@@ -299,20 +312,35 @@ export class TidalProvider implements AuthenticatedMusicProvider {
       // JSON:API format: fetch relationships separately
       const q = encodeURIComponent(query);
       const [artistsRes, albumsRes, tracksRes] = await Promise.allSettled([
-        this.apiRequest(`/searchResults/${q}/relationships/artists?include=artists&page[limit]=${limit}`),
-        this.apiRequest(`/searchResults/${q}/relationships/albums?include=albums&page[limit]=${limit}`),
-        this.apiRequest(`/searchResults/${q}/relationships/tracks?include=tracks&page[limit]=${limit}`),
+        this.apiRequest(
+          `/searchResults/${q}/relationships/artists?include=artists&page[limit]=${limit}`,
+        ),
+        this.apiRequest(
+          `/searchResults/${q}/relationships/albums?include=albums&page[limit]=${limit}`,
+        ),
+        this.apiRequest(
+          `/searchResults/${q}/relationships/tracks?include=tracks&page[limit]=${limit}`,
+        ),
       ]);
 
-      const artists = artistsRes.status === 'fulfilled'
-        ? (artistsRes.value.included || []).filter((i: any) => i.type === 'artists').map((a: any) => this.mapArtist(a))
-        : [];
-      const albums = albumsRes.status === 'fulfilled'
-        ? (albumsRes.value.included || []).filter((i: any) => i.type === 'albums').map((a: any) => this.mapAlbum(a))
-        : [];
-      const tracks = tracksRes.status === 'fulfilled'
-        ? (tracksRes.value.included || []).filter((i: any) => i.type === 'tracks').map((t: any) => this.mapTrack(t))
-        : [];
+      const artists =
+        artistsRes.status === 'fulfilled'
+          ? (artistsRes.value.included || [])
+              .filter((i: any) => i.type === 'artists')
+              .map((a: any) => this.mapArtist(a))
+          : [];
+      const albums =
+        albumsRes.status === 'fulfilled'
+          ? (albumsRes.value.included || [])
+              .filter((i: any) => i.type === 'albums')
+              .map((a: any) => this.mapAlbum(a))
+          : [];
+      const tracks =
+        tracksRes.status === 'fulfilled'
+          ? (tracksRes.value.included || [])
+              .filter((i: any) => i.type === 'tracks')
+              .map((t: any) => this.mapTrack(t))
+          : [];
 
       return { artists, albums, tracks, playlists: [] };
     } catch (err) {
@@ -327,7 +355,7 @@ export class TidalProvider implements AuthenticatedMusicProvider {
     try {
       // Try legacy API playbackinfopostpaywall endpoint
       const data = await this.legacyApiRequest(
-        `/tracks/${rawId}/playbackinfopostpaywall?audioquality=LOSSLESS&playbackmode=STREAM&assetpresentation=FULL`
+        `/tracks/${rawId}/playbackinfopostpaywall?audioquality=LOSSLESS&playbackmode=STREAM&assetpresentation=FULL`,
       );
       if (data.manifest) {
         // Manifest is base64-encoded JSON containing URLs
@@ -347,7 +375,9 @@ export class TidalProvider implements AuthenticatedMusicProvider {
     } catch (err) {
       // Fallback: try the v2 API track URL endpoint
       try {
-        const data = await this.legacyApiRequest(`/tracks/${rawId}/urlpostpaywall?urlusagemode=STREAM&audioquality=LOSSLESS&assetpresentation=FULL`);
+        const data = await this.legacyApiRequest(
+          `/tracks/${rawId}/urlpostpaywall?urlusagemode=STREAM&audioquality=LOSSLESS&assetpresentation=FULL`,
+        );
         if (data.urls && data.urls.length > 0) {
           logger.info(`Tidal: Got stream URL via urlpostpaywall for track ${rawId}`);
           return data.urls[0];
@@ -369,7 +399,9 @@ export class TidalProvider implements AuthenticatedMusicProvider {
         name: p.title,
         description: p.description || '',
         trackCount: p.numberOfTracks,
-        coverUrl: p.squareImage ? `https://resources.tidal.com/images/${p.squareImage.replace(/-/g, '/')}/320x320.jpg` : undefined,
+        coverUrl: p.squareImage
+          ? `https://resources.tidal.com/images/${p.squareImage.replace(/-/g, '/')}/320x320.jpg`
+          : undefined,
         source: 'tidal',
       }));
     } catch (err) {
@@ -395,7 +427,9 @@ export class TidalProvider implements AuthenticatedMusicProvider {
   async getFavoriteAlbums(): Promise<Album[]> {
     if (!this.auth.isAuthenticated) return [];
     try {
-      const data = await this.legacyApiRequest('/users/me/favorites/albums?limit=50&order=DATE&orderDirection=DESC');
+      const data = await this.legacyApiRequest(
+        '/users/me/favorites/albums?limit=50&order=DATE&orderDirection=DESC',
+      );
       return (data.items || []).map((item: any) => this.mapLegacyAlbum(item.item));
     } catch (err) {
       logger.warn(`Tidal: Failed to get favorite albums: ${err}`);
@@ -406,7 +440,9 @@ export class TidalProvider implements AuthenticatedMusicProvider {
   async getFavoriteTracks(): Promise<Track[]> {
     if (!this.auth.isAuthenticated) return [];
     try {
-      const data = await this.legacyApiRequest('/users/me/favorites/tracks?limit=100&order=DATE&orderDirection=DESC');
+      const data = await this.legacyApiRequest(
+        '/users/me/favorites/tracks?limit=100&order=DATE&orderDirection=DESC',
+      );
       return (data.items || []).map((item: any) => this.mapLegacyTrack(item.item));
     } catch (err) {
       logger.warn(`Tidal: Failed to get favorite tracks: ${err}`);
@@ -417,11 +453,15 @@ export class TidalProvider implements AuthenticatedMusicProvider {
   async getFavoriteArtists(): Promise<Artist[]> {
     if (!this.auth.isAuthenticated) return [];
     try {
-      const data = await this.legacyApiRequest('/users/me/favorites/artists?limit=50&order=DATE&orderDirection=DESC');
+      const data = await this.legacyApiRequest(
+        '/users/me/favorites/artists?limit=50&order=DATE&orderDirection=DESC',
+      );
       return (data.items || []).map((item: any) => ({
         id: `tidal:${item.item.id}`,
         name: item.item.name,
-        imageUrl: item.item.picture ? `https://resources.tidal.com/images/${item.item.picture.replace(/-/g, '/')}/320x320.jpg` : undefined,
+        imageUrl: item.item.picture
+          ? `https://resources.tidal.com/images/${item.item.picture.replace(/-/g, '/')}/320x320.jpg`
+          : undefined,
         source: 'tidal' as const,
       }));
     } catch (err) {
@@ -446,7 +486,8 @@ export class TidalProvider implements AuthenticatedMusicProvider {
   private mapAlbum(data: any): Album {
     const attrs = data.attributes || data;
     // Cover art from JSON:API imageLinks
-    const imageLink = attrs.imageLinks?.find((l: any) => l.meta?.width >= 320) || attrs.imageLinks?.[0];
+    const imageLink =
+      attrs.imageLinks?.find((l: any) => l.meta?.width >= 320) || attrs.imageLinks?.[0];
     return {
       id: `tidal:${data.id}`,
       title: attrs.title,
@@ -481,7 +522,7 @@ export class TidalProvider implements AuthenticatedMusicProvider {
       title: data.title,
       albumId: `tidal:${data.album?.id || ''}`,
       albumTitle: data.album?.title || '',
-      artistId: `tidal:${data.artist?.id ? `tidal:${data.artist.id}` : ''}`,
+      artistId: `tidal:${data.artist?.id ?? ''}`,
       artistName: data.artist?.name || data.artists?.[0]?.name || 'Unknown',
       trackNumber: data.trackNumber,
       duration: data.duration,
@@ -496,7 +537,9 @@ export class TidalProvider implements AuthenticatedMusicProvider {
       artistId: data.artist?.id ? `tidal:${data.artist.id}` : '',
       artistName: data.artist?.name || data.artists?.[0]?.name || 'Unknown',
       year: data.releaseDate ? new Date(data.releaseDate).getFullYear() : undefined,
-      coverUrl: data.cover ? `https://resources.tidal.com/images/${data.cover.replace(/-/g, '/')}/640x640.jpg` : undefined,
+      coverUrl: data.cover
+        ? `https://resources.tidal.com/images/${data.cover.replace(/-/g, '/')}/640x640.jpg`
+        : undefined,
       trackCount: data.numberOfTracks,
       source: 'tidal',
     };
