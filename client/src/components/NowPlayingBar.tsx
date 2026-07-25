@@ -197,6 +197,18 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
           >
             {repeat === 'one' ? <RepeatOneIcon size={18} /> : <RepeatIcon size={18} />}
           </button>
+          {/* Mobile/tablet: the desktop queue popup lives in the hidden-md
+              section, so navigate to the full Queue page instead. */}
+          {queue.length > 0 && (
+            <button
+              onClick={() => navigate('/queue')}
+              className="md:hidden text-[11px] px-1.5 py-0.5 rounded text-gray-500 hover:text-white bg-white/5 transition"
+              title="Open queue"
+              aria-label="Open queue"
+            >
+              {queueIndex + 1}/{queue.length}
+            </button>
+          )}
         </div>
         {selectedDeviceId !== 'browser' && (
           <p className="text-[10px] text-gray-500 mb-0.5">Playing on external device</p>
@@ -251,6 +263,8 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
           <button
             onClick={() => setShowQueue(!showQueue)}
             className={`text-xs px-2 py-0.5 rounded transition ${showQueue ? 'bg-accent text-white' : 'text-gray-500 hover:text-white'}`}
+            title="Toggle queue"
+            aria-label="Toggle queue"
           >
             {queueIndex + 1}/{queue.length}
           </button>

@@ -46,6 +46,8 @@ interface AudioContextValue {
   selectedDeviceId: string;
   playTrack: (track: TrackInfo) => void;
   playAlbum: (tracks: TrackInfo[]) => void;
+  /** Jump to a queue position and play it — without replacing the queue. */
+  playQueueIndex: (index: number) => void;
   addToQueue: (track: TrackInfo) => void;
   clearQueue: () => void;
   removeFromQueue: (index: number) => void;
@@ -330,6 +332,18 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       setQueue(tracks);
       setQueueIndex(0);
       startTrack(tracks[0]);
+    },
+    [startTrack],
+  );
+
+  // Play a specific position in the EXISTING queue (QueuePage taps). playTrack
+  // would replace the whole queue with just that track.
+  const playQueueIndex = useCallback(
+    (index: number) => {
+      const track = queueRef.current[index];
+      if (!track) return;
+      setQueueIndex(index);
+      startTrack(track);
     },
     [startTrack],
   );
@@ -739,6 +753,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       selectedDeviceId,
       playTrack,
       playAlbum,
+      playQueueIndex,
       addToQueue,
       clearQueue,
       removeFromQueue,
@@ -772,6 +787,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       selectedDeviceId,
       playTrack,
       playAlbum,
+      playQueueIndex,
       addToQueue,
       clearQueue,
       removeFromQueue,

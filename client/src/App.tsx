@@ -22,6 +22,7 @@ const DiscoverPage = lazy(() => import('./pages/DiscoverPage.js'));
 const GenresPage = lazy(() => import('./pages/GenresPage.js'));
 const RadioPage = lazy(() => import('./pages/RadioPage.js'));
 const SmartPlaylistsPage = lazy(() => import('./pages/SmartPlaylistsPage.js'));
+const QueuePage = lazy(() => import('./pages/QueuePage.js'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage.js'));
 const OAuthCallbackPage = lazy(() => import('./pages/OAuthCallbackPage.js'));
 
@@ -94,6 +95,7 @@ export default function App() {
             <Route path="/playlists" element={<PlaylistsPage />} />
             <Route path="/playlists/:id" element={<PlaylistPage />} />
             <Route path="/search" element={<SearchPage />} />
+            <Route path="/queue" element={<QueuePage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
           <Route path="/settings/callback/:provider" element={<OAuthCallbackPage />} />

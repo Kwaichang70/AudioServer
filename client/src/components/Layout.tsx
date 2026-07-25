@@ -8,6 +8,7 @@ const NowPlayingFull = lazy(() => import('./NowPlayingFull.js'));
 
 const navItems = [
   { to: '/', label: 'Home' },
+  { to: '/queue', label: 'Queue' },
   { to: '/albums', label: 'Albums' },
   { to: '/artists', label: 'Artists' },
   { to: '/genres', label: 'Genres' },

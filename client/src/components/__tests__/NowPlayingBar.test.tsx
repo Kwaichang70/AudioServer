@@ -167,7 +167,7 @@ describe('NowPlayingBar', () => {
   it('opens queue controls and clears the queue', () => {
     renderBar();
 
-    fireEvent.click(screen.getByText('1/2'));
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle queue' }));
 
     expect(screen.getByText('Queue (2 tracks)')).toBeInTheDocument();
     expect(screen.getAllByText('Night Drive').length).toBeGreaterThan(0);

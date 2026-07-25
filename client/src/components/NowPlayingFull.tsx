@@ -1,4 +1,5 @@
 import { useState, lazy, Suspense } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAudioContext, useProgress } from '../context/AudioContext.js';
 import { api } from '../api/client.js';
 import { formatTime } from '../utils/format.js';
@@ -22,6 +23,7 @@ interface Props {
 }
 
 export default function NowPlayingFull({ onClose }: Props) {
+  const navigate = useNavigate();
   const {
     currentTrack,
     isPlaying,
@@ -138,7 +140,18 @@ export default function NowPlayingFull({ onClose }: Props) {
             </div>
           ) : queue.length > 0 && queueIndex < queue.length - 1 ? (
             <div className="w-full mt-4">
-              <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Up Next</p>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs text-gray-500 uppercase tracking-wider">Up Next</p>
+                <button
+                  onClick={() => {
+                    onClose();
+                    navigate('/queue');
+                  }}
+                  className="text-xs text-accent hover:underline"
+                >
+                  View all
+                </button>
+              </div>
               <div className="space-y-1 max-h-48 overflow-y-auto">
                 {queue.slice(queueIndex + 1, queueIndex + 6).map((track, i) => (
                   <div
