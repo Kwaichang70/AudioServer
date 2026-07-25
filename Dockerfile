@@ -32,6 +32,11 @@ COPY server/ server/
 COPY client/ client/
 
 RUN npm ci
+# Stale incremental-build caches make tsc think everything is already built
+# and emit NOTHING (shared/dist then never exists and the image COPY fails).
+# .dockerignore excludes them too; this is the belt-and-braces for contexts
+# where an old cache was rsynced in (the NAS overlay deploy).
+RUN find . -name '*.tsbuildinfo' -not -path './node_modules/*' -delete
 RUN npm run build --workspace=shared
 RUN npm run build --workspace=client
 
