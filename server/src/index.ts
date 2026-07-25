@@ -22,12 +22,13 @@ import { smartPlaylistsRouter } from './routes/smart-playlists.js';
 import { scrobbleRouter } from './routes/scrobble.js';
 import { listenbrainzRouter } from './routes/listenbrainz.js';
 import { scrobbler } from './services/scrobbler.js';
-import { initDatabase } from './db/index.js';
+import { closeDatabase, initDatabase } from './db/index.js';
 import { providers } from './providers/registry.js';
 import { autoStartLibrespot, stopLibrespot } from './services/librespot.js';
 import { playbackService } from './services/playback.js';
 import { startWatcher, stopWatcher } from './services/watcher.js';
 import { deviceMonitor } from './services/device-monitor.js';
+import { initServerPlayer } from './services/server-player.js';
 import { globalLimiter } from './middleware/rateLimiter.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { attachUser, requireAuth } from './middleware/auth.js';
@@ -101,6 +102,10 @@ app.use('/api/scrobble', scrobbleRouter);
 app.use('/api/listenbrainz', listenbrainzRouter);
 app.use('/api/librespot', librespotRouter);
 
+// API 404 must precede the SPA catch-all: otherwise an unknown GET /api/*
+// route is answered with index.html and a misleading 200 in production.
+app.use('/api', notFoundHandler);
+
 // In production, serve client static files
 if (config.nodeEnv === 'production') {
   const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -114,9 +119,6 @@ if (config.nodeEnv === 'production') {
   }
 }
 
-// 404 for unmatched /api/* paths (must come after all routes, before errorHandler)
-app.use('/api', notFoundHandler);
-
 // Global error handler — must be LAST (Express recognises it by 4-arity)
 app.use(errorHandler);
 
@@ -127,6 +129,9 @@ async function main() {
   await initDatabase();
   await providers.initialize();
   playbackService.initialize();
+  // Server-driven playback: pushes the next queue track to DLNA/Sonos devices
+  // itself, so albums keep playing when every client (tablet) is asleep.
+  initServerPlayer();
   startWatcher();
   scrobbler.start();
   autoStartLibrespot().catch(() => {});
@@ -140,34 +145,56 @@ async function main() {
 
 // ─── Graceful Shutdown ───────────────────────────────────────────
 
-function shutdown(signal: string) {
-  logger.info(`${signal} received, shutting down gracefully...`);
+let shutdownPromise: Promise<void> | null = null;
 
-  const timeout = setTimeout(() => {
-    logger.error('Shutdown timeout (10s), forcing exit');
-    process.exit(1);
-  }, 10_000);
+function shutdown(signal: string): Promise<void> {
+  if (shutdownPromise) return shutdownPromise;
 
-  httpServer.close(() => {
-    logger.info('HTTP server closed');
-  });
+  shutdownPromise = (async () => {
+    logger.info(`${signal} received, shutting down gracefully...`);
+    const timeout = setTimeout(() => {
+      logger.error('Shutdown timeout (10s), forcing exit');
+      process.exit(1);
+    }, 10_000);
 
-  try {
-    getIO().close();
-  } catch {}
-  try {
-    deviceMonitor.stopAll();
-  } catch {}
-  try {
-    stopWatcher();
-  } catch {}
-  try {
-    stopLibrespot();
-  } catch {}
+    try {
+      scrobbler.stop();
+      deviceMonitor.stopAll();
+      stopWatcher();
+      stopLibrespot();
 
-  clearTimeout(timeout);
-  logger.info('Shutdown complete');
-  process.exit(0);
+      await new Promise<void>((resolveSocketClose) => {
+        try {
+          getIO().close((error) => {
+            if (error) logger.warn(`Socket.IO close reported: ${error.message}`);
+            resolveSocketClose();
+          });
+        } catch {
+          resolveSocketClose();
+        }
+      });
+
+      if (httpServer.listening) {
+        await new Promise<void>((resolveClose, rejectClose) => {
+          httpServer.close((error) => {
+            if (error) rejectClose(error);
+            else resolveClose();
+          });
+        });
+      }
+      logger.info('HTTP server closed');
+      closeDatabase();
+      clearTimeout(timeout);
+      logger.info('Shutdown complete');
+      process.exit(0);
+    } catch (error) {
+      clearTimeout(timeout);
+      logger.error(`Shutdown failed: ${error}`);
+      process.exit(1);
+    }
+  })();
+
+  return shutdownPromise;
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));

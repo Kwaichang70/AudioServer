@@ -66,14 +66,31 @@ interface TrackRow {
   source: string | null;
 }
 
+/**
+ * Hooks that let a server-side player (services/server-player.ts) react when
+ * THIS service advances the queue or goes idle — that's what pushes the next
+ * track to a DLNA/Sonos device without any client involvement, so playback
+ * continues while the tablet sleeps. Injected instead of imported to keep
+ * playback.ts free of device/network dependencies (and import cycles).
+ */
+export interface PlaybackHooks {
+  onAdvance?: (deviceId: string, track: TrackInfo) => void;
+  onIdle?: (deviceId: string) => void;
+}
+
 export class PlaybackService {
   private state: PersistedState;
   private queue: QueueEntry[] = [];
   private queueIndex = -1;
   private currentTrack: TrackInfo | null = null;
+  private hooks: PlaybackHooks = {};
 
   constructor() {
     this.state = this.defaultState();
+  }
+
+  setHooks(hooks: PlaybackHooks): void {
+    this.hooks = hooks;
   }
 
   private defaultState(): PersistedState {
@@ -193,6 +210,7 @@ export class PlaybackService {
     this.state.position = 0;
     this.persistState();
     this.emitState();
+    this.hooks.onIdle?.(this.state.deviceId);
   }
 
   setVolume(volume: number): void {
@@ -228,18 +246,20 @@ export class PlaybackService {
     return this.queueIndex;
   }
 
-  setQueue(tracks: TrackInfo[]): void {
+  setQueue(tracks: TrackInfo[], startIndex = 0): void {
+    // Display fields fall back to '' — queue_items columns are NOT NULL and
+    // the /queue/set route only requires a track id.
     this.queue = tracks.map((t, i) => ({
       trackId: t.id,
-      trackTitle: t.title,
-      artistName: t.artistName,
-      albumTitle: t.albumTitle,
+      trackTitle: t.title ?? 'Unknown',
+      artistName: t.artistName ?? '',
+      albumTitle: t.albumTitle ?? '',
       albumId: t.albumId,
       duration: t.duration,
       source: t.source,
       position: i,
     }));
-    this.queueIndex = 0;
+    this.queueIndex = Math.max(0, Math.min(startIndex, this.queue.length - 1));
     this.persistQueue();
     this.emitQueue();
   }
@@ -267,7 +287,7 @@ export class PlaybackService {
     this.queue.forEach((item, i) => {
       item.position = i;
     });
-    if (index < this.queueIndex) {
+    if (index <= this.queueIndex) {
       this.queueIndex--;
     } else if (this.queueIndex >= this.queue.length) {
       this.queueIndex = Math.max(0, this.queue.length - 1);
@@ -310,6 +330,7 @@ export class PlaybackService {
       if (this.state.repeat === 'one' && this.currentTrack) {
         this.play(this.currentTrack);
         this.emitTrackChanged(this.currentTrack);
+        this.hooks.onAdvance?.(this.state.deviceId, this.currentTrack);
         return this.currentTrack;
       }
       this.finishQueue();
@@ -318,10 +339,14 @@ export class PlaybackService {
 
     if (this.state.repeat === 'one') {
       const current = this.queue[this.queueIndex];
-      const track = current ? this.queueEntryToTrackInfo(current) : this.currentTrack;
+      const track =
+        current && current.trackId === this.currentTrack?.id
+          ? this.queueEntryToTrackInfo(current)
+          : this.currentTrack;
       if (track) {
         this.play(track);
         this.emitTrackChanged(track);
+        this.hooks.onAdvance?.(this.state.deviceId, track);
         return track;
       }
       return null;
@@ -353,6 +378,7 @@ export class PlaybackService {
     const track = this.queueEntryToTrackInfo(entry);
     this.play(track);
     this.emitTrackChanged(track);
+    this.hooks.onAdvance?.(this.state.deviceId, track);
     return track;
   }
 
@@ -361,6 +387,7 @@ export class PlaybackService {
     this.state.position = this.currentTrack?.duration ?? this.state.position;
     this.persistState();
     this.emitState();
+    this.hooks.onIdle?.(this.state.deviceId);
   }
 
   private queueEntryToTrackInfo(entry: QueueEntry): TrackInfo {
@@ -449,12 +476,12 @@ export class PlaybackService {
   private persistQueue(): void {
     try {
       const db = getRawDb();
-      db.prepare('DELETE FROM queue_items').run();
       const insert = db.prepare(`
         INSERT INTO queue_items (track_id, track_title, artist_name, album_title, album_id, duration, source, position)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const insertAll = db.transaction(() => {
+        db.prepare('DELETE FROM queue_items').run();
         for (const item of this.queue) {
           insert.run(
             item.trackId,

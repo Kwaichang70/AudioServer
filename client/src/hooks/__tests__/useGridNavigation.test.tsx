@@ -9,7 +9,8 @@ import { useGridNavigation } from '../useGridNavigation';
 function Grid({ count }: { count: number }) {
   const { containerRef, onKeyDown } = useGridNavigation<HTMLDivElement>(count);
   return (
-    <div ref={containerRef} onKeyDown={onKeyDown} data-testid="grid">
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- test harness delegates to focusable links
+    <div ref={containerRef} onKeyDown={onKeyDown} role="group" data-testid="grid">
       {Array.from({ length: count }, (_, i) => (
         // eslint-disable-next-line jsx-a11y/anchor-is-valid
         <a key={i} href="#" data-grid-item data-testid={`item-${i}`}>
@@ -75,7 +76,8 @@ function VerticalList({ count }: { count: number }) {
     orientation: 'vertical',
   });
   return (
-    <div ref={containerRef} onKeyDown={onKeyDown} data-testid="list">
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- test harness delegates to focusable buttons
+    <div ref={containerRef} onKeyDown={onKeyDown} role="group" data-testid="list">
       {Array.from({ length: count }, (_, i) => (
         <button key={i} type="button" data-grid-item data-testid={`row-${i}`}>
           row {i}

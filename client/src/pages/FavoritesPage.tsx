@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import AlbumCover from '../components/AlbumCover.js';
@@ -26,7 +26,7 @@ interface FavTrack {
   artistName: string;
   albumTitle: string;
   albumId: string;
-  duration: number;
+  duration?: number;
 }
 
 interface FavStation {
@@ -45,37 +45,54 @@ export default function FavoritesPage() {
   const [tracks, setTracks] = useState<FavTrack[]>([]);
   const [stations, setStations] = useState<FavStation[]>([]);
   const [loading, setLoading] = useState(true);
+  const requestEpochRef = useRef(0);
   const { playTrack } = useAudioContext();
   const trackNav = useGridNavigation<HTMLDivElement>(tracks.length, { orientation: 'vertical' });
 
   useEffect(() => {
+    const requestEpoch = ++requestEpochRef.current;
+    const isCurrent = () => requestEpochRef.current === requestEpoch;
     setLoading(true);
-    const done = () => setLoading(false);
+    const done = () => {
+      if (isCurrent()) setLoading(false);
+    };
     if (tab === 'album') {
       api
         .getFavorites('album')
-        .then((res) => setAlbums(res.data))
+        .then((res) => {
+          if (isCurrent()) setAlbums(res.data);
+        })
         .catch(() => {})
         .finally(done);
     } else if (tab === 'artist') {
       api
         .getFavorites('artist')
-        .then((res) => setArtists(res.data))
+        .then((res) => {
+          if (isCurrent()) setArtists(res.data);
+        })
         .catch(() => {})
         .finally(done);
     } else if (tab === 'station') {
       api
         .getFavorites('station')
-        .then((res) => setStations(res.data))
+        .then((res) => {
+          if (isCurrent()) setStations(res.data);
+        })
         .catch(() => {})
         .finally(done);
     } else {
       api
         .getFavoriteTracks()
-        .then((res) => setTracks(res.data))
+        .then((res) => {
+          if (isCurrent()) setTracks(res.data);
+        })
         .catch(() => {})
         .finally(done);
     }
+
+    return () => {
+      if (isCurrent()) requestEpochRef.current += 1;
+    };
   }, [tab]);
 
   const tabs: { key: Tab; label: string }[] = [
@@ -179,7 +196,14 @@ export default function FavoritesPage() {
         (tracks.length === 0 ? (
           <p className="text-gray-500 py-12 text-center">No favorite tracks yet.</p>
         ) : (
-          <div ref={trackNav.containerRef} onKeyDown={trackNav.onKeyDown} className="space-y-1">
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- delegates arrow keys to focusable track buttons
+          <div
+            ref={trackNav.containerRef}
+            onKeyDown={trackNav.onKeyDown}
+            role="group"
+            aria-label="Favorite tracks"
+            className="space-y-1"
+          >
             {tracks.map((track) => (
               <button
                 key={track.id}

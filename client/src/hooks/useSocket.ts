@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { SOCKET_RECONNECT_ATTEMPTS, SOCKET_RECONNECT_DELAY, STORAGE_KEYS } from '../constants.js';
 
@@ -94,7 +94,7 @@ export function useSocket(): UseSocketReturn {
     };
   }, []);
 
-  const subscribeDevice = (deviceId: string) => {
+  const subscribeDevice = useCallback((deviceId: string) => {
     // Unsubscribe from previous device
     if (subscribedDeviceRef.current && subscribedDeviceRef.current !== deviceId) {
       socketRef.current?.emit('device:unsubscribe', subscribedDeviceRef.current);
@@ -103,21 +103,24 @@ export function useSocket(): UseSocketReturn {
     if (deviceId !== 'browser') {
       socketRef.current?.emit('device:subscribe', deviceId);
     }
-  };
+  }, []);
 
-  const unsubscribeDevice = (deviceId: string) => {
+  const unsubscribeDevice = useCallback((deviceId: string) => {
     socketRef.current?.emit('device:unsubscribe', deviceId);
     if (subscribedDeviceRef.current === deviceId) {
       subscribedDeviceRef.current = null;
     }
-  };
+  }, []);
 
-  return {
-    connected,
-    deviceUpdate,
-    trackChanged,
-    scanProgress,
-    subscribeDevice,
-    unsubscribeDevice,
-  };
+  return useMemo(
+    () => ({
+      connected,
+      deviceUpdate,
+      trackChanged,
+      scanProgress,
+      subscribeDevice,
+      unsubscribeDevice,
+    }),
+    [connected, deviceUpdate, trackChanged, scanProgress, subscribeDevice, unsubscribeDevice],
+  );
 }

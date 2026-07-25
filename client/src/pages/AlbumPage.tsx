@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
@@ -40,6 +40,8 @@ export default function AlbumPage() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [favorited, setFavorited] = useState(false);
   const { playTrack, playAlbum, currentTrack, isPlaying } = useAudioContext();
+  const activeAlbumIdRef = useRef(id);
+  activeAlbumIdRef.current = id;
 
   const providerType = id?.startsWith('spotify:')
     ? 'spotify'
@@ -51,6 +53,7 @@ export default function AlbumPage() {
 
   useEffect(() => {
     if (!id) return;
+    let cancelled = false;
 
     // Reset before fetching: navigating album → album must not keep showing
     // the previous album's data (or its favorite state) under the new URL
@@ -63,54 +66,77 @@ export default function AlbumPage() {
       const spotifyId = id.replace('spotify:', '');
       api
         .getSpotifyAlbum(spotifyId)
-        .then((res) => setAlbum(res.data))
+        .then((res) => {
+          if (!cancelled) setAlbum(res.data);
+        })
         .catch(() => {});
       api
         .getSpotifyAlbumTracks(spotifyId)
-        .then((res) => setTracks(res.data))
+        .then((res) => {
+          if (!cancelled) setTracks(res.data);
+        })
         .catch(() => {});
     } else if (providerType === 'qobuz') {
       const qobuzId = id.replace('qobuz:', '');
       api
         .getQobuzAlbum(qobuzId)
-        .then((res) => setAlbum(res.data))
+        .then((res) => {
+          if (!cancelled) setAlbum(res.data);
+        })
         .catch(() => {});
       api
         .getQobuzAlbumTracks(qobuzId)
-        .then((res) => setTracks(res.data))
+        .then((res) => {
+          if (!cancelled) setTracks(res.data);
+        })
         .catch(() => {});
     } else if (providerType === 'tidal') {
       const tidalId = id.replace('tidal:', '');
       api
         .getTidalAlbum(tidalId)
-        .then((res) => setAlbum(res.data))
+        .then((res) => {
+          if (!cancelled) setAlbum(res.data);
+        })
         .catch(() => {});
       api
         .getTidalAlbumTracks(tidalId)
-        .then((res) => setTracks(res.data))
+        .then((res) => {
+          if (!cancelled) setTracks(res.data);
+        })
         .catch(() => {});
     } else {
       // .catch: an album pruned by a re-scan 404s here — swallow it (the page
       // keeps its Loading state) instead of surfacing an unhandled rejection.
       api
         .getAlbum(id)
-        .then((res) => setAlbum(res.data))
+        .then((res) => {
+          if (!cancelled) setAlbum(res.data);
+        })
         .catch(() => {});
       api
         .getAlbumTracks(id)
-        .then((res) => setTracks(res.data))
+        .then((res) => {
+          if (!cancelled) setTracks(res.data);
+        })
         .catch(() => {});
       api
         .checkFavorite('album', id)
-        .then((res) => setFavorited(res.data.favorited))
+        .then((res) => {
+          if (!cancelled) setFavorited(res.data.favorited);
+        })
         .catch(() => {});
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, [id, providerType]);
 
   const toggleFavorite = async () => {
     if (!id) return;
+    const albumId = id;
     const res = await api.toggleFavorite('album', id);
-    setFavorited(res.data.favorited);
+    if (activeAlbumIdRef.current === albumId) setFavorited(res.data.favorited);
   };
 
   if (!album) return <p className="text-gray-400">Loading...</p>;
@@ -155,6 +181,7 @@ export default function AlbumPage() {
               Play Album
             </button>
             <button
+              type="button"
               onClick={toggleFavorite}
               className={`w-9 h-9 rounded-full border flex items-center justify-center transition text-lg ${
                 favorited
@@ -162,6 +189,12 @@ export default function AlbumPage() {
                   : 'border-white/20 text-gray-500 hover:border-accent hover:text-accent'
               }`}
               title={favorited ? 'Remove from favorites' : 'Add to favorites'}
+              aria-label={
+                favorited
+                  ? `Remove ${album.title} from favorites`
+                  : `Add ${album.title} to favorites`
+              }
+              aria-pressed={favorited}
             >
               {favorited ? '\u2665' : '\u2661'}
             </button>
@@ -199,10 +232,20 @@ export default function AlbumPage() {
                   )}
                 </td>
                 <td className="py-2.5">
-                  <p className="text-sm font-medium">{track.title}</p>
-                  {track.artistName !== album.artistName && (
-                    <p className="text-xs text-gray-500">{track.artistName}</p>
-                  )}
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      playTrack(track);
+                    }}
+                    className="w-full rounded text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    aria-label={`Play ${track.title} by ${track.artistName}`}
+                  >
+                    <span className="block text-sm font-medium">{track.title}</span>
+                    {track.artistName !== album.artistName && (
+                      <span className="block text-xs text-gray-500">{track.artistName}</span>
+                    )}
+                  </button>
                 </td>
                 <td className="py-2.5 text-xs text-gray-500 hidden md:table-cell">
                   {formatQuality(track)}

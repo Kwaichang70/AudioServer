@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { Track, Album, Artist, SearchResults, NowPlaying, OutputDevice, DeviceController } from '@audioserver/shared';
+import type { Track, Album, SearchResults, NowPlaying, OutputDevice } from '@audioserver/shared';
 
 describe('Shared types compile-time contracts', () => {
   it('Track has all required fields', () => {

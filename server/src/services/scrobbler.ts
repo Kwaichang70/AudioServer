@@ -22,11 +22,38 @@ interface ScrobbleConfig {
   listenbrainzToken: string | null;
 }
 
+interface ScrobbleConfigRow {
+  lastfm_enabled: number;
+  lastfm_session_key: string | null;
+  lastfm_username: string | null;
+  listenbrainz_enabled: number;
+  listenbrainz_token: string | null;
+}
+
+interface ScrobbleQueueRow {
+  id: number;
+  service: 'lastfm' | 'listenbrainz';
+  track_title: string;
+  artist_name: string;
+  album_title: string | null;
+  duration: number | null;
+  timestamp: number;
+}
+
+interface LastfmResponse {
+  error?: number;
+  message?: string;
+  token?: string;
+  session?: { key: string; name: string };
+}
+
 // ─── Config ──────────────────────────────────────────────────────
 
 function getConfig(): ScrobbleConfig {
   const db = getRawDb();
-  const row = db.prepare('SELECT * FROM scrobble_config WHERE id = 1').get() as any;
+  const row = db.prepare('SELECT * FROM scrobble_config WHERE id = 1').get() as
+    | ScrobbleConfigRow
+    | undefined;
   if (!row) {
     return {
       lastfmEnabled: false,
@@ -52,7 +79,7 @@ function saveConfig(config: Partial<ScrobbleConfig>): void {
     db.prepare('INSERT INTO scrobble_config (id) VALUES (1)').run();
   }
   const sets: string[] = [];
-  const params: any[] = [];
+  const params: Array<string | number | null> = [];
   if (config.lastfmEnabled !== undefined) {
     sets.push('lastfm_enabled = ?');
     params.push(config.lastfmEnabled ? 1 : 0);
@@ -101,9 +128,9 @@ async function lastfmGetSession(token: string): Promise<{ key: string; name: str
 
   const qs = new URLSearchParams(params).toString();
   const res = await fetch(`${LASTFM_API_URL}?${qs}`);
-  const data = (await res.json()) as any;
-  if (data.error) throw new Error(data.message || 'Last.fm auth failed');
-  return { key: data.session.key, name: data.session.name };
+  const data = (await res.json()) as LastfmResponse;
+  if (data.error || !data.session) throw new Error(data.message || 'Last.fm auth failed');
+  return data.session;
 }
 
 // auth.getToken (signed) → a request token to put in the authorize URL. The
@@ -114,7 +141,7 @@ async function lastfmGetToken(): Promise<string> {
   params.api_sig = lastfmSign(params);
   params.format = 'json';
   const res = await fetch(`${LASTFM_API_URL}?${new URLSearchParams(params).toString()}`);
-  const data = (await res.json()) as any;
+  const data = (await res.json()) as LastfmResponse;
   if (data.error || !data.token) throw new Error(data.message || 'Last.fm getToken failed');
   return data.token as string;
 }
@@ -144,7 +171,7 @@ async function lastfmScrobble(
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(params),
   });
-  const data = (await res.json()) as any;
+  const data = (await res.json()) as LastfmResponse;
   return !data.error;
 }
 
@@ -231,21 +258,21 @@ async function listenbrainzNowPlaying(track: ScrobbleTrack, token: string): Prom
 
 // ─── Queue Processing ────────────────────────────────────────────
 
-async function processQueue(): Promise<void> {
+async function processQueueItems(): Promise<void> {
   const db = getRawDb();
   const config = getConfig();
   const pending = db
     .prepare(
       "SELECT * FROM scrobble_queue WHERE status = 'pending' AND retries < 5 ORDER BY timestamp ASC LIMIT 50",
     )
-    .all() as any[];
+    .all() as ScrobbleQueueRow[];
 
   for (const item of pending) {
     const track: ScrobbleTrack = {
       title: item.track_title,
       artist: item.artist_name,
-      album: item.album_title,
-      duration: item.duration,
+      album: item.album_title ?? undefined,
+      duration: item.duration ?? undefined,
     };
 
     let success = false;
@@ -273,6 +300,17 @@ async function processQueue(): Promise<void> {
   }
 }
 
+let queueProcessing: Promise<void> | null = null;
+
+function processQueue(): Promise<void> {
+  if (queueProcessing) return queueProcessing;
+  const run = processQueueItems().finally(() => {
+    if (queueProcessing === run) queueProcessing = null;
+  });
+  queueProcessing = run;
+  return run;
+}
+
 // ─── Public API ──────────────────────────────────────────────────
 
 let queueInterval: ReturnType<typeof setInterval> | null = null;
@@ -280,6 +318,7 @@ let queueInterval: ReturnType<typeof setInterval> | null = null;
 export const scrobbler = {
   getConfig,
   saveConfig,
+  flush: processQueue,
 
   /** Start periodic queue processing */
   start() {
@@ -366,7 +405,7 @@ export const scrobbler = {
     const res = await fetch(`${LISTENBRAINZ_API_URL}/validate-token`, {
       headers: { Authorization: `Token ${token}` },
     });
-    const data = (await res.json()) as any;
+    const data = (await res.json()) as { valid?: boolean };
     if (data.valid) {
       saveConfig({ listenbrainzEnabled: true, listenbrainzToken: token });
       return true;

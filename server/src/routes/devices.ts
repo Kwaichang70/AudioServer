@@ -7,6 +7,14 @@ import { logger } from '../logger.js';
 
 export const devicesRouter = Router();
 
+export function buildDeviceCoverUrl(streamUrl: string, albumId: string): string {
+  const stream = new URL(streamUrl);
+  const cover = new URL(`/api/library/albums/${encodeURIComponent(albumId)}/cover`, stream.origin);
+  const streamToken = stream.searchParams.get('t');
+  if (streamToken) cover.searchParams.set('t', streamToken);
+  return cover.toString();
+}
+
 devicesRouter.get('/', async (_req, res) => {
   const devices = await deviceManager.getDevices();
   res.json({ data: devices });
@@ -28,7 +36,8 @@ devicesRouter.get('/:id/status', async (req, res) => {
 
 devicesRouter.post('/:id/play', async (req, res) => {
   try {
-    let { streamUrl, metadata, trackId } = req.body;
+    const { streamUrl, trackId } = req.body;
+    let { metadata } = req.body;
 
     // If trackId provided, enrich metadata with format info from DB
     if (trackId && !metadata?.mimeType) {
@@ -36,12 +45,17 @@ devicesRouter.post('/:id/play', async (req, res) => {
       const track = db.select().from(tracks).where(eq(tracks.id, trackId)).get();
       if (track) {
         const mimeTypes: Record<string, string> = {
-          flac: 'audio/flac', mp3: 'audio/mpeg', m4a: 'audio/mp4',
-          aac: 'audio/aac', ogg: 'audio/ogg', wav: 'audio/wav', opus: 'audio/opus',
+          flac: 'audio/flac',
+          mp3: 'audio/mpeg',
+          m4a: 'audio/mp4',
+          aac: 'audio/aac',
+          ogg: 'audio/ogg',
+          wav: 'audio/wav',
+          opus: 'audio/opus',
         };
-        // Build cover URL from the stream URL base
-        const baseUrl = streamUrl.replace(/\/api\/library\/tracks\/.*/, '');
-        const coverUrl = `${baseUrl}/api/library/albums/${track.albumId}/cover`;
+        // Reuse the stream token: renderers cannot attach our Bearer header when
+        // they fetch album art, and the cover route is protected after first-run.
+        const coverUrl = buildDeviceCoverUrl(streamUrl, track.albumId);
 
         metadata = {
           ...metadata,

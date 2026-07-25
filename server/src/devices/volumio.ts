@@ -1,5 +1,10 @@
 import { logger } from '../logger.js';
-import type { DeviceController, OutputDevice, DevicePlaybackStatus, TrackMetadata } from '@audioserver/shared';
+import type {
+  DeviceController,
+  OutputDevice,
+  DevicePlaybackStatus,
+  TrackMetadata,
+} from '@audioserver/shared';
 
 interface VolumioDevice {
   id: string;
@@ -7,6 +12,13 @@ interface VolumioDevice {
   host: string;
   port: number;
   isOnline: boolean;
+}
+
+interface VolumioStateResponse {
+  volume?: number;
+  status?: string;
+  seek?: number;
+  duration?: number;
 }
 
 /**
@@ -21,7 +33,10 @@ export class VolumioController implements DeviceController {
     this.devices.clear();
 
     // Probe known Volumio addresses from env
-    const hosts = (process.env.VOLUMIO_DEVICES || '').split(',').map(s => s.trim()).filter(Boolean);
+    const hosts = (process.env.VOLUMIO_DEVICES || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
 
     await Promise.allSettled(
       hosts.map(async (hostPort) => {
@@ -31,7 +46,7 @@ export class VolumioController implements DeviceController {
             signal: AbortSignal.timeout(3000),
           });
           if (!res.ok) return;
-          const state = await res.json() as any;
+          const state = (await res.json()) as VolumioStateResponse;
           // If it responds with a valid state object, it's a Volumio
           if (typeof state.volume !== 'number') return;
           const id = `volumio-${host}`;
@@ -42,7 +57,7 @@ export class VolumioController implements DeviceController {
         } catch {
           // Not reachable
         }
-      })
+      }),
     );
 
     return this.getDeviceList();
@@ -125,7 +140,7 @@ export class VolumioController implements DeviceController {
     const device = this.getDevice(deviceId);
     try {
       const res = await fetch(`${this.baseUrl(device)}/api/v1/getState`);
-      const state = await res.json() as any;
+      const state = (await res.json()) as VolumioStateResponse;
       return state.volume ?? 50;
     } catch {
       return 50;
@@ -134,17 +149,14 @@ export class VolumioController implements DeviceController {
 
   async getPlaybackState(deviceId: string): Promise<DevicePlaybackStatus> {
     const device = this.getDevice(deviceId);
-    try {
-      const res = await fetch(`${this.baseUrl(device)}/api/v1/getState`);
-      const state = await res.json() as any;
-      return {
-        state: state.status === 'play' ? 'playing' : state.status === 'pause' ? 'paused' : 'stopped',
-        position: (state.seek || 0) / 1000,
-        duration: state.duration || 0,
-        volume: state.volume || 50,
-      };
-    } catch {
-      return { state: 'stopped', position: 0, duration: 0, volume: 50 };
-    }
+    const res = await fetch(`${this.baseUrl(device)}/api/v1/getState`);
+    if (!res.ok) throw new Error(`Volumio status failed with HTTP ${res.status}`);
+    const state = (await res.json()) as VolumioStateResponse;
+    return {
+      state: state.status === 'play' ? 'playing' : state.status === 'pause' ? 'paused' : 'stopped',
+      position: (state.seek || 0) / 1000,
+      duration: state.duration || 0,
+      volume: state.volume || 50,
+    };
   }
 }

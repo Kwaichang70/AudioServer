@@ -91,7 +91,15 @@ export default tseslint.config(
       'jsx-a11y/no-static-element-interactions': 'warn',
       'jsx-a11y/click-events-have-key-events': 'warn',
       'jsx-a11y/no-autofocus': 'warn',
-      'jsx-a11y/no-noninteractive-element-interactions': 'warn',
+      // Image load failures are state/error handling, not user interaction.
+      // Keep the rule focused on handlers that actually make an element
+      // interactive so <img onError={...}> does not produce false positives.
+      'jsx-a11y/no-noninteractive-element-interactions': [
+        'warn',
+        {
+          handlers: ['onClick', 'onMouseDown', 'onMouseUp', 'onKeyDown', 'onKeyUp', 'onKeyPress'],
+        },
+      ],
       'jsx-a11y/label-has-associated-control': 'warn',
       'jsx-a11y/media-has-caption': 'off', // album art / audio streams have no captions
     },

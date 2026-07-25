@@ -46,12 +46,15 @@ describe('useSpotifyWebPlayback', () => {
 
   it('stays inert when disabled', () => {
     installFakeSdk();
-    const { result } = renderHook(() => useSpotifyWebPlayback(false));
+    const { result, rerender } = renderHook(() => useSpotifyWebPlayback(false));
+    const initialApi = result.current;
     expect(result.current.ready).toBe(false);
     expect(result.current.deviceId).toBeNull();
     expect((window.Spotify!.Player as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(
       0,
     );
+    rerender();
+    expect(result.current).toBe(initialApi);
   });
 
   it('connects and exposes the device id on ready', async () => {

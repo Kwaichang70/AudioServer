@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { setProgress, resetProgress } from '../context/ProgressStore.js';
 
 // currentTime/duration live in an external store (ProgressStore) — see that
@@ -64,7 +64,7 @@ export function useAudio() {
   const rgPreampRef = useRef(0); // dB
   const currentRGRef = useRef<ReplayGainData>({});
 
-  function ensureAudioCtx(): AudioContext | null {
+  const ensureAudioCtx = useCallback((): AudioContext | null => {
     if (audioCtxRef.current) return audioCtxRef.current;
     try {
       const Ctx =
@@ -76,33 +76,36 @@ export function useAudio() {
     } catch {
       return null;
     }
-  }
+  }, []);
 
-  function attachGain(audio: HTMLAudioElement): GainNode | null {
-    const existing = gainMapRef.current.get(audio);
-    if (existing) return existing;
-    const ctx = ensureAudioCtx();
-    if (!ctx) return null;
-    try {
-      const source = ctx.createMediaElementSource(audio);
-      const gain = ctx.createGain();
-      source.connect(gain).connect(ctx.destination);
-      gainMapRef.current.set(audio, gain);
-      // Once routed through Web Audio, GainNode is the volume control —
-      // pin element.volume to 1 and let GainNode multiply.
-      audio.volume = 1.0;
-      return gain;
-    } catch (err) {
-      // createMediaElementSource throws if Web Audio is unsupported or the
-      // element was already attached to a different context. Fall back to
-      // HTML5 volume in that case.
+  const attachGain = useCallback(
+    (audio: HTMLAudioElement): GainNode | null => {
+      const existing = gainMapRef.current.get(audio);
+      if (existing) return existing;
+      const ctx = ensureAudioCtx();
+      if (!ctx) return null;
+      try {
+        const source = ctx.createMediaElementSource(audio);
+        const gain = ctx.createGain();
+        source.connect(gain).connect(ctx.destination);
+        gainMapRef.current.set(audio, gain);
+        // Once routed through Web Audio, GainNode is the volume control —
+        // pin element.volume to 1 and let GainNode multiply.
+        audio.volume = 1.0;
+        return gain;
+      } catch (err) {
+        // createMediaElementSource throws if Web Audio is unsupported or the
+        // element was already attached to a different context. Fall back to
+        // HTML5 volume in that case.
 
-      console.warn('[useAudio] Web Audio attach failed', err);
-      return null;
-    }
-  }
+        console.warn('[useAudio] Web Audio attach failed', err);
+        return null;
+      }
+    },
+    [ensureAudioCtx],
+  );
 
-  function computeReplayGainAmp(): number {
+  const computeReplayGainAmp = useCallback((): number => {
     const mode = rgModeRef.current;
     const preampDb = rgPreampRef.current;
     if (mode === 'off') return dbToAmp(preampDb);
@@ -116,17 +119,20 @@ export function useAudio() {
     // Prevent inter-sample peaks from clipping after gain is applied.
     if (peak != null && peak > 0 && peak * amp > 1) amp = 1 / peak;
     return amp;
-  }
+  }, []);
 
-  function applyVolume(audio: HTMLAudioElement | null): void {
-    if (!audio) return;
-    const gain = gainMapRef.current.get(audio);
-    if (gain) {
-      gain.gain.value = volumeRef.current * computeReplayGainAmp();
-    } else {
-      audio.volume = volumeRef.current;
-    }
-  }
+  const applyVolume = useCallback(
+    (audio: HTMLAudioElement | null): void => {
+      if (!audio) return;
+      const gain = gainMapRef.current.get(audio);
+      if (gain) {
+        gain.gain.value = volumeRef.current * computeReplayGainAmp();
+      } else {
+        audio.volume = volumeRef.current;
+      }
+    },
+    [computeReplayGainAmp],
+  );
 
   // Attach the standard event listeners to an audio element.
   const attachListeners = useCallback((audio: HTMLAudioElement) => {
@@ -175,33 +181,36 @@ export function useAudio() {
   // Set ramped gain via a Web Audio GainNode (preferred) or fall back to
   // setting audio.volume on a tick. Returns a Promise<void> that resolves
   // when the fade finishes so callers can clean up.
-  function fadeVia(audio: HTMLAudioElement, from: number, to: number, ms: number): Promise<void> {
-    const gain = gainMapRef.current.get(audio);
-    if (gain && audioCtxRef.current) {
-      const ctx = audioCtxRef.current;
-      const now = ctx.currentTime;
-      gain.gain.cancelScheduledValues(now);
-      gain.gain.setValueAtTime(from, now);
-      gain.gain.linearRampToValueAtTime(to, now + ms / 1000);
-      return new Promise((resolve) => setTimeout(resolve, ms));
-    }
-    // HTML5 fallback: step every 50ms.
-    return new Promise((resolve) => {
-      const step = 50;
-      const steps = Math.max(1, Math.floor(ms / step));
-      const delta = (to - from) / steps;
-      let i = 0;
-      audio.volume = from;
-      const id = setInterval(() => {
-        i++;
-        audio.volume = Math.max(0, Math.min(1, from + delta * i));
-        if (i >= steps) {
-          clearInterval(id);
-          resolve();
-        }
-      }, step);
-    });
-  }
+  const fadeVia = useCallback(
+    (audio: HTMLAudioElement, from: number, to: number, ms: number): Promise<void> => {
+      const gain = gainMapRef.current.get(audio);
+      if (gain && audioCtxRef.current) {
+        const ctx = audioCtxRef.current;
+        const now = ctx.currentTime;
+        gain.gain.cancelScheduledValues(now);
+        gain.gain.setValueAtTime(from, now);
+        gain.gain.linearRampToValueAtTime(to, now + ms / 1000);
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+      // HTML5 fallback: step every 50ms.
+      return new Promise((resolve) => {
+        const step = 50;
+        const steps = Math.max(1, Math.floor(ms / step));
+        const delta = (to - from) / steps;
+        let i = 0;
+        audio.volume = from;
+        const id = setInterval(() => {
+          i++;
+          audio.volume = Math.max(0, Math.min(1, from + delta * i));
+          if (i >= steps) {
+            clearInterval(id);
+            resolve();
+          }
+        }, step);
+      });
+    },
+    [],
+  );
 
   const play = useCallback(
     (url: string) => {
@@ -264,22 +273,25 @@ export function useAudio() {
 
       setState((s) => ({ ...s, isPlaying: true }));
     },
-    [attachListeners],
+    [applyVolume, attachGain, attachListeners, computeReplayGainAmp, fadeVia],
   );
 
-  const preloadNext = useCallback((url: string) => {
-    if (nextAudioRef.current) {
-      nextAudioRef.current.pause();
-      nextAudioRef.current.src = '';
-    }
-    const next = new Audio();
-    next.preload = 'auto';
-    next.src = url;
-    // Same caveat as in play(): skip Web Audio for cross-origin (would silence).
-    if (audioCtxRef.current && isSameOriginUrl(url)) attachGain(next);
-    applyVolume(next);
-    nextAudioRef.current = next;
-  }, []);
+  const preloadNext = useCallback(
+    (url: string) => {
+      if (nextAudioRef.current) {
+        nextAudioRef.current.pause();
+        nextAudioRef.current.src = '';
+      }
+      const next = new Audio();
+      next.preload = 'auto';
+      next.src = url;
+      // Same caveat as in play(): skip Web Audio for cross-origin (would silence).
+      if (audioCtxRef.current && isSameOriginUrl(url)) attachGain(next);
+      applyVolume(next);
+      nextAudioRef.current = next;
+    },
+    [applyVolume, attachGain],
+  );
 
   const pause = useCallback(() => {
     audioRef.current?.pause();
@@ -292,11 +304,14 @@ export function useAudio() {
     setState((s) => ({ ...s, isPlaying: true }));
   }, []);
 
-  const setVolume = useCallback((v: number) => {
-    volumeRef.current = v;
-    applyVolume(audioRef.current);
-    setState((s) => ({ ...s, volume: v }));
-  }, []);
+  const setVolume = useCallback(
+    (v: number) => {
+      volumeRef.current = v;
+      applyVolume(audioRef.current);
+      setState((s) => ({ ...s, volume: v }));
+    },
+    [applyVolume],
+  );
 
   const seek = useCallback((time: number) => {
     const audio = audioRef.current;
@@ -313,6 +328,7 @@ export function useAudio() {
 
   const getCurrentTime = useCallback((): number => audioRef.current?.currentTime ?? 0, []);
   const getDuration = useCallback((): number => audioRef.current?.duration ?? 0, []);
+  const isPaused = useCallback((): boolean => audioRef.current?.paused ?? true, []);
 
   const setCrossfadeDuration = useCallback((seconds: number) => {
     crossfadeDurationRef.current = seconds;
@@ -342,21 +358,39 @@ export function useAudio() {
       }
       applyVolume(audioRef.current);
     },
-    [],
+    [applyVolume, attachGain],
   );
 
-  return {
-    ...state,
-    play,
-    pause,
-    resume,
-    setVolume,
-    seek,
-    setOnEnded,
-    preloadNext,
-    setCrossfadeDuration,
-    setReplayGain,
-    getCurrentTime,
-    getDuration,
-  };
+  return useMemo(
+    () => ({
+      ...state,
+      play,
+      pause,
+      resume,
+      setVolume,
+      seek,
+      setOnEnded,
+      preloadNext,
+      setCrossfadeDuration,
+      setReplayGain,
+      getCurrentTime,
+      getDuration,
+      isPaused,
+    }),
+    [
+      state,
+      play,
+      pause,
+      resume,
+      setVolume,
+      seek,
+      setOnEnded,
+      preloadNext,
+      setCrossfadeDuration,
+      setReplayGain,
+      getCurrentTime,
+      getDuration,
+      isPaused,
+    ],
+  );
 }

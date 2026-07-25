@@ -13,11 +13,13 @@ historyRouter.post('/played', (req, res) => {
   if (!trackId) return res.status(400).json({ error: 'trackId required' });
 
   const db = getDb();
-  db.insert(playHistory).values({
-    trackId,
-    albumId: albumId || '',
-    artistId: artistId || '',
-  }).run();
+  db.insert(playHistory)
+    .values({
+      trackId,
+      albumId: albumId || '',
+      artistId: artistId || '',
+    })
+    .run();
 
   // Scrobble: look up track details for title/artist/album
   try {
@@ -78,7 +80,9 @@ historyRouter.post('/favorites', (req, res) => {
 
   const db = getDb();
   // Toggle: if exists, remove; if not, add
-  const existing = db.select().from(favorites)
+  const existing = db
+    .select()
+    .from(favorites)
     .where(and(eq(favorites.itemType, itemType), eq(favorites.itemId, itemId)))
     .get();
 
@@ -92,45 +96,53 @@ historyRouter.post('/favorites', (req, res) => {
 });
 
 historyRouter.get('/favorites', (req, res) => {
-  const itemType = req.query.type as string || 'album';
+  const itemType = (req.query.type as string) || 'album';
   const db = getDb();
-  const favs = db.select().from(favorites)
+  const favs = db
+    .select()
+    .from(favorites)
     .where(eq(favorites.itemType, itemType))
     .orderBy(desc(favorites.createdAt))
     .all();
 
   // Enrich with actual data
   if (itemType === 'album') {
-    const enriched = favs.map((f) => {
-      const album = db.select().from(albums).where(eq(albums.id, f.itemId)).get();
-      return album ? { ...album, favorited: true } : null;
-    }).filter(Boolean);
+    const enriched = favs
+      .map((f) => {
+        const album = db.select().from(albums).where(eq(albums.id, f.itemId)).get();
+        return album ? { ...album, favorited: true } : null;
+      })
+      .filter(Boolean);
     res.json({ data: enriched });
   } else if (itemType === 'artist') {
-    const enriched = favs.map((f) => {
-      const artist = db.select().from(artists).where(eq(artists.id, f.itemId)).get();
-      return artist ? { ...artist, favorited: true } : null;
-    }).filter(Boolean);
+    const enriched = favs
+      .map((f) => {
+        const artist = db.select().from(artists).where(eq(artists.id, f.itemId)).get();
+        return artist ? { ...artist, favorited: true } : null;
+      })
+      .filter(Boolean);
     res.json({ data: enriched });
   } else if (itemType === 'station') {
-    const enriched = favs.map((f) => {
-      const s = db.select().from(radioStations).where(eq(radioStations.uuid, f.itemId)).get();
-      if (!s) return null;
-      return {
-        id: `radio:${s.uuid}`,
-        uuid: s.uuid,
-        name: s.name,
-        streamUrl: s.streamUrl,
-        genre: s.genre ?? undefined,
-        country: s.country ?? undefined,
-        language: s.language ?? undefined,
-        homepage: s.homepage ?? undefined,
-        faviconUrl: s.faviconUrl ?? undefined,
-        bitrate: s.bitrate ?? undefined,
-        codec: s.codec ?? undefined,
-        favorited: true,
-      };
-    }).filter(Boolean);
+    const enriched = favs
+      .map((f) => {
+        const s = db.select().from(radioStations).where(eq(radioStations.uuid, f.itemId)).get();
+        if (!s) return null;
+        return {
+          id: `radio:${s.uuid}`,
+          uuid: s.uuid,
+          name: s.name,
+          streamUrl: s.streamUrl,
+          genre: s.genre ?? undefined,
+          country: s.country ?? undefined,
+          language: s.language ?? undefined,
+          homepage: s.homepage ?? undefined,
+          faviconUrl: s.faviconUrl ?? undefined,
+          bitrate: s.bitrate ?? undefined,
+          codec: s.codec ?? undefined,
+          favorited: true,
+        };
+      })
+      .filter(Boolean);
     res.json({ data: enriched });
   } else {
     res.json({ data: favs });
@@ -140,15 +152,19 @@ historyRouter.get('/favorites', (req, res) => {
 // Favorites for tracks (enriched with track + album + artist data)
 historyRouter.get('/favorites/tracks', (_req, res) => {
   const db = getDb();
-  const favs = db.select().from(favorites)
+  const favs = db
+    .select()
+    .from(favorites)
     .where(eq(favorites.itemType, 'track'))
     .orderBy(desc(favorites.createdAt))
     .all();
 
-  const enriched = favs.map((f) => {
-    const track = db.select().from(tracks).where(eq(tracks.id, f.itemId)).get();
-    return track ? { ...track, favorited: true } : null;
-  }).filter(Boolean);
+  const enriched = favs
+    .map((f) => {
+      const track = db.select().from(tracks).where(eq(tracks.id, f.itemId)).get();
+      return track ? { ...track, favorited: true } : null;
+    })
+    .filter(Boolean);
   res.json({ data: enriched });
 });
 
@@ -160,7 +176,8 @@ historyRouter.get('/tracks', (req, res) => {
 
   const db = getDb();
   const result = db.all(sql`
-    SELECT h.id, h.track_id, h.album_id, h.artist_id, h.played_at,
+    SELECT h.id, h.track_id, h.album_id, h.artist_id,
+      strftime('%Y-%m-%dT%H:%M:%fZ', h.played_at, 'unixepoch') as played_at,
       t.title as track_title, t.duration, t.track_number,
       a.title as album_title,
       ar.name as artist_name
@@ -172,7 +189,9 @@ historyRouter.get('/tracks', (req, res) => {
     LIMIT ${limit} OFFSET ${offset}
   `);
 
-  const totalResult = db.get(sql`SELECT COUNT(*) as count FROM play_history`) as any;
+  const totalResult = db.get(sql`SELECT COUNT(*) as count FROM play_history`) as
+    | { count: number }
+    | undefined;
   const total = totalResult?.count || 0;
 
   res.json({ data: result, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } });
@@ -184,7 +203,9 @@ historyRouter.get('/favorites/check', (req, res) => {
   if (!type || !id) return res.json({ data: { favorited: false } });
 
   const db = getDb();
-  const existing = db.select().from(favorites)
+  const existing = db
+    .select()
+    .from(favorites)
     .where(and(eq(favorites.itemType, type as string), eq(favorites.itemId, id as string)))
     .get();
 

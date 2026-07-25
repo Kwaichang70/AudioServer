@@ -31,7 +31,7 @@ interface ScrobbleConfig {
   lastfm?: {
     enabled?: boolean;
     configured?: boolean;
-    username?: string;
+    username?: string | null;
   };
   listenbrainz?: {
     enabled?: boolean;
@@ -117,11 +117,7 @@ export default function SettingsPage() {
       }
       const redirectUri = `${origin}/settings/callback/${provider}`;
       const data = await api.providerAuthInit(provider, redirectUri);
-      if (data.data?.authUrl) {
-        window.location.href = data.data.authUrl;
-      } else {
-        toast(data.error || 'Failed to get auth URL', 'error');
-      }
+      window.location.href = data.data.authUrl;
     } catch (err: unknown) {
       toast(getErrorMessage(err, 'Connection failed'), 'error');
     }
@@ -475,7 +471,7 @@ function QobuzCard({
         setPassword('');
         onStatusChange();
       } else {
-        setError(data.error || 'Login failed');
+        setError('Login failed');
       }
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Login failed'));
@@ -570,7 +566,7 @@ function ThemeSection() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-  }, []);
+  }, [theme]);
 
   const themes = [
     { id: 'dark', label: 'Dark', desc: 'Default dark theme' },
@@ -613,12 +609,12 @@ function UserManagementSection() {
   useEffect(() => {
     api
       .getMe()
-      .then((res: { data?: { role?: string } }) => {
+      .then((res) => {
         if (res.data?.role === 'admin') {
           setIsAdmin(true);
           api
             .getUsers()
-            .then((r: { data: UserAccount[] }) => setUsers(r.data))
+            .then((r) => setUsers(r.data))
             .catch(() => {});
         }
       })
@@ -737,7 +733,7 @@ function ScrobblingSection() {
   const loadConfig = () => {
     api
       .getScrobbleConfig()
-      .then((res: { data: ScrobbleConfig }) => setConfig(res.data))
+      .then((res) => setConfig(res.data))
       .catch(() => {});
   };
 

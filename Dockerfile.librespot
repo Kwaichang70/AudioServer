@@ -1,0 +1,10 @@
+FROM rust:slim-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libasound2-dev pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build librespot v0.5.0 (v0.8.0 has dependency issues)
+RUN cargo install librespot@0.5.0-dev
+
+# Output: the binary is at /usr/local/cargo/bin/librespot

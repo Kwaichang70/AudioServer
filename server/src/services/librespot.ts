@@ -1,8 +1,5 @@
 import { spawn, type ChildProcess } from 'child_process';
-import { createWriteStream, mkdirSync, existsSync } from 'fs';
-import { join } from 'path';
 import { logger } from '../logger.js';
-import { config } from '../config.js';
 
 /**
  * Librespot integration — runs a Spotify Connect receiver as a subprocess.
@@ -43,21 +40,6 @@ const state: LibrespotState = {
 // Clients waiting for stream data
 const streamClients: Set<import('http').ServerResponse> = new Set();
 
-let pcmBuffer: Buffer[] = [];
-
-export function isLibrespotAvailable(): boolean {
-  try {
-    const result = spawn('librespot', ['--version'], { stdio: 'pipe' });
-    return new Promise((resolve) => {
-      result.on('error', () => resolve(false));
-      result.on('close', (code) => resolve(code === 0));
-      setTimeout(() => { result.kill(); resolve(false); }, 2000);
-    }) as any;
-  } catch {
-    return false;
-  }
-}
-
 export async function checkLibrespotAvailable(): Promise<boolean> {
   return checkBinaryAvailable('librespot', ['--version']);
 }
@@ -70,13 +52,21 @@ function checkBinaryAvailable(cmd: string, args: string[]): Promise<boolean> {
   return new Promise((resolve) => {
     let resolved = false;
     const done = (result: boolean) => {
-      if (!resolved) { resolved = true; resolve(result); }
+      if (!resolved) {
+        resolved = true;
+        resolve(result);
+      }
     };
     try {
       const proc = spawn(cmd, args, { stdio: 'pipe' });
       proc.on('error', () => done(false));
       proc.on('close', (code) => done(code === 0));
-      setTimeout(() => { try { proc.kill(); } catch {} done(false); }, 5000);
+      setTimeout(() => {
+        try {
+          proc.kill();
+        } catch {}
+        done(false);
+      }, 5000);
     } catch {
       done(false);
     }
@@ -109,10 +99,14 @@ export async function startLibrespot(username: string, password: string): Promis
   try {
     // Build args — if credentials provided use them, otherwise discovery mode
     const args = [
-      '--name', 'AudioServer',
-      '--backend', 'pipe',
-      '--bitrate', '320',
-      '--initial-volume', '80',
+      '--name',
+      'AudioServer',
+      '--backend',
+      'pipe',
+      '--bitrate',
+      '320',
+      '--initial-volume',
+      '80',
     ];
     if (username && password) {
       args.push('--username', username, '--password', password);
@@ -170,18 +164,29 @@ function startFfmpegTranscode(librespotProc: ChildProcess) {
   stopFfmpegTranscode(); // Kill existing
 
   // Transcode PCM (44100Hz, 16-bit, stereo) to MP3
-  const ffmpeg = spawn('ffmpeg', [
-    '-f', 's16le',        // Input format: signed 16-bit little-endian
-    '-ar', '44100',        // Sample rate
-    '-ac', '2',            // Stereo
-    '-i', 'pipe:0',       // Read from stdin
-    '-codec:a', 'libmp3lame',
-    '-b:a', '320k',       // Output bitrate
-    '-f', 'mp3',           // Output format
-    'pipe:1',              // Write to stdout
-  ], {
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
+  const ffmpeg = spawn(
+    'ffmpeg',
+    [
+      '-f',
+      's16le', // Input format: signed 16-bit little-endian
+      '-ar',
+      '44100', // Sample rate
+      '-ac',
+      '2', // Stereo
+      '-i',
+      'pipe:0', // Read from stdin
+      '-codec:a',
+      'libmp3lame',
+      '-b:a',
+      '320k', // Output bitrate
+      '-f',
+      'mp3', // Output format
+      'pipe:1', // Write to stdout
+    ],
+    {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    },
+  );
 
   state.ffmpegProcess = ffmpeg;
 
@@ -220,7 +225,9 @@ function stopFfmpegTranscode() {
   }
   // Close all stream clients
   for (const client of streamClients) {
-    try { client.end(); } catch {}
+    try {
+      client.end();
+    } catch {}
   }
   streamClients.clear();
 }
@@ -267,7 +274,10 @@ export async function autoStartLibrespot(): Promise<void> {
   await startLibrespot(username, password);
 }
 
-export function handleStreamRequest(req: import('http').IncomingMessage, res: import('http').ServerResponse) {
+export function handleStreamRequest(
+  req: import('http').IncomingMessage,
+  res: import('http').ServerResponse,
+) {
   if (!state.isRunning || !state.ffmpegProcess) {
     res.writeHead(503, { 'Content-Type': 'text/plain' });
     res.end('Librespot is not running');
@@ -278,7 +288,7 @@ export function handleStreamRequest(req: import('http').IncomingMessage, res: im
     'Content-Type': 'audio/mpeg',
     'Transfer-Encoding': 'chunked',
     'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
+    Connection: 'keep-alive',
     'transferMode.dlna.org': 'Streaming',
   });
 

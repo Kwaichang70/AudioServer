@@ -67,7 +67,7 @@ afterAll(() => {
   if (tmp) rmSync(tmp, { recursive: true, force: true });
 });
 
-async function post(path: string, body?: any) {
+async function post(path: string, body?: unknown) {
   const res = await fetch(`${baseUrl}/api/playback${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -134,6 +134,35 @@ describe('Queue API', () => {
     expect(data).toHaveLength(3);
     expect(data[0].trackTitle).toBe('Track One');
     expect(data[2].trackTitle).toBe('Track Three');
+    const persisted = getRawDb()
+      .prepare('SELECT track_id, track_title FROM queue_items ORDER BY position')
+      .all() as Array<{ track_id: string; track_title: string }>;
+    expect(persisted).toEqual([
+      { track_id: 't1', track_title: 'Track One' },
+      { track_id: 't2', track_title: 'Track Two' },
+      { track_id: 't3', track_title: 'Track Three' },
+    ]);
+  });
+
+  it('rejects queue entries without persisted display metadata', async () => {
+    const res = await fetch(`${baseUrl}/api/playback/queue/add`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ track: { id: 'incomplete' } }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('advances to the successor after removing the currently playing item', () => {
+    playbackService.setQueue([mockTrack1, mockTrack2, mockTrack3]);
+    playbackService.play(mockTrack2);
+
+    playbackService.removeFromQueue(1);
+
+    expect(playbackService.getQueueIndex()).toBe(0);
+    expect(playbackService.advance()).toMatchObject({ id: 't3', title: 'Track Three' });
+    playbackService.setQueue([mockTrack1, mockTrack2, mockTrack3]);
   });
 
   it('can remove from queue', async () => {

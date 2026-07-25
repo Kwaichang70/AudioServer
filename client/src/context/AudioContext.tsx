@@ -4,75 +4,26 @@ import {
   useState,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   type ReactNode,
 } from 'react';
 import { useAudio } from '../hooks/useAudio.js';
+import { useMediaSession } from '../hooks/useMediaSession.js';
 import { useSocket } from '../hooks/useSocket.js';
 import { useSpotifyWebPlayback } from '../hooks/useSpotifyWebPlayback.js';
+import { useTrackPlayback } from '../hooks/useTrackPlayback.js';
 import { api } from '../api/client.js';
 import { useToast } from '../components/Toast.js';
 import { setProgress } from './ProgressStore.js';
-import { DEVICE_POLL_INTERVAL, SPOTIFY_CONNECT_RECEIVER_NAME, STORAGE_KEYS } from '../constants.js';
+import { DEVICE_POLL_INTERVAL, STORAGE_KEYS } from '../constants.js';
+import type { TrackInfo } from '../types/playback.js';
 
 // Re-export so consumers can keep importing from this module.
 export { useProgress } from './ProgressStore.js';
-
-export interface TrackInfo {
-  id: string;
-  title: string;
-  artistName: string;
-  albumTitle: string;
-  albumId?: string;
-  duration?: number;
-  format?: string;
-  sampleRate?: number;
-  bitDepth?: number;
-  source?: string;
-  // Optional ReplayGain tags (dB + 0..1 peak ratio). Backend returns these
-  // from /library/tracks/:id and /library/albums/:id. If the file has no RG
-  // metadata they're undefined and the player falls back to preamp-only.
-  replayGainTrack?: number | null;
-  replayGainTrackPeak?: number | null;
-  replayGainAlbum?: number | null;
-  replayGainAlbumPeak?: number | null;
-}
+export type { TrackInfo } from '../types/playback.js';
 
 export type ReplayGainMode = 'off' | 'track' | 'album';
-
-interface HealthResponse {
-  lanAddress?: string;
-}
-
-interface DeviceStatusResponse {
-  data?: {
-    state?: 'playing' | 'paused' | 'stopped';
-    position?: number;
-    duration?: number;
-    volume?: number;
-  };
-}
-
-interface SpotifyConnectDevice {
-  id: string;
-  name: string;
-}
-
-interface OutputDeviceSummary {
-  id: string;
-  name: string;
-}
-
-interface WakeLockSentinelLike {
-  release?: () => Promise<void>;
-  addEventListener?: (type: 'release', listener: () => void) => void;
-}
-
-interface WakeLockCapability {
-  wakeLock?: {
-    request: (type: 'screen') => Promise<WakeLockSentinelLike>;
-  };
-}
 
 interface AudioContextValue {
   currentTrack: TrackInfo | null;
@@ -116,25 +67,15 @@ const AudioCtx = createContext<AudioContextValue | null>(null);
 export function AudioProvider({ children }: { children: ReactNode }) {
   const audio = useAudio();
   const socket = useSocket();
+  const { subscribeDevice, unsubscribeDevice } = socket;
   // Spotify Web Playback SDK: only loaded once the user actually plays a
   // Spotify track in the browser (lazy — keeps the SDK script + token polling
   // off the table for users who never touch Spotify). Requires Premium + a
   // completed Spotify OAuth connection.
   const [spotifyWebWanted, setSpotifyWebWanted] = useState(false);
   const spotifyWeb = useSpotifyWebPlayback(spotifyWebWanted);
-  const spotifyWebDeviceIdRef = useRef<string | null>(null);
-  spotifyWebDeviceIdRef.current = spotifyWeb.deviceId;
-  // Briefly cache the Spotify Connect device list. A single play tries two
-  // strategies that each need the list, and auto-advancing an album fires a
-  // play per track — without this we'd hit /me/player/devices several times in
-  // a row and trip Spotify's rate limit (→ 429 → connect calls start failing).
-  const connectDevicesCacheRef = useRef<{ at: number; devices: SpotifyConnectDevice[] } | null>(
-    null,
-  );
   const spotifyWebSetVolumeRef = useRef(spotifyWeb.setVolume);
   spotifyWebSetVolumeRef.current = spotifyWeb.setVolume;
-  const spotifyWebPauseRef = useRef(spotifyWeb.pause);
-  spotifyWebPauseRef.current = spotifyWeb.pause;
   const [currentTrack, setCurrentTrack] = useState<TrackInfo | null>(null);
   const [queue, setQueue] = useState<TrackInfo[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
@@ -142,10 +83,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     () => localStorage.getItem(STORAGE_KEYS.selectedDevice) || 'browser',
   );
 
-  const setSelectedDeviceId = (id: string) => {
+  const setSelectedDeviceId = useCallback((id: string) => {
     setSelectedDeviceIdState(id);
     localStorage.setItem(STORAGE_KEYS.selectedDevice, id);
-  };
+  }, []);
   const [isLoading, setIsLoading] = useState(false);
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState<'off' | 'all' | 'one'>('off');
@@ -197,8 +138,6 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     },
     [audio],
   );
-  const [devicePosition, setDevicePosition] = useState(0);
-  const [deviceDuration, setDeviceDuration] = useState(0);
   const [deviceIsPlaying, setDeviceIsPlaying] = useState(false);
   const [deviceVolume, setDeviceVolume] = useState<number | null>(null);
   const { toast } = useToast();
@@ -208,9 +147,16 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   selectedDeviceRef.current = selectedDeviceId;
   const currentTrackRef = useRef(currentTrack);
   currentTrackRef.current = currentTrack;
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
   const toastRef = useRef(toast);
   toastRef.current = toast;
-  const lanAddressRef = useRef<string | null>(null);
+
+  // External local renderers (DLNA/Sonos, not the browser and not a Spotify
+  // Connect target). For these the SERVER owns queue advancement — see the
+  // queue-sync effect below and server/src/services/server-player.ts.
+  const isExternalLocalDevice = (deviceId: string) =>
+    deviceId !== 'browser' && !deviceId.startsWith('spotify-connect:');
 
   // Surface Web Playback SDK init failures (most commonly "Premium required")
   // so browser-Spotify doesn't fail silently.
@@ -225,8 +171,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       selectedDeviceRef.current = 'browser';
       setSelectedDeviceIdState('browser');
       localStorage.setItem(STORAGE_KEYS.selectedDevice, 'browser');
-      setDevicePosition(0);
-      setDeviceDuration(0);
+      setProgress(0, 0);
       setDeviceIsPlaying(false);
       setDeviceVolume(null);
       audio.play(streamUrl);
@@ -236,55 +181,42 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     [audio],
   );
 
-  useEffect(() => {
-    api
-      .getHealth()
-      .then((d: HealthResponse) => {
-        if (d.lanAddress) lanAddressRef.current = d.lanAddress;
-      })
-      .catch(() => {});
-  }, []);
-
   // Subscribe to device updates via WebSocket (replaces client-side polling)
   useEffect(() => {
     if (selectedDeviceId === 'browser' || selectedDeviceId.startsWith('spotify-connect:')) {
       // Browser playback and Spotify Connect targets aren't backend-registered
       // DLNA devices — there's no device status to subscribe to.
-      socket.unsubscribeDevice(selectedDeviceId);
-      setDevicePosition(0);
-      setDeviceDuration(0);
+      unsubscribeDevice(selectedDeviceId);
+      setProgress(0, 0);
       setDeviceIsPlaying(false);
       setDeviceVolume(null);
       return;
     }
-    socket.subscribeDevice(selectedDeviceId);
+    subscribeDevice(selectedDeviceId);
     // Fetch initial device status (volume etc.) so the slider reflects reality
     api
       .getDeviceStatus(selectedDeviceId)
-      .then((res: DeviceStatusResponse) => {
+      .then((res) => {
+        if (selectedDeviceRef.current !== selectedDeviceId) return;
         if (typeof res?.data?.volume === 'number') {
           setDeviceVolume(res.data.volume / 100);
         }
       })
       .catch(() => {});
-    return () => socket.unsubscribeDevice(selectedDeviceId);
-  }, [selectedDeviceId]);
+    return () => unsubscribeDevice(selectedDeviceId);
+  }, [selectedDeviceId, subscribeDevice, unsubscribeDevice]);
 
-  // Process WebSocket device updates. The server's playbackService queue isn't
-  // synced from the client, so it can't auto-advance an external device on its
-  // own — we detect track-end here and advance the client's queue (same
-  // heuristic the server's device-monitor uses). Browser playback advances via
-  // <audio>'s 'ended'; Spotify Connect has its own poll. Guarded to fire once.
-  const lastDeviceUpdateRef = useRef<{ state: string; position: number; duration: number } | null>(
-    null,
-  );
-  const deviceEndedGuardRef = useRef(false);
+  // Process WebSocket device updates: mirror external-device state into the
+  // transport UI. Track-end advancement for external local devices is handled
+  // SERVER-side (device-monitor → playbackService.advance → server-player
+  // streams the next track), so it keeps working while this client sleeps —
+  // we deliberately do NOT advance the queue from here anymore, that would
+  // double-advance. The playback:track-changed effect below mirrors the
+  // server's advances into the UI.
   useEffect(() => {
     if (!socket.deviceUpdate || socket.deviceUpdate.deviceId !== selectedDeviceRef.current) return;
 
     const u = socket.deviceUpdate;
-    setDevicePosition(u.position);
-    setDeviceDuration(u.duration);
     setDeviceIsPlaying(u.state === 'playing');
     if (typeof u.volume === 'number') setDeviceVolume(u.volume / 100);
     if (selectedDeviceRef.current !== 'browser') {
@@ -292,25 +224,6 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       // regardless of whether the user picked the browser or a remote device.
       setProgress(u.position, u.duration);
     }
-
-    const isExternalLocal =
-      selectedDeviceRef.current !== 'browser' &&
-      !selectedDeviceRef.current.startsWith('spotify-connect:') &&
-      !currentTrackRef.current?.id.startsWith('spotify:');
-    if (isExternalLocal) {
-      const last = lastDeviceUpdateRef.current;
-      const ended =
-        last?.state === 'playing' &&
-        u.state === 'stopped' &&
-        ((last.duration > 0 && last.position >= last.duration - 2) || u.position === 0);
-      if (ended && !deviceEndedGuardRef.current) {
-        deviceEndedGuardRef.current = true;
-        playNextRef.current();
-      } else if (u.state === 'playing') {
-        deviceEndedGuardRef.current = false;
-      }
-    }
-    lastDeviceUpdateRef.current = { state: u.state, position: u.position, duration: u.duration };
   }, [socket.deviceUpdate]);
 
   // Fallback: if WebSocket disconnected, use polling
@@ -323,10 +236,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       api
         .getDeviceStatus(selectedDeviceId)
         .then((res) => {
+          if (selectedDeviceRef.current !== selectedDeviceId) return;
           const pos = res.data.position || 0;
           const dur = res.data.duration || 0;
-          setDevicePosition(pos);
-          setDeviceDuration(dur);
           setDeviceIsPlaying(res.data.state === 'playing');
           setProgress(pos, dur);
         })
@@ -336,299 +248,19 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(poll);
   }, [socket.connected, currentTrack, selectedDeviceId]);
 
-  const startTrack = useCallback(
-    (track: TrackInfo) => {
-      setCurrentTrack(track);
-      setIsLoading(true);
-
-      // Push the new track's RG data into the player. Mode/preamp are already
-      // set globally via the Settings UI; here we update the per-track values
-      // so the next play() picks the right gain.
-      audio.setReplayGain({
-        data: {
-          trackGain: track.replayGainTrack ?? null,
-          trackPeak: track.replayGainTrackPeak ?? null,
-          albumGain: track.replayGainAlbum ?? null,
-          albumPeak: track.replayGainAlbumPeak ?? null,
-        },
-      });
-
-      const rawDeviceId = selectedDeviceRef.current;
-      const isSpotify = track.id.startsWith('spotify:');
-      const isQobuz = track.id.startsWith('qobuz:');
-      // A Spotify Connect target (Sonos, CocktailAudio, …) only accepts Spotify.
-      // For any other source, route to the browser so the track still plays.
-      const deviceId =
-        rawDeviceId.startsWith('spotify-connect:') && !isSpotify ? 'browser' : rawDeviceId;
-
-      console.log(
-        `[AudioServer] Playing "${track.title}" on device: ${deviceId}, spotify: ${isSpotify}`,
-      );
-
-      // Stop whatever the previous track was using if the new track won't reuse
-      // it. Without this, switching between a Spotify track (Web Playback SDK)
-      // and a local/Qobuz/radio track leaves both streams playing at once — and
-      // the transport then follows the new source, so the orphaned Spotify
-      // stream can no longer be paused/stopped from the UI.
-      const willUseSpotifyWeb = isSpotify && deviceId === 'browser';
-      const willUseAudioElement = !isSpotify && deviceId === 'browser';
-      if (!willUseSpotifyWeb) {
-        spotifyWebPauseRef.current?.();
-      }
-      if (!willUseAudioElement) {
-        audio.pause();
-      }
-
-      if (isSpotify) {
-        const spotifyTrackUri = `spotify:track:${track.id.replace('spotify:', '')}`;
-
-        // Fetch the Spotify Connect device list, reusing a recent result (≤15s)
-        // so the two strategies below — and back-to-back track plays — don't
-        // each re-query Spotify.
-        const getConnectDevicesCached = async (): Promise<SpotifyConnectDevice[]> => {
-          const cached = connectDevicesCacheRef.current;
-          if (cached && Date.now() - cached.at < 15_000) return cached.devices;
-          const res = await api.spotifyConnectDevices();
-          const devices = (res.data || []) as SpotifyConnectDevice[];
-          connectDevicesCacheRef.current = { at: Date.now(), devices };
-          return devices;
-        };
-
-        const playSpotify = async () => {
-          try {
-            // Strategy: an explicit Spotify Connect device was picked in the
-            // device selector (Sonos, CocktailAudio, …). Play straight to it via
-            // the Web API — no fuzzy name-matching, no librespot needed.
-            if (deviceId.startsWith('spotify-connect:')) {
-              await api.spotifyConnectPlay(
-                spotifyTrackUri,
-                deviceId.slice('spotify-connect:'.length),
-              );
-              setIsLoading(false);
-              toastRef.current('Speelt via Spotify Connect', 'success');
-              return;
-            }
-
-            // Strategy 0: browser playback via the Web Playback SDK. Lazily kick
-            // off SDK init the first time we need it; if its in-browser device
-            // is already registered, play straight to it. Otherwise fall through
-            // — an external active device handles this track and the SDK becomes
-            // available for the next one.
-            if (deviceId === 'browser') {
-              setSpotifyWebWanted(true);
-              const webId = spotifyWebDeviceIdRef.current;
-              if (webId) {
-                await api.spotifyConnectPlay(spotifyTrackUri, webId);
-                setIsLoading(false);
-                toastRef.current('Playing in browser via Spotify', 'success');
-                return;
-              }
-            }
-
-            // Strategy 1: If external device selected, try librespot (streams to any device)
-            if (deviceId !== 'browser') {
-              try {
-                const lsStatus = await api.librespotStatus();
-                if (lsStatus.data.isRunning) {
-                  // Librespot is running — route through it
-                  // First tell Spotify to play on the "AudioServer" librespot device
-                  const audioServerDevice = (await getConnectDevicesCached()).find(
-                    (d) => d.name === SPOTIFY_CONNECT_RECEIVER_NAME,
-                  );
-                  if (audioServerDevice) {
-                    await api.spotifyConnectPlay(spotifyTrackUri, audioServerDevice.id);
-                    // Then route the librespot stream to the target device
-                    await api.librespotPlayToDevice(spotifyTrackUri, deviceId);
-                    setIsLoading(false);
-                    toastRef.current('Streaming Spotify via AudioServer to device', 'success');
-                    return;
-                  }
-                }
-              } catch {
-                // Librespot not available, fall through to Spotify Connect
-              }
-
-              // Strategy 2: Try matching selected AudioServer device with a Spotify Connect device
-              const connectDevices = await getConnectDevicesCached();
-              // Get the selected device name from cached devices
-              const selectedDevice = await api
-                .getDevices()
-                .then((r: { data?: OutputDeviceSummary[] }) =>
-                  r.data?.find((d) => d.id === deviceId),
-                )
-                .catch(() => null);
-              const selectedName = selectedDevice?.name?.toLowerCase() || '';
-              // Match by checking if Spotify device name overlaps with selected device name
-              const match = connectDevices.find((d) => {
-                const cName = d.name.toLowerCase();
-                // Match if any word from the device name appears in Spotify Connect device name
-                const words = selectedName.split(/[\s\-_]+/).filter((w: string) => w.length > 2);
-                return words.some((w: string) => cName.includes(w));
-              });
-              if (match) {
-                await api.spotifyConnectPlay(spotifyTrackUri, match.id);
-                setIsLoading(false);
-                toastRef.current(`Playing via Spotify Connect on ${match.name}`, 'success');
-                return;
-              }
-            }
-
-            // Strategy 3: Default — play on whatever active Spotify device
-            await api.spotifyConnectPlay(spotifyTrackUri);
-            setIsLoading(false);
-            toastRef.current('Playing via Spotify Connect', 'success');
-          } catch (err) {
-            setIsLoading(false);
-            setCurrentTrack(null);
-            const msg = String(err);
-            if (
-              msg.includes('404') ||
-              msg.includes('No active device') ||
-              msg.includes('NO_ACTIVE_DEVICE')
-            ) {
-              toastRef.current(
-                'Open Spotify on a device first, or start Librespot in Settings',
-                'error',
-              );
-            } else {
-              toastRef.current(`Spotify: ${(err as Error).message || msg}`, 'error');
-            }
-          }
-        };
-
-        playSpotify();
-        return;
-      }
-
-      if (isQobuz) {
-        // Qobuz: get direct stream URL from API, then play like a local track
-        const qobuzId = track.id.replace('qobuz:', '');
-        const playQobuz = async () => {
-          try {
-            const data = await api.getQobuzStreamUrl(qobuzId);
-            if (!data.data?.url) {
-              throw new Error('No stream URL from Qobuz');
-            }
-            const qobuzStreamUrl = data.data.url;
-
-            if (deviceId === 'browser') {
-              audio.play(qobuzStreamUrl);
-            } else {
-              // Send Qobuz CDN URL directly to DLNA/Volumio (no proxy needed)
-              try {
-                await api.devicePlay(deviceId, qobuzStreamUrl, {
-                  title: track.title,
-                  artist: track.artistName,
-                  album: track.albumTitle,
-                  duration: track.duration,
-                });
-              } catch (deviceErr) {
-                console.error('Qobuz device play failed:', deviceErr);
-                fallbackToBrowserPlayback(qobuzStreamUrl, 'External device failed');
-                return;
-              }
-            }
-            setIsLoading(false);
-            toastRef.current('Playing from Qobuz', 'success');
-          } catch (err) {
-            setIsLoading(false);
-            setCurrentTrack(null);
-            toastRef.current(`Qobuz: ${(err as Error).message || err}`, 'error');
-          }
-        };
-        playQobuz();
-        return;
-      }
-
-      const isRadio = track.id.startsWith('radio:');
-
-      if (isRadio) {
-        const uuid = track.id.slice('radio:'.length);
-        (async () => {
-          try {
-            const res = await api.getRadioStream(uuid);
-            const streamUrl = res.data?.url;
-            if (!streamUrl) throw new Error('No stream URL for station');
-
-            if (deviceId === 'browser') {
-              audio.play(streamUrl);
-            } else {
-              try {
-                await api.devicePlay(deviceId, streamUrl, {
-                  title: track.title,
-                  artist: 'Live Radio',
-                  album: track.albumTitle,
-                  // no duration — livestream
-                });
-              } catch (deviceErr) {
-                console.error('Radio device play failed:', deviceErr);
-                fallbackToBrowserPlayback(streamUrl, 'External device failed');
-                return;
-              }
-            }
-            setIsLoading(false);
-            toastRef.current(`Tuned in: ${track.title}`, 'success');
-          } catch (err) {
-            setIsLoading(false);
-            setCurrentTrack(null);
-            toastRef.current(`Radio: ${(err as Error).message || err}`, 'error');
-          }
-        })();
-        return;
-      }
-
-      const isTidal = track.id.startsWith('tidal:');
-
-      if (isTidal) {
-        setIsLoading(false);
-        setCurrentTrack(null);
-        toastRef.current(
-          'Tidal full-track playback is disabled. Use Qobuz or local NAS playback for full tracks.',
-          'error',
-        );
-        return;
-      }
-
-      const streamUrl = api.getStreamUrl(track.id);
-
-      if (deviceId === 'browser') {
-        audio.play(streamUrl);
-        setIsLoading(false);
-      } else {
-        // External device: build LAN URL and send via backend
-        const lanIp = lanAddressRef.current || window.location.hostname;
-        const absoluteUrl = `http://${lanIp}:3001${streamUrl}`;
-        console.log(`[AudioServer] Sending to device ${deviceId}: ${absoluteUrl}`);
-
-        api
-          .devicePlay(
-            deviceId,
-            absoluteUrl,
-            {
-              title: track.title,
-              artist: track.artistName,
-              album: track.albumTitle,
-              duration: track.duration,
-            },
-            track.id,
-          )
-          .then(() => {
-            setIsLoading(false);
-            toastRef.current(`Playing on external device`, 'success');
-          })
-          .catch((err) => {
-            console.error('Device play failed:', err);
-            fallbackToBrowserPlayback(streamUrl, 'External device failed');
-          });
-      }
-
-      // Record in history (only reached for local tracks; all streaming
-      // providers return earlier in this function)
-      api.play(track, deviceId).catch(() => {});
-      api.recordPlay(track.id, track.albumId || '', '').catch(() => {});
-    },
-    [audio, fallbackToBrowserPlayback],
-  );
+  const { startTrack, cancelPendingPlayback } = useTrackPlayback({
+    audio,
+    selectedDeviceId,
+    spotifyWebDeviceId: spotifyWeb.deviceId,
+    pauseSpotifyWeb: spotifyWeb.pause,
+    setSelectedDeviceId,
+    setSpotifyWebWanted,
+    setCurrentTrack,
+    setIsLoading,
+    fallbackToBrowserPlayback,
+    toast,
+    getQueue: () => queueRef.current,
+  });
 
   const playTrack = useCallback(
     (track: TrackInfo) => {
@@ -640,14 +272,57 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     [startTrack],
   );
 
+  // Mirror server-side queue advances. For external local devices the server
+  // has ALREADY streamed the track to the device (server-player), so only the
+  // UI updates here; re-dispatching would restart the track. Provider tracks
+  // (spotify:/qobuz:) can't be served from the NAS disk — the server skips
+  // them and this awake client routes them through its provider path instead.
+  // Ref-equality guard: `queue` is a dependency, so without it a queue edit
+  // would re-run this effect with the same event and re-trigger playback.
+  const handledTrackChangeRef = useRef<object | null>(null);
   useEffect(() => {
-    if (!socket.trackChanged) return;
+    if (!socket.trackChanged || socket.trackChanged === handledTrackChangeRef.current) return;
+    handledTrackChangeRef.current = socket.trackChanged;
 
     const nextTrack = socket.trackChanged;
     const nextIndex = queue.findIndex((track) => track.id === nextTrack.id);
     if (nextIndex >= 0) setQueueIndex(nextIndex);
+
+    const serverManaged =
+      isExternalLocalDevice(selectedDeviceRef.current) && !nextTrack.id.includes(':');
+    if (serverManaged) {
+      setCurrentTrack((prev) => (prev?.id === nextTrack.id ? prev : { ...nextTrack }));
+      setIsLoading(false);
+      return;
+    }
     startTrack(nextTrack);
   }, [socket.trackChanged, queue, startTrack]);
+
+  // Hand the queue to the server whenever an external local device is in
+  // charge. From that moment the NAS advances the album itself (device-monitor
+  // detects track end → next track is streamed server-side), so playback
+  // continues when this tablet goes to sleep. Keyed to avoid re-posting the
+  // identical state; queueIndex changes re-sync so the server stays aligned
+  // after manual next/previous too.
+  const queueSyncKeyRef = useRef('');
+  useEffect(() => {
+    if (!isExternalLocalDevice(selectedDeviceId) || queue.length === 0) return;
+    const key = [
+      selectedDeviceId,
+      queueIndex,
+      shuffle,
+      repeat,
+      queue.map((t) => t.id).join(','),
+    ].join('§');
+    if (queueSyncKeyRef.current === key) return;
+    queueSyncKeyRef.current = key;
+    api
+      .setServerQueue(queue, Math.max(0, queueIndex), selectedDeviceId, shuffle, repeat)
+      .catch(() => {
+        // Allow a retry on the next state change
+        queueSyncKeyRef.current = '';
+      });
+  }, [queue, queueIndex, shuffle, repeat, selectedDeviceId]);
 
   const playAlbum = useCallback(
     (tracks: TrackInfo[]) => {
@@ -676,7 +351,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     });
     setQueueIndex((curr) => {
       if (index < curr) return curr - 1;
-      if (index === curr) return curr; // track shifts, same index plays next
+      // The removed track can keep playing until it ends. Point just before
+      // its former successor so playNext() advances to that successor instead
+      // of skipping it in the shortened queue.
+      if (index === curr) return curr - 1;
       return curr;
     });
   }, []);
@@ -737,26 +415,74 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   // plays but the transport UI is dead (it's driven by the <audio> element,
   // which the SDK bypasses).
   const spotifyEndedGuardRef = useRef(false);
+  const spotifyPlaybackRef = useRef<{
+    trackId: string;
+    hasPlayed: boolean;
+    position: number;
+    duration: number;
+  } | null>(null);
   useEffect(() => {
     const pb = spotifyWeb.playback;
     const isSpotifyBrowser =
       selectedDeviceRef.current === 'browser' &&
       !!currentTrackRef.current?.id.startsWith('spotify:');
-    if (!pb || !isSpotifyBrowser) return;
+    if (!isSpotifyBrowser) {
+      spotifyPlaybackRef.current = null;
+      spotifyEndedGuardRef.current = false;
+      return;
+    }
+
+    const expectedTrackId = currentTrackRef.current!.id.slice('spotify:'.length);
+    const previous = spotifyPlaybackRef.current;
+
+    // At natural end some SDK/browser combinations emit a null state instead
+    // of the more common paused-at-zero snapshot. Only treat that as ended if
+    // this same track was playing and its last observed position was near the
+    // duration; disconnects and manual stops must not skip the queue.
+    if (!pb) {
+      const endedWithEmptyState =
+        previous?.trackId === expectedTrackId &&
+        previous.hasPlayed &&
+        previous.duration > 0 &&
+        previous.position >= previous.duration - 2;
+      if (endedWithEmptyState && !spotifyEndedGuardRef.current) {
+        spotifyEndedGuardRef.current = true;
+        playNextRef.current();
+      }
+      return;
+    }
+
+    // Ignore a final, stale SDK event from the preceding track while the next
+    // Spotify URI is being transferred to the web player.
+    if (pb.trackId && pb.trackId !== expectedTrackId) return;
 
     setProgress(pb.position, pb.duration);
 
-    // Track-end heuristic: we play single track URIs, so when one finishes the
-    // SDK reports paused at position 0 with a known duration. Guard so we fire
-    // playNext exactly once per track.
-    const ended = pb.paused && pb.position === 0 && pb.duration > 0;
+    const trackedId = pb.trackId ?? expectedTrackId;
+    const sameTrack = previous?.trackId === trackedId;
+    const hasPlayed = !pb.paused || (sameTrack && previous?.hasPlayed === true);
+    spotifyPlaybackRef.current = {
+      trackId: trackedId,
+      hasPlayed,
+      position: pb.position,
+      duration: pb.duration,
+    };
+
+    // Spotify uses both paused-at-zero and paused-at-duration for a naturally
+    // completed single-track URI. Requiring evidence that this track actually
+    // played prevents an initial paused-at-zero SDK snapshot from skipping it.
+    const ended =
+      pb.paused &&
+      hasPlayed &&
+      pb.duration > 0 &&
+      (pb.position <= 0.25 || pb.position >= pb.duration - 1.5);
     if (ended && !spotifyEndedGuardRef.current) {
       spotifyEndedGuardRef.current = true;
       playNextRef.current();
-    } else if (!ended && pb.position > 0) {
+    } else if (!pb.paused) {
       spotifyEndedGuardRef.current = false;
     }
-  }, [spotifyWeb.playback]);
+  }, [spotifyWeb.playback, currentTrack?.id, selectedDeviceId]);
 
   // External Spotify Connect playback (Sonos, CocktailAudio): Spotify streams
   // straight to the speaker, so there's no <audio> element or SDK to read. Poll
@@ -790,12 +516,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       api
         .spotifyConnectState()
         .then((res) => {
-          const st = res?.data as {
-            is_playing?: boolean;
-            progress_ms?: number;
-            item?: { duration_ms?: number };
-            device?: { volume_percent?: number };
-          } | null;
+          const st = res.data;
           // Speaker went idle (single-track URI finished) — advance if we were
           // at the end.
           if (!st || !st.item) {
@@ -813,6 +534,28 @@ export function AudioProvider({ children }: { children: ReactNode }) {
           if (dur > 0) setProgress(pos, dur);
           if (typeof st.device?.volume_percent === 'number') {
             setDeviceVolume(st.device.volume_percent / 100);
+          }
+          // Album-context playback: Spotify advances tracks on the speaker
+          // itself (no client involved). Mirror whatever Spotify reports as
+          // the playing item into our UI so title/queue highlight follow.
+          const polledUriId = st.item.uri?.split(':').pop();
+          if (playing && polledUriId) {
+            const polledId = `spotify:${polledUriId}`;
+            if (polledId !== currentTrackRef.current?.id) {
+              endedFired = false;
+              const queued = queueRef.current.find((t) => t.id === polledId);
+              const idx = queueRef.current.findIndex((t) => t.id === polledId);
+              if (idx >= 0) setQueueIndex(idx);
+              setCurrentTrack(
+                queued ?? {
+                  id: polledId,
+                  title: st.item.name ?? 'Spotify',
+                  artistName: st.item.artists?.[0]?.name ?? '',
+                  albumTitle: st.item.album?.name ?? '',
+                  duration: dur || undefined,
+                },
+              );
+            }
           }
         })
         .catch(() => {});
@@ -920,6 +663,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   );
 
   const deviceStop = useCallback(() => {
+    cancelPendingPlayback();
     const deviceId = selectedDeviceRef.current;
     const isSpotify = currentTrackRef.current?.id.startsWith('spotify:');
 
@@ -929,171 +673,123 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       audio.pause();
     } else {
       api.deviceStop(deviceId).catch(() => {});
+      // Tell the server too: playbackService.stop() releases server-driven
+      // playback (unpins the device monitor) so it stops polling/advancing.
+      api.stop().catch(() => {});
     }
     setCurrentTrack(null);
     setIsLoading(false);
-  }, [audio]);
+  }, [audio, cancelPendingPlayback]);
 
   const toggleShuffle = useCallback(() => setShuffle((s) => !s), []);
   const toggleRepeat = useCallback(() => {
     setRepeat((r) => (r === 'off' ? 'all' : r === 'all' ? 'one' : 'off'));
   }, []);
 
-  // Auto-advance to next track when current ends
-  audio.setOnEnded(playNext);
-
-  // --- Keep browser playback alive when the laptop locks / display sleeps ---
-  // Strategy:
-  //  1. Request a Screen Wake Lock while playing in the browser (prevents
-  //     the display from sleeping, which on many laptops triggers media pause).
-  //  2. Register Media Session action handlers so the OS media keys /
-  //     lock-screen controls hook into our transport and do not detach audio.
-  //  3. When the tab becomes visible again, re-acquire the wake lock and
-  //     resume playback if the UI state says we should be playing but the
-  //     underlying <audio> element got paused by the OS.
-  const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
-  const browserIsPlaying = selectedDeviceId === 'browser' && audio.isPlaying;
-
+  // Keep the audio element subscribed to the latest queue handler. Registering
+  // this during render is a side effect and can leak stale handlers under
+  // StrictMode; the effect also clears the callback on unmount.
   useEffect(() => {
-    const nav = navigator as Navigator & WakeLockCapability;
-    const requestWakeLock = async () => {
-      if (!browserIsPlaying) return;
-      try {
-        if (nav.wakeLock && !wakeLockRef.current) {
-          wakeLockRef.current = await nav.wakeLock.request('screen');
-          wakeLockRef.current.addEventListener?.('release', () => {
-            wakeLockRef.current = null;
-          });
-        }
-      } catch {
-        // Wake lock unsupported or denied — ignore.
-      }
-    };
-    const releaseWakeLock = async () => {
-      try {
-        await wakeLockRef.current?.release?.();
-      } catch {}
-      wakeLockRef.current = null;
-    };
+    audio.setOnEnded(playNext);
+    return () => audio.setOnEnded(null);
+  }, [audio, playNext]);
 
-    if (browserIsPlaying) {
-      requestWakeLock();
-    } else {
-      releaseWakeLock();
-    }
+  const isPlaying =
+    selectedDeviceId === 'browser'
+      ? // Spotify-in-browser is driven by the SDK, not the <audio> element.
+        currentTrack?.id.startsWith('spotify:')
+        ? !!spotifyWeb.playback && !spotifyWeb.playback.paused
+        : audio.isPlaying
+      : deviceIsPlaying;
 
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        // Re-acquire wake lock (it auto-releases on hidden).
-        if (browserIsPlaying) requestWakeLock();
-        // If we think we're playing but the audio element got paused by
-        // the OS while the tab was hidden, resume it.
-        if (
-          selectedDeviceRef.current === 'browser' &&
-          currentTrackRef.current &&
-          !audio.isPlaying
-        ) {
-          audio.resume();
-        }
-      }
-    };
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibility);
-      releaseWakeLock();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [browserIsPlaying]);
-
-  // Media Session API: hand playback transport to the OS so it doesn't
-  // try to pause/detach audio on lock screen.
-  useEffect(() => {
-    if (!('mediaSession' in navigator)) return;
-    const ms = navigator.mediaSession;
-    if (currentTrack) {
-      try {
-        ms.metadata = new MediaMetadata({
-          title: currentTrack.title,
-          artist: currentTrack.artistName,
-          album: currentTrack.albumTitle,
-          artwork: currentTrack.albumId
-            ? [
-                {
-                  src: api.getAlbumCoverUrl(currentTrack.albumId),
-                  sizes: '512x512',
-                  type: 'image/jpeg',
-                },
-              ]
-            : [],
-        });
-      } catch {}
-      ms.setActionHandler?.('play', () => deviceResume());
-      ms.setActionHandler?.('pause', () => devicePause());
-      ms.setActionHandler?.('previoustrack', () => playPrevious());
-      ms.setActionHandler?.('nexttrack', () => playNext());
-      ms.playbackState = (selectedDeviceId === 'browser' ? audio.isPlaying : deviceIsPlaying)
-        ? 'playing'
-        : 'paused';
-    } else {
-      ms.metadata = null;
-      ms.playbackState = 'none';
-    }
-  }, [
+  useMediaSession({
     currentTrack,
-    audio.isPlaying,
-    deviceIsPlaying,
     selectedDeviceId,
-    devicePause,
-    deviceResume,
-    playNext,
+    isPlaying,
+    browserAudioIsPlaying: audio.isPlaying,
+    isBrowserAudioPaused: audio.isPaused,
+    resumeBrowserAudio: audio.resume,
+    pause: devicePause,
+    resume: deviceResume,
     playPrevious,
-  ]);
+    playNext,
+  });
 
-  return (
-    <AudioCtx.Provider
-      value={{
-        currentTrack,
-        isPlaying:
-          selectedDeviceId === 'browser'
-            ? // Spotify-in-browser is driven by the SDK, not the <audio> element.
-              currentTrack?.id.startsWith('spotify:')
-              ? !!spotifyWeb.playback && !spotifyWeb.playback.paused
-              : audio.isPlaying
-            : deviceIsPlaying,
-        isLoading,
-        volume: selectedDeviceId === 'browser' ? audio.volume : (deviceVolume ?? audio.volume),
-        queue,
-        queueIndex,
-        shuffle,
-        repeat,
-        crossfade,
-        setCrossfade,
-        replayGainMode,
-        setReplayGainMode,
-        replayGainPreamp,
-        setReplayGainPreamp,
-        selectedDeviceId,
-        playTrack,
-        playAlbum,
-        addToQueue,
-        clearQueue,
-        removeFromQueue,
-        moveInQueue,
-        playNext,
-        playPrevious,
-        pause: devicePause,
-        resume: deviceResume,
-        stop: deviceStop,
-        setVolume: deviceSetVolume,
-        seek: audio.seek,
-        setSelectedDeviceId,
-        toggleShuffle,
-        toggleRepeat,
-      }}
-    >
-      {children}
-    </AudioCtx.Provider>
+  const volume = selectedDeviceId === 'browser' ? audio.volume : (deviceVolume ?? audio.volume);
+
+  // Socket progress events update this provider frequently. A memoized context
+  // value prevents consumers that do not read progress from re-rendering when
+  // none of their observable playback state changed.
+  const contextValue = useMemo<AudioContextValue>(
+    () => ({
+      currentTrack,
+      isPlaying,
+      isLoading,
+      volume,
+      queue,
+      queueIndex,
+      shuffle,
+      repeat,
+      crossfade,
+      setCrossfade,
+      replayGainMode,
+      setReplayGainMode,
+      replayGainPreamp,
+      setReplayGainPreamp,
+      selectedDeviceId,
+      playTrack,
+      playAlbum,
+      addToQueue,
+      clearQueue,
+      removeFromQueue,
+      moveInQueue,
+      playNext,
+      playPrevious,
+      pause: devicePause,
+      resume: deviceResume,
+      stop: deviceStop,
+      setVolume: deviceSetVolume,
+      seek: audio.seek,
+      setSelectedDeviceId,
+      toggleShuffle,
+      toggleRepeat,
+    }),
+    [
+      currentTrack,
+      isPlaying,
+      isLoading,
+      volume,
+      queue,
+      queueIndex,
+      shuffle,
+      repeat,
+      crossfade,
+      setCrossfade,
+      replayGainMode,
+      setReplayGainMode,
+      replayGainPreamp,
+      setReplayGainPreamp,
+      selectedDeviceId,
+      playTrack,
+      playAlbum,
+      addToQueue,
+      clearQueue,
+      removeFromQueue,
+      moveInQueue,
+      playNext,
+      playPrevious,
+      devicePause,
+      deviceResume,
+      deviceStop,
+      deviceSetVolume,
+      audio.seek,
+      setSelectedDeviceId,
+      toggleShuffle,
+      toggleRepeat,
+    ],
   );
+
+  return <AudioCtx.Provider value={contextValue}>{children}</AudioCtx.Provider>;
 }
 
 export function useAudioContext() {

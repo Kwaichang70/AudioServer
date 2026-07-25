@@ -1,12 +1,18 @@
 import {
   DndContext,
   closestCenter,
+  KeyboardSensor,
   PointerSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
 } from '@dnd-kit/core';
-import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
 interface SortableItemProps {
@@ -30,9 +36,11 @@ function SortableItem({ id, children }: SortableItemProps) {
     <div ref={setNodeRef} style={style} {...attributes}>
       <div className="flex items-center gap-1">
         <button
+          type="button"
           {...listeners}
           className="cursor-grab active:cursor-grabbing text-gray-600 hover:text-gray-400 px-1 shrink-0 touch-none"
           title="Drag to reorder"
+          aria-label="Reorder item"
         >
           &#9776;
         </button>
@@ -53,7 +61,10 @@ export default function SortableList<TItem extends { id: string }>({
   onReorder,
   renderItem,
 }: SortableListProps<TItem>) {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;

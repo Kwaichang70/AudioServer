@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
 import { useToast } from '../components/Toast.js';
@@ -29,42 +29,67 @@ export default function RadioPage() {
   const [searchResults, setSearchResults] = useState<Station[]>([]);
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [tagResults, setTagResults] = useState<Station[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [tagLoading, setTagLoading] = useState(false);
+  const searchRequestRef = useRef(0);
+  const tagRequestRef = useRef(0);
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    api.getRadioFeatured().then((res) => setFeatured(res.data || [])).catch(() => {});
-    api.getFavorites('station').then((res) => {
-      const s = new Set<string>((res.data || []).map((x: Station) => x.uuid));
-      setFavorites(s);
-    }).catch(() => {});
+    api
+      .getRadioFeatured()
+      .then((res) => setFeatured(res.data || []))
+      .catch(() => {});
+    api
+      .getFavorites('station')
+      .then((res) => {
+        const s = new Set<string>((res.data || []).map((x: Station) => x.uuid));
+        setFavorites(s);
+      })
+      .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (tab !== 'search') {
+      searchRequestRef.current += 1;
+      setSearchLoading(false);
+    }
+    if (tab !== 'genre') {
+      tagRequestRef.current += 1;
+      setTagLoading(false);
+    }
+  }, [tab]);
 
   const handleSearch = useCallback(async () => {
     if (!searchQuery.trim()) return;
-    setLoading(true);
+    const requestId = ++searchRequestRef.current;
+    setSearchLoading(true);
     try {
       const res = await api.searchRadio(searchQuery.trim());
-      setSearchResults(res.data || []);
+      if (searchRequestRef.current === requestId) setSearchResults(res.data || []);
     } catch (err) {
-      toast(`Search failed: ${err}`, 'error');
+      if (searchRequestRef.current === requestId) toast(`Search failed: ${err}`, 'error');
     } finally {
-      setLoading(false);
+      if (searchRequestRef.current === requestId) setSearchLoading(false);
     }
   }, [searchQuery, toast]);
 
-  const handleTag = useCallback(async (tag: string) => {
-    setActiveTag(tag);
-    setLoading(true);
-    try {
-      const res = await api.searchRadio('', 'NL', tag);
-      setTagResults(res.data || []);
-    } catch (err) {
-      toast(`Browse failed: ${err}`, 'error');
-    } finally {
-      setLoading(false);
-    }
-  }, [toast]);
+  const handleTag = useCallback(
+    async (tag: string) => {
+      const requestId = ++tagRequestRef.current;
+      setActiveTag(tag);
+      setTagLoading(true);
+      try {
+        const res = await api.searchRadio('', 'NL', tag);
+        if (tagRequestRef.current === requestId) setTagResults(res.data || []);
+      } catch (err) {
+        if (tagRequestRef.current === requestId) toast(`Browse failed: ${err}`, 'error');
+      } finally {
+        if (tagRequestRef.current === requestId) setTagLoading(false);
+      }
+    },
+    [toast],
+  );
 
   const playStation = (station: Station) => {
     playTrack({
@@ -76,8 +101,7 @@ export default function RadioPage() {
     });
   };
 
-  const toggleFavorite = async (station: Station, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const toggleFavorite = async (station: Station) => {
     try {
       // Cache metadata first so the Favorites page can render without
       // hitting radio-browser again.
@@ -116,34 +140,51 @@ export default function RadioPage() {
           return (
             <div
               key={station.uuid}
-              onClick={() => playStation(station)}
-              className="group bg-surface hover:bg-surface-light rounded-lg p-3 cursor-pointer transition flex items-center gap-3"
+              className="group bg-surface hover:bg-surface-light rounded-lg p-3 transition flex items-center gap-3"
             >
-              <div className="w-12 h-12 shrink-0 rounded bg-surface-dark overflow-hidden flex items-center justify-center text-lg">
-                {station.faviconUrl ? (
-                  <img
-                    src={station.faviconUrl}
-                    alt=""
-                    className="w-full h-full object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                  />
-                ) : (
-                  <span className="text-gray-500">&#128251;</span>
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium truncate">{station.name}</p>
-                <p className="text-xs text-gray-400 truncate">
-                  {station.genre || 'Radio'}
-                  {station.bitrate ? ` • ${station.bitrate}kbps` : ''}
-                </p>
-              </div>
               <button
-                onClick={(e) => toggleFavorite(station, e)}
+                type="button"
+                onClick={() => playStation(station)}
+                className="flex min-w-0 flex-1 items-center gap-3 text-left rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                aria-label={`Play ${station.name}`}
+              >
+                <span className="w-12 h-12 shrink-0 rounded bg-surface-dark overflow-hidden flex items-center justify-center text-lg">
+                  {station.faviconUrl ? (
+                    <img
+                      src={station.faviconUrl}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <span className="text-gray-500">&#128251;</span>
+                  )}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium truncate">{station.name}</span>
+                  <span className="block text-xs text-gray-400 truncate">
+                    {station.genre || 'Radio'}
+                    {station.bitrate ? ` • ${station.bitrate}kbps` : ''}
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleFavorite(station)}
                 className={`shrink-0 text-lg transition ${
-                  isFav ? 'text-accent' : 'text-gray-600 hover:text-accent opacity-0 group-hover:opacity-100'
+                  isFav
+                    ? 'text-accent'
+                    : 'text-gray-600 hover:text-accent opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100'
                 }`}
                 title={isFav ? 'Remove from favorites' : 'Add to favorites'}
+                aria-label={
+                  isFav
+                    ? `Remove ${station.name} from favorites`
+                    : `Add ${station.name} to favorites`
+                }
+                aria-pressed={isFav}
               >
                 {isFav ? '\u2605' : '\u2606'}
               </button>
@@ -177,7 +218,10 @@ export default function RadioPage() {
         <>
           <form
             className="mb-6 flex gap-2"
-            onSubmit={(e) => { e.preventDefault(); handleSearch(); }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSearch();
+            }}
           >
             <input
               type="text"
@@ -193,7 +237,7 @@ export default function RadioPage() {
               Zoek
             </button>
           </form>
-          {loading ? <p className="text-gray-400">Laden…</p> : renderGrid(searchResults)}
+          {searchLoading ? <p className="text-gray-400">Laden…</p> : renderGrid(searchResults)}
         </>
       )}
 
@@ -214,7 +258,7 @@ export default function RadioPage() {
               </button>
             ))}
           </div>
-          {loading ? (
+          {tagLoading ? (
             <p className="text-gray-400">Laden…</p>
           ) : activeTag ? (
             renderGrid(tagResults)
@@ -227,7 +271,15 @@ export default function RadioPage() {
   );
 }
 
-function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
   return (
     <button
       onClick={onClick}

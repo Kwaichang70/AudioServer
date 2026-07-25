@@ -45,7 +45,19 @@ function GenreList() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.getGenres().then((res) => setGenres(res.data)).catch(() => {}).finally(() => setLoading(false));
+    let cancelled = false;
+    api
+      .getGenres()
+      .then((res) => {
+        if (!cancelled) setGenres(res.data);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (loading) return <p className="text-gray-400">Loading genres...</p>;
@@ -57,7 +69,9 @@ function GenreList() {
       </h2>
 
       {genres.length === 0 ? (
-        <p className="text-gray-500 text-center py-12">No genres found. Scan your library to populate genre tags.</p>
+        <p className="text-gray-500 text-center py-12">
+          No genres found. Scan your library to populate genre tags.
+        </p>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
           {genres.map((g) => (
@@ -83,14 +97,30 @@ function GenreDetail({ genre }: { genre: string }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.getGenreAlbums(genre).then((res) => setAlbums(res.data)).catch(() => {}).finally(() => setLoading(false));
+    let cancelled = false;
+    setAlbums([]);
+    setLoading(true);
+    api
+      .getGenreAlbums(genre)
+      .then((res) => {
+        if (!cancelled) setAlbums(res.data);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [genre]);
 
   if (loading) return <p className="text-gray-400">Loading...</p>;
 
   return (
     <div>
-      <Link to="/genres" className="text-sm text-gray-400 hover:text-accent transition">&larr; All Genres</Link>
+      <Link to="/genres" className="text-sm text-gray-400 hover:text-accent transition">
+        &larr; All Genres
+      </Link>
       <h2 className="text-2xl font-bold mt-2 mb-6">
         {genre} <span className="text-sm font-normal text-gray-500">({albums.length} albums)</span>
       </h2>
@@ -105,7 +135,9 @@ function GenreDetail({ genre }: { genre: string }) {
             <div className="mb-2">
               <AlbumCover albumId={album.id} title={album.title} artistName={album.artistName} />
             </div>
-            <p className="text-sm font-medium truncate group-hover:text-accent transition">{album.title}</p>
+            <p className="text-sm font-medium truncate group-hover:text-accent transition">
+              {album.title}
+            </p>
             <p className="text-xs text-gray-400 truncate">{album.artistName}</p>
             {album.year && <p className="text-xs text-gray-500">{album.year}</p>}
           </Link>

@@ -46,6 +46,25 @@ interface FetchStatus {
   notFound: number;
 }
 
+interface MusicBrainzRelease {
+  id: string;
+}
+
+interface MusicBrainzSearchResponse {
+  releases?: MusicBrainzRelease[];
+}
+
+interface CoverArtImage {
+  front?: boolean;
+  types?: string[];
+  image?: string;
+  thumbnails?: { large?: string; small?: string };
+}
+
+interface CoverArtResponse {
+  images?: CoverArtImage[];
+}
+
 let fetchStatus: FetchStatus = {
   isRunning: false,
   total: 0,
@@ -170,7 +189,7 @@ async function fetchFromMusicBrainz(artist: string, title: string): Promise<Buff
     const searchRes = await rateLimitedFetch(searchUrl);
     if (!searchRes.ok) return null;
 
-    const searchData = (await searchRes.json()) as any;
+    const searchData = (await searchRes.json()) as MusicBrainzSearchResponse;
     const releases = searchData.releases || [];
 
     if (releases.length === 0) return null;
@@ -184,9 +203,9 @@ async function fetchFromMusicBrainz(artist: string, title: string): Promise<Buff
         const coverRes = await rateLimitedFetch(`${COVERART_API}/release/${mbid}`);
         if (!coverRes.ok) continue;
 
-        const coverData = (await coverRes.json()) as any;
+        const coverData = (await coverRes.json()) as CoverArtResponse;
         const frontImage = coverData.images?.find(
-          (img: any) => img.front === true || img.types?.includes('Front'),
+          (image) => image.front === true || image.types?.includes('Front'),
         );
 
         if (!frontImage) continue;
@@ -323,7 +342,7 @@ async function fetchArtistImage(artistId: string, artistName: string): Promise<b
     const results = await providers.spotify.search(`artist:${artistName}`, 3);
     const match =
       results.artists?.find(
-        (a: any) => a.name.toLowerCase() === artistName.toLowerCase() && a.imageUrl,
+        (artist) => artist.name.toLowerCase() === artistName.toLowerCase() && artist.imageUrl,
       ) || results.artists?.[0];
 
     if (match?.imageUrl) {

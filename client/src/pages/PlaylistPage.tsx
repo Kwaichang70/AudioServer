@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
@@ -20,7 +20,7 @@ interface Track {
 interface Playlist {
   id: string;
   name: string;
-  description?: string;
+  description?: string | null;
   trackCount?: number;
 }
 
@@ -34,21 +34,41 @@ export default function PlaylistPage() {
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
   const { playTrack, playAlbum, currentTrack, isPlaying } = useAudioContext();
+  const loadRequestRef = useRef(0);
+  const activePlaylistIdRef = useRef(id);
+  activePlaylistIdRef.current = id;
+  const invalidateLoads = useCallback(() => {
+    loadRequestRef.current++;
+  }, []);
 
-  const load = () => {
+  const load = useCallback(async () => {
     if (!id) return;
-    api.getPlaylist(id).then((res) => setPlaylist(res.data));
-    api.getPlaylistTracks(id).then((res) => setTracks(res.data));
-  };
+    const requestId = ++loadRequestRef.current;
+    try {
+      const [playlistResponse, tracksResponse] = await Promise.all([
+        api.getPlaylist(id),
+        api.getPlaylistTracks(id),
+      ]);
+      if (requestId !== loadRequestRef.current) return;
+      setPlaylist(playlistResponse.data);
+      setTracks(tracksResponse.data);
+    } catch {
+      // Keep the reset/loading state when this playlist no longer exists.
+    }
+  }, [id]);
 
   useEffect(() => {
-    load();
-  }, [id]);
+    setPlaylist(null);
+    setTracks([]);
+    void load();
+    return invalidateLoads;
+  }, [invalidateLoads, load]);
 
   const handleRemove = async (trackId: string) => {
     if (!id) return;
+    const playlistId = id;
     await api.removeFromPlaylist(id, trackId);
-    load();
+    if (activePlaylistIdRef.current === playlistId) void load();
   };
 
   const handleReorder = async (from: number, to: number) => {
@@ -149,6 +169,14 @@ export default function PlaylistPage() {
               return (
                 <div
                   onClick={() => playTrack(track)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      playTrack(track);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
                   className={`group flex items-center gap-2 py-2 px-1 cursor-pointer hover:bg-surface-light rounded transition ${isCurrent ? 'text-accent' : ''}`}
                 >
                   <span className="w-6 text-sm text-gray-500 text-right shrink-0">

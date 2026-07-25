@@ -6,7 +6,7 @@ import { useToast } from '../components/Toast.js';
 interface Playlist {
   id: string;
   name: string;
-  description?: string;
+  description?: string | null;
   trackCount?: number;
 }
 
@@ -102,7 +102,6 @@ export default function PlaylistsPage() {
             onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
             placeholder="Playlist name..."
             className="flex-1 px-4 py-2 bg-surface-light border border-white/10 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent"
-            autoFocus
           />
           <button
             onClick={handleCreate}
@@ -139,7 +138,8 @@ export default function PlaylistsPage() {
               </Link>
               <button
                 onClick={() => handleDelete(pl.id)}
-                className="text-xs text-gray-600 hover:text-red-400 transition opacity-0 group-hover:opacity-100"
+                className="text-xs text-gray-600 hover:text-red-400 transition opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
+                aria-label={`Delete playlist ${pl.name}`}
               >
                 Delete
               </button>

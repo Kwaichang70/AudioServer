@@ -1,6 +1,7 @@
 {
   "name": "audioserver",
   "private": true,
+  "type": "module",
   "workspaces": [
     "server",
     "client",

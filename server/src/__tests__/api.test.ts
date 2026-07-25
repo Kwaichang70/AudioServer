@@ -43,6 +43,7 @@ describe('Health API', () => {
     expect(['ok', 'degraded']).toContain(data.status);
     expect(data.uptime).toBeGreaterThan(0);
     expect(data.timestamp).toBeTruthy();
+    expect(data.port).toBeGreaterThan(0);
   });
 });
 
@@ -69,9 +70,11 @@ describe('Devices API', () => {
   it('browser device is always online', { timeout: 15000 }, async () => {
     const res = await fetch(`${baseUrl}/api/devices`);
     const { data } = await res.json();
-    const browser = data.find((d: any) => d.id === 'browser');
+    const browser = (data as Array<{ id: string; isOnline: boolean }>).find(
+      (device) => device.id === 'browser',
+    );
     expect(browser).toBeTruthy();
-    expect(browser.isOnline).toBe(true);
+    expect(browser?.isOnline).toBe(true);
   });
 });
 

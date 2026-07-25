@@ -11,6 +11,8 @@ import { libraryRouter } from '../../routes/library.js';
 import { playbackRouter } from '../../routes/playback.js';
 import { playlistsRouter } from '../../routes/playlists.js';
 import { providersRouter } from '../../routes/providers.js';
+import { historyRouter } from '../../routes/history.js';
+import { smartPlaylistsRouter } from '../../routes/smart-playlists.js';
 import { openApiSpec } from '../../openapi.js';
 
 /**
@@ -40,6 +42,8 @@ export async function createTestApp() {
   app.use('/api/playback', playbackRouter);
   app.use('/api/playlists', playlistsRouter);
   app.use('/api/providers', providersRouter);
+  app.use('/api/history', historyRouter);
+  app.use('/api/smart-playlists', smartPlaylistsRouter);
   app.use('/api', notFoundHandler);
   app.use(errorHandler);
 

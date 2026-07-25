@@ -15,6 +15,7 @@ interface LyricsData {
 
 export default function LyricsDisplay() {
   const { currentTrack } = useAudioContext();
+  const currentTrackId = currentTrack?.id;
   const { currentTime } = useProgress();
   const [lyrics, setLyrics] = useState<LyricsData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -23,28 +24,44 @@ export default function LyricsDisplay() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!currentTrack) {
+    let cancelled = false;
+
+    if (!currentTrackId) {
       setLyrics(null);
+      setLoading(false);
+      setError(false);
       return;
     }
     // Don't fetch for streaming tracks without local IDs
-    if (currentTrack.id.startsWith('spotify:')) {
+    if (currentTrackId.startsWith('spotify:')) {
       setLyrics(null);
+      setLoading(false);
+      setError(false);
       return;
     }
 
     setLoading(true);
     setError(false);
-    const trackId = currentTrack.id.replace('tidal:', '').replace('qobuz:', '');
+    const trackId = currentTrackId.replace('tidal:', '').replace('qobuz:', '');
     api
       .getLyrics(trackId)
-      .then((res) => setLyrics(res.data))
-      .catch(() => {
-        setError(true);
-        setLyrics(null);
+      .then((res) => {
+        if (!cancelled) setLyrics(res.data);
       })
-      .finally(() => setLoading(false));
-  }, [currentTrack?.id]);
+      .catch(() => {
+        if (!cancelled) {
+          setError(true);
+          setLyrics(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentTrackId]);
 
   // Auto-scroll to active line
   useEffect(() => {

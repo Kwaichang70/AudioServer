@@ -10,6 +10,7 @@ import {
 } from '../middleware/auth.js';
 import { loginLimiter, registerLimiter } from '../middleware/rateLimiter.js';
 import { logger } from '../logger.js';
+import { saveTokens } from '../services/tokenstore.js';
 import { validate } from '../utils/validate.js';
 
 const credentialsSchema = z.object({
@@ -49,7 +50,6 @@ authRouter.post(
     const db = getRawDb();
     const row = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
     const isFirstUser = row.count === 0;
-    const role = isFirstUser ? 'admin' : 'user';
 
     if (!isFirstUser) {
       res.status(403).json({ error: 'Registration is closed. Admins must use /users/create.' });
@@ -58,12 +58,24 @@ authRouter.post(
 
     const id = uuid();
     const passwordHash = await hashPassword(password);
-    db.prepare('INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)').run(
-      id,
-      username,
-      passwordHash,
-      role,
-    );
+    const role = 'admin';
+    const registerFirstUser = db.transaction(() => {
+      const current = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
+      if (current.count !== 0) return false;
+      db.prepare('INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)').run(
+        id,
+        username,
+        passwordHash,
+        role,
+      );
+      return true;
+    });
+    const registered = registerFirstUser.immediate();
+
+    if (!registered) {
+      res.status(403).json({ error: 'Registration is closed. Admins must use /users/create.' });
+      return;
+    }
 
     const token = generateToken(id);
     logger.info(`User registered: ${username} (${role})`);
@@ -212,10 +224,7 @@ authRouter.delete('/users/:id', (req, res) => {
 // Import provider tokens (for syncing between local dev and Synology)
 authRouter.post('/import-token', validate({ body: importTokenSchema }), (req, res) => {
   const { provider, accessToken, refreshToken, expiresAt } = req.body;
-  const db = getRawDb();
-  db.prepare(
-    'INSERT OR REPLACE INTO provider_tokens (provider, access_token, refresh_token, expires_at) VALUES (?, ?, ?, ?)',
-  ).run(provider, accessToken, refreshToken, expiresAt || 0);
+  saveTokens(provider, { accessToken, refreshToken, expiresAt: expiresAt ?? 0 });
   logger.info(`Token imported for ${provider}`);
   res.json({ data: { ok: true } });
 });

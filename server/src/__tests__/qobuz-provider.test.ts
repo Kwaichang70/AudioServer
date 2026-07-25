@@ -140,4 +140,68 @@ describe('QobuzProvider', () => {
       code: 'qobuz_geo_or_subscription_blocked',
     });
   });
+
+  it('maps typed Qobuz search resources to domain objects', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockResponse({
+          user_auth_token: 'user-token',
+          user: { id: 42, display_name: 'Danny' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockResponse({
+          artists: { items: [null, { id: 7, name: 'Nina Simone' }] },
+          albums: {
+            items: [
+              {
+                id: 'album-7',
+                title: 'Pastel Blues',
+                artist: { id: 7, name: 'Nina Simone' },
+                released_at: 1_435_708_800,
+                image: { large: 'cover.jpg' },
+                tracks_count: 9,
+              },
+            ],
+          },
+          tracks: {
+            items: [
+              {
+                id: 99,
+                title: 'Sinnerman',
+                performer: { id: 7, name: 'Nina Simone' },
+                album: { id: 'album-7', title: 'Pastel Blues' },
+                duration: 622,
+                maximum_sampling_rate: 96,
+                maximum_bit_depth: 24,
+              },
+            ],
+          },
+        }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = new QobuzProvider();
+    await provider.auth.login({ username: 'danny@example.com', password: 'super-secret' });
+    const results = await provider.search('Nina Simone');
+
+    expect(results.artists[0]).toMatchObject({
+      id: 'qobuz:7',
+      name: 'Nina Simone',
+      source: 'qobuz',
+    });
+    expect(results.albums[0]).toMatchObject({
+      id: 'qobuz:album-7',
+      artistId: 'qobuz:7',
+      coverUrl: 'cover.jpg',
+    });
+    expect(results.tracks[0]).toMatchObject({
+      id: 'qobuz:99',
+      albumId: 'qobuz:album-7',
+      sampleRate: 96_000,
+      bitDepth: 24,
+    });
+    expect(results.artists).toHaveLength(1);
+  });
 });

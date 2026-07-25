@@ -12,6 +12,93 @@ interface SpotifyTokens {
   expiresAt: number;
 }
 
+interface SpotifyImageResponse {
+  url: string;
+}
+
+interface SpotifyArtistSummaryResponse {
+  id: string;
+  name: string;
+}
+
+interface SpotifyArtistResponse extends SpotifyArtistSummaryResponse {
+  images?: SpotifyImageResponse[];
+}
+
+interface SpotifyAlbumResponse {
+  id: string;
+  name: string;
+  artists?: SpotifyArtistSummaryResponse[];
+  release_date?: string;
+  images?: SpotifyImageResponse[];
+  total_tracks?: number;
+  tracks?: SpotifyPageResponse<SpotifyTrackResponse>;
+}
+
+interface SpotifyTrackResponse {
+  id: string;
+  name: string;
+  album?: SpotifyAlbumResponse;
+  artists?: SpotifyArtistSummaryResponse[];
+  track_number?: number;
+  duration_ms?: number;
+}
+
+interface SpotifyPlaylistResponse {
+  id: string;
+  name: string;
+  description?: string;
+  tracks?: { total?: number };
+  images?: SpotifyImageResponse[];
+}
+
+interface SpotifyPageResponse<T> {
+  items?: T[];
+  total?: number;
+}
+
+interface SpotifySearchPageResponse<T> {
+  items?: Array<T | null>;
+}
+
+interface SpotifyFollowingResponse {
+  artists?: SpotifyPageResponse<SpotifyArtistResponse>;
+}
+
+interface SpotifySavedAlbumsResponse extends SpotifyPageResponse<{ album: SpotifyAlbumResponse }> {}
+
+interface SpotifySearchResponse {
+  artists?: SpotifySearchPageResponse<SpotifyArtistResponse>;
+  albums?: SpotifySearchPageResponse<SpotifyAlbumResponse>;
+  tracks?: SpotifySearchPageResponse<SpotifyTrackResponse>;
+  playlists?: SpotifySearchPageResponse<SpotifyPlaylistResponse>;
+}
+
+interface SpotifyPlaylistTracksResponse {
+  items?: Array<{ track?: SpotifyTrackResponse | null }>;
+}
+
+export interface SpotifyConnectDevice {
+  id: string;
+  name: string;
+  type: string;
+  is_active?: boolean;
+  is_private_session?: boolean;
+  is_restricted?: boolean;
+  volume_percent?: number;
+}
+
+interface SpotifyDevicesResponse {
+  devices?: SpotifyConnectDevice[];
+}
+
+export interface SpotifyPlaybackState {
+  is_playing?: boolean;
+  progress_ms?: number;
+  item?: SpotifyTrackResponse | null;
+  device?: SpotifyConnectDevice;
+}
+
 /**
  * Spotify provider using Web API for metadata + Spotify Connect for playback.
  *
@@ -242,7 +329,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     logger.warn(`Spotify rate-limited (429); pausing API calls for ${retryAfter}s`);
   }
 
-  private async apiRequest(path: string): Promise<any> {
+  private async apiRequest<T>(path: string): Promise<T> {
     if (Date.now() < this.rateLimitedUntil) {
       throw new Error('Spotify API error: 429 (cooling down)');
     }
@@ -258,13 +345,13 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
       logger.error(`Spotify API ${res.status}: ${url} → ${text.slice(0, 200)}`);
       throw new Error(`Spotify API error: ${res.status} ${text.slice(0, 100)}`);
     }
-    return res.json();
+    return (await res.json()) as T;
   }
 
   // PUT/POST are direct user actions (play/pause/volume): they still run
   // during a cooldown — failing them fast wouldn't make them succeed — but a
   // 429 here does START the cooldown so the GET/search paths back off.
-  private async apiPut(path: string, body?: any): Promise<void> {
+  private async apiPut(path: string, body?: unknown): Promise<void> {
     const headers = await this.getHeaders();
     const res = await fetch(`${SPOTIFY_API_URL}${path}`, {
       method: 'PUT',
@@ -278,7 +365,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     }
   }
 
-  private async apiPost(path: string, body?: any): Promise<void> {
+  private async apiPost(path: string, body?: unknown): Promise<void> {
     const headers = await this.getHeaders();
     const res = await fetch(`${SPOTIFY_API_URL}${path}`, {
       method: 'POST',
@@ -294,13 +381,13 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
 
   // ─── Spotify Connect ─────────────────────────────────────────
 
-  async getConnectDevices(): Promise<any[]> {
+  async getConnectDevices(): Promise<SpotifyConnectDevice[]> {
     if (!this.auth.isAuthenticated) return [];
-    const data = await this.apiRequest('/me/player/devices');
+    const data = await this.apiRequest<SpotifyDevicesResponse>('/me/player/devices');
     return data.devices || [];
   }
 
-  async getPlaybackState(): Promise<any> {
+  async getPlaybackState(): Promise<SpotifyPlaybackState | null> {
     if (!this.auth.isAuthenticated) return null;
     // Polled every 3s by the client during Connect playback — the most
     // frequent Spotify call in the app, so it must honor the 429 cooldown
@@ -314,7 +401,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     }
     if (res.status === 204) return null; // No active playback
     if (!res.ok) return null;
-    return res.json();
+    return (await res.json()) as SpotifyPlaybackState;
   }
 
   async connectPlay(trackUri: string, deviceId?: string): Promise<void> {
@@ -324,11 +411,18 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     });
   }
 
-  async connectPlayContext(contextUri: string, deviceId?: string, offset?: number): Promise<void> {
+  async connectPlayContext(
+    contextUri: string,
+    deviceId?: string,
+    offset?: number | { uri: string },
+  ): Promise<void> {
     const params = deviceId ? `?device_id=${deviceId}` : '';
     await this.apiPut(`/me/player/play${params}`, {
       context_uri: contextUri,
-      offset: offset !== undefined ? { position: offset } : undefined,
+      // Numeric offsets address a position; {uri} addresses a specific track
+      // within the context — the client uses the latter to start an album at
+      // the clicked track while letting Spotify advance natively afterwards.
+      offset: typeof offset === 'number' ? { position: offset } : offset,
     });
   }
 
@@ -367,8 +461,10 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
   async getArtists(_page?: number, _pageSize?: number) {
     if (!this.auth.isAuthenticated) return { items: [] as Artist[], total: 0 };
     try {
-      const data = await this.apiRequest('/me/following?type=artist&limit=50');
-      const artists = (data.artists?.items || []).map((a: any) => this.mapArtist(a));
+      const data = await this.apiRequest<SpotifyFollowingResponse>(
+        '/me/following?type=artist&limit=50',
+      );
+      const artists = (data.artists?.items || []).map((artist) => this.mapArtist(artist));
       return { items: artists, total: data.artists?.total || 0 };
     } catch {
       return { items: [] as Artist[], total: 0 };
@@ -379,7 +475,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     if (!this.auth.isAuthenticated) return null;
     try {
       const spotifyId = id.replace('spotify:', '');
-      const data = await this.apiRequest(`/artists/${spotifyId}`);
+      const data = await this.apiRequest<SpotifyArtistResponse>(`/artists/${spotifyId}`);
       return this.mapArtist(data);
     } catch {
       return null;
@@ -389,8 +485,8 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
   async getAlbums(_page?: number, _pageSize?: number) {
     if (!this.auth.isAuthenticated) return { items: [] as Album[], total: 0 };
     try {
-      const data = await this.apiRequest('/me/albums?limit=50');
-      const albums = (data.items || []).map((i: any) => this.mapAlbum(i.album));
+      const data = await this.apiRequest<SpotifySavedAlbumsResponse>('/me/albums?limit=50');
+      const albums = (data.items || []).map((item) => this.mapAlbum(item.album));
       return { items: albums, total: data.total || 0 };
     } catch {
       return { items: [] as Album[], total: 0 };
@@ -401,7 +497,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     if (!this.auth.isAuthenticated) return null;
     try {
       const spotifyId = id.replace('spotify:', '');
-      return this.mapAlbum(await this.apiRequest(`/albums/${spotifyId}`));
+      return this.mapAlbum(await this.apiRequest<SpotifyAlbumResponse>(`/albums/${spotifyId}`));
     } catch {
       return null;
     }
@@ -411,8 +507,8 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     if (!this.auth.isAuthenticated) return [];
     try {
       const spotifyId = albumId.replace('spotify:', '');
-      const album = await this.apiRequest(`/albums/${spotifyId}`);
-      return (album.tracks?.items || []).map((t: any) => this.mapTrack(t, album));
+      const album = await this.apiRequest<SpotifyAlbumResponse>(`/albums/${spotifyId}`);
+      return (album.tracks?.items || []).map((track) => this.mapTrack(track, album));
     } catch {
       return [];
     }
@@ -422,8 +518,10 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     if (!this.auth.isAuthenticated) return [];
     try {
       const spotifyId = artistId.replace('spotify:', '');
-      const data = await this.apiRequest(`/artists/${spotifyId}/albums?limit=50`);
-      return (data.items || []).map((a: any) => this.mapAlbum(a));
+      const data = await this.apiRequest<SpotifyPageResponse<SpotifyAlbumResponse>>(
+        `/artists/${spotifyId}/albums?limit=50`,
+      );
+      return (data.items || []).map((album) => this.mapAlbum(album));
     } catch {
       return [];
     }
@@ -435,22 +533,22 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
       return { artists: [], albums: [], tracks: [], playlists: [] };
     }
     try {
-      const data = await this.apiRequest(
+      const data = await this.apiRequest<SpotifySearchResponse>(
         `/search?q=${encodeURIComponent(query)}&type=artist,album,track,playlist&limit=${Math.min(limit, 10)}`,
       );
       return {
         artists: (data.artists?.items || [])
-          .filter((a: any) => a?.id)
-          .map((a: any) => this.mapArtist(a)),
+          .filter((artist): artist is SpotifyArtistResponse => Boolean(artist?.id))
+          .map((artist) => this.mapArtist(artist)),
         albums: (data.albums?.items || [])
-          .filter((a: any) => a?.id)
-          .map((a: any) => this.mapAlbum(a)),
+          .filter((album): album is SpotifyAlbumResponse => Boolean(album?.id))
+          .map((album) => this.mapAlbum(album)),
         tracks: (data.tracks?.items || [])
-          .filter((t: any) => t?.id)
-          .map((t: any) => this.mapTrack(t)),
+          .filter((track): track is SpotifyTrackResponse => Boolean(track?.id))
+          .map((track) => this.mapTrack(track)),
         playlists: (data.playlists?.items || [])
-          .filter((p: any) => p?.id)
-          .map((p: any) => this.mapPlaylist(p)),
+          .filter((playlist): playlist is SpotifyPlaylistResponse => Boolean(playlist?.id))
+          .map((playlist) => this.mapPlaylist(playlist)),
       };
     } catch (err) {
       logger.error(`Spotify search failed: ${err}`);
@@ -467,8 +565,11 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
   async getPlaylists(): Promise<Playlist[]> {
     if (!this.auth.isAuthenticated) return [];
     try {
-      const data = await this.apiRequest('/me/playlists?limit=50');
-      return (data.items || []).map((p: any) => this.mapPlaylist(p));
+      const data =
+        await this.apiRequest<SpotifyPageResponse<SpotifyPlaylistResponse>>(
+          '/me/playlists?limit=50',
+        );
+      return (data.items || []).map((playlist) => this.mapPlaylist(playlist));
     } catch {
       return [];
     }
@@ -478,8 +579,13 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     if (!this.auth.isAuthenticated) return [];
     try {
       const spotifyId = playlistId.replace('spotify:', '');
-      const data = await this.apiRequest(`/playlists/${spotifyId}/tracks?limit=100`);
-      return (data.items || []).filter((i: any) => i.track).map((i: any) => this.mapTrack(i.track));
+      const data = await this.apiRequest<SpotifyPlaylistTracksResponse>(
+        `/playlists/${spotifyId}/tracks?limit=100`,
+      );
+      return (data.items || [])
+        .map((item) => item.track)
+        .filter((track): track is SpotifyTrackResponse => Boolean(track))
+        .map((track) => this.mapTrack(track));
     } catch {
       return [];
     }
@@ -487,7 +593,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
 
   // ─── Mappers ─────────────────────────────────────────────────
 
-  private mapArtist(data: any): Artist {
+  private mapArtist(data: SpotifyArtistResponse): Artist {
     return {
       id: `spotify:${data.id}`,
       name: data.name,
@@ -496,7 +602,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     };
   }
 
-  private mapAlbum(data: any): Album {
+  private mapAlbum(data: SpotifyAlbumResponse): Album {
     return {
       id: `spotify:${data.id}`,
       title: data.name,
@@ -509,12 +615,13 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     };
   }
 
-  private mapTrack(data: any, album?: any): Track {
+  private mapTrack(data: SpotifyTrackResponse, album?: SpotifyAlbumResponse): Track {
+    const trackAlbum = album || data.album;
     return {
       id: `spotify:${data.id}`,
       title: data.name,
-      albumId: `spotify:${(album || data.album)?.id || ''}`,
-      albumTitle: (album || data.album)?.name || '',
+      albumId: `spotify:${trackAlbum?.id || ''}`,
+      albumTitle: trackAlbum?.name || '',
       artistId: `spotify:${data.artists?.[0]?.id || ''}`,
       artistName: data.artists?.[0]?.name || 'Unknown',
       trackNumber: data.track_number,
@@ -523,7 +630,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     };
   }
 
-  private mapPlaylist(data: any): Playlist {
+  private mapPlaylist(data: SpotifyPlaylistResponse): Playlist {
     return {
       id: `spotify:${data.id}`,
       name: data.name,

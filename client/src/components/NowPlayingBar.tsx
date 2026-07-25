@@ -289,6 +289,7 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
               <button
                 onClick={() => setShowQueue(false)}
                 className="text-gray-500 hover:text-white text-sm"
+                aria-label="Close queue"
               >
                 &times;
               </button>
@@ -316,8 +317,9 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
                   {!isCurrent && (
                     <button
                       onClick={() => removeFromQueue(idx)}
-                      className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 text-xs px-1 shrink-0 transition"
+                      className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 text-gray-500 hover:text-red-400 text-xs px-1 shrink-0 transition"
                       title="Remove"
+                      aria-label={`Remove ${item.title} from queue`}
                     >
                       &times;
                     </button>

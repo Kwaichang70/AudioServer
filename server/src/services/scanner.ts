@@ -219,9 +219,7 @@ async function scanDirectory(dir: string, seenFiles: Set<string>): Promise<Direc
         try {
           const fileStat = await stat(filePath);
           const fileModTime = Math.floor(fileStat.mtimeMs / 1000);
-          const dbTime = existing.updatedAt
-            ? Math.floor(new Date(existing.updatedAt as any).getTime() / 1000)
-            : 0;
+          const dbTime = existing.updatedAt ? Math.floor(existing.updatedAt.getTime() / 1000) : 0;
 
           if (fileModTime <= dbTime) {
             // File unchanged, skip
@@ -374,8 +372,11 @@ async function cleanOrphans(seenFiles: Set<string>, successfulRoots: string[]): 
   // Clean empty albums
   for (const albumId of affectedAlbumIds) {
     const count =
-      (db.prepare('SELECT COUNT(*) as c FROM tracks WHERE album_id = ?').get(albumId) as any)?.c ??
-      0;
+      (
+        db.prepare('SELECT COUNT(*) as c FROM tracks WHERE album_id = ?').get(albumId) as
+          | { c: number }
+          | undefined
+      )?.c ?? 0;
     if (count === 0) {
       db.prepare("DELETE FROM favorites WHERE item_type = 'album' AND item_id = ?").run(albumId);
       db.prepare('DELETE FROM albums WHERE id = ?').run(albumId);
@@ -387,8 +388,11 @@ async function cleanOrphans(seenFiles: Set<string>, successfulRoots: string[]): 
   // Clean empty artists
   for (const artistId of affectedArtistIds) {
     const count =
-      (db.prepare('SELECT COUNT(*) as c FROM albums WHERE artist_id = ?').get(artistId) as any)
-        ?.c ?? 0;
+      (
+        db.prepare('SELECT COUNT(*) as c FROM albums WHERE artist_id = ?').get(artistId) as
+          | { c: number }
+          | undefined
+      )?.c ?? 0;
     if (count === 0) {
       db.prepare("DELETE FROM favorites WHERE item_type = 'artist' AND item_id = ?").run(artistId);
       db.prepare('DELETE FROM artists WHERE id = ?').run(artistId);

@@ -5,7 +5,7 @@ import { randomBytes } from 'crypto';
 export function requestLogger(req: Request, res: Response, next: NextFunction): void {
   const start = Date.now();
   const requestId = randomBytes(4).toString('hex');
-  (req as any).requestId = requestId;
+  req.requestId = requestId;
 
   res.on('finish', () => {
     const duration = Date.now() - start;

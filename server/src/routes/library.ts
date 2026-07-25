@@ -1,7 +1,7 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import { getDb, getRawDb } from '../db/index.js';
 import { artists, albums, tracks } from '../db/schema.js';
-import { eq, like, or } from 'drizzle-orm';
+import { desc, eq, like, or, sql } from 'drizzle-orm';
 import { scanLibrary, getScanStatus } from '../services/scanner.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
@@ -23,13 +23,45 @@ import { getSimilarArtists, similarArtistsAvailable } from '../services/similar-
 
 export const libraryRouter = Router();
 
+function addAlbumCoverAvailability<T extends { id: string; coverUrl: string | null }>(
+  rows: T[],
+): Array<T & { hasCover: boolean }> {
+  return rows.map((row) => ({
+    ...row,
+    hasCover: !!row.coverUrl || getLocalCoverPath(row.id) !== null,
+  }));
+}
+
+function pipeTrackFile(
+  res: Response,
+  filePath: string,
+  range?: { start: number; end: number },
+): void {
+  const stream = createReadStream(filePath, range);
+  stream.once('error', (error) => {
+    logger.error(`Failed to read track file ${filePath}: ${error}`);
+    if (res.headersSent) {
+      res.destroy(error);
+      return;
+    }
+    res.removeHeader('Content-Type');
+    res.removeHeader('Content-Length');
+    res.removeHeader('Content-Range');
+    res.removeHeader('Accept-Ranges');
+    res.removeHeader('transferMode.dlna.org');
+    res.removeHeader('contentFeatures.dlna.org');
+    res.status(500).json({ error: 'Failed to read track file' });
+  });
+  stream.pipe(res);
+}
+
 // ─── Stats ───────────────────────────────────────────────────────
 
 libraryRouter.get('/stats', (_req, res) => {
   const raw = getRawDb();
-  const artistCount = (raw.prepare('SELECT COUNT(*) as c FROM artists').get() as any).c;
-  const albumCount = (raw.prepare('SELECT COUNT(*) as c FROM albums').get() as any).c;
-  const trackCount = (raw.prepare('SELECT COUNT(*) as c FROM tracks').get() as any).c;
+  const artistCount = raw.prepare<[], { c: number }>('SELECT COUNT(*) as c FROM artists').get()?.c;
+  const albumCount = raw.prepare<[], { c: number }>('SELECT COUNT(*) as c FROM albums').get()?.c;
+  const trackCount = raw.prepare<[], { c: number }>('SELECT COUNT(*) as c FROM tracks').get()?.c;
   res.json({ data: { artists: artistCount, albums: albumCount, tracks: trackCount } });
 });
 
@@ -38,7 +70,8 @@ libraryRouter.get('/stats', (_req, res) => {
 libraryRouter.get('/artists', (req, res) => {
   const { page, limit, offset } = parsePagination(req, 50);
   const raw = getRawDb();
-  const total = (raw.prepare('SELECT COUNT(*) as count FROM artists').get() as any).count;
+  const total =
+    raw.prepare<[], { count: number }>('SELECT COUNT(*) as count FROM artists').get()?.count ?? 0;
   const rows = raw
     .prepare(
       `
@@ -88,7 +121,8 @@ libraryRouter.get('/artists/:id/similar', async (req, res) => {
 libraryRouter.get('/albums', (req, res) => {
   const { page, limit, offset } = parsePagination(req, 50);
   const raw = getRawDb();
-  const total = (raw.prepare('SELECT COUNT(*) as count FROM albums').get() as any).count;
+  const total =
+    raw.prepare<[], { count: number }>('SELECT COUNT(*) as count FROM albums').get()?.count ?? 0;
   const rows = raw
     .prepare(
       `
@@ -105,18 +139,16 @@ libraryRouter.get('/albums', (req, res) => {
   // — avoiding a 404 per album tile. The scanner caches embedded art to disk and
   // the cover-fetch job stores fetched art there too, so an on-disk file (or a
   // provider cover_url) is an authoritative "has art" signal after a scan/fetch.
-  const data = rows.map((r) => ({
-    ...r,
-    hasCover: !!r.coverUrl || getLocalCoverPath(r.id) !== null,
-  }));
+  const data = addAlbumCoverAvailability(rows);
   res.json({ data, meta: buildMeta(page, limit, total) });
 });
 
 // Recently added albums
 libraryRouter.get('/albums/recent', (req, res) => {
   const limit = Math.min(50, parseInt(req.query.limit as string) || 20);
-  const raw = getRawDb();
-  const data = raw.prepare('SELECT * FROM albums ORDER BY created_at DESC LIMIT ?').all(limit);
+  const db = getDb();
+  const rows = db.select().from(albums).orderBy(desc(albums.createdAt)).limit(limit).all();
+  const data = addAlbumCoverAvailability(rows);
   res.json({ data });
 });
 
@@ -217,7 +249,14 @@ libraryRouter.get('/tracks/:id/stream', (req, res) => {
     '.wav': 'audio/wav',
   };
 
-  const fileStat = statSync(track.filePath);
+  let fileStat;
+  try {
+    fileStat = statSync(track.filePath);
+  } catch (error) {
+    logger.error(`Failed to stat track file ${track.filePath}: ${error}`);
+    res.status(500).json({ error: 'Failed to read track file' });
+    return;
+  }
   const mime = mimeTypes[ext] || 'application/octet-stream';
   const totalSize = fileStat.size;
 
@@ -265,7 +304,7 @@ libraryRouter.get('/tracks/:id/stream', (req, res) => {
     res.setHeader('Content-Length', chunkSize);
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('transferMode.dlna.org', 'Streaming');
-    createReadStream(track.filePath, { start, end }).pipe(res);
+    pipeTrackFile(res, track.filePath, { start, end });
   } else {
     res.setHeader('Content-Type', mime);
     res.setHeader('Content-Length', totalSize);
@@ -275,7 +314,7 @@ libraryRouter.get('/tracks/:id/stream', (req, res) => {
       'contentFeatures.dlna.org',
       'DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000',
     );
-    createReadStream(track.filePath).pipe(res);
+    pipeTrackFile(res, track.filePath);
   }
 });
 
@@ -301,12 +340,20 @@ libraryRouter.get('/genres/:genre/albums', (req, res) => {
   const { page, limit, offset } = parsePagination(req, 50);
   const genre = decodeURIComponent(req.params.genre);
   const raw = getRawDb();
-  const total = (
-    raw.prepare('SELECT COUNT(*) as count FROM albums WHERE genre = ?').get(genre) as any
-  ).count;
-  const data = raw
-    .prepare('SELECT * FROM albums WHERE genre = ? ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?')
-    .all(genre, limit, offset);
+  const total =
+    raw
+      .prepare<[string], { count: number }>('SELECT COUNT(*) as count FROM albums WHERE genre = ?')
+      .get(genre)?.count ?? 0;
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(albums)
+    .where(eq(albums.genre, genre))
+    .orderBy(sql`${albums.title} COLLATE NOCASE`)
+    .limit(limit)
+    .offset(offset)
+    .all();
+  const data = addAlbumCoverAvailability(rows);
   res.json({ data, meta: buildMeta(page, limit, total) });
 });
 

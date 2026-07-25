@@ -98,11 +98,11 @@ export default function SearchPage() {
         // provider-priority deduplication on the server.
         const res = await api.providerSearch(q);
         if (seq !== searchSeqRef.current) return;
-        setResults(res.data as SearchResults);
+        setResults(res.data);
       } else {
         const res = await api.search(q);
         if (seq !== searchSeqRef.current) return;
-        setResults(res.data as SearchResults);
+        setResults({ playlists: [], ...res.data });
       }
     } catch {
       if (seq !== searchSeqRef.current) return;
@@ -133,7 +133,6 @@ export default function SearchPage() {
           onKeyDown={(e) => e.key === 'Enter' && doSearch(searchMode)}
           placeholder="Search artists, albums, tracks..."
           className="flex-1 px-4 py-2 bg-surface-light border border-white/10 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent"
-          autoFocus
         />
         <button
           onClick={() => doSearch(searchMode)}
@@ -258,10 +257,12 @@ export default function SearchPage() {
               <div className="space-y-0.5">
                 {results.tracks.map((t, i) => (
                   // Use index to ensure unique keys across local + spotify results
-                  <div
+                  <button
+                    type="button"
                     key={`${t.id}-${i}`}
-                    onClick={() => (isPlayableTrack(t) ? playTrack(t) : null)}
-                    className={`flex items-center gap-4 px-3 py-2 rounded hover:bg-surface-light transition ${
+                    onClick={() => playTrack(t)}
+                    disabled={!isPlayableTrack(t)}
+                    className={`w-full text-left flex items-center gap-4 px-3 py-2 rounded hover:bg-surface-light transition ${
                       isPlayableTrack(t) ? 'cursor-pointer' : 'opacity-70'
                     }`}
                   >
@@ -284,7 +285,7 @@ export default function SearchPage() {
                       {t.artistName} &mdash; {t.albumTitle}
                     </span>
                     <SourceBadges source={t.source} availableOn={t.availableOn} />
-                  </div>
+                  </button>
                 ))}
               </div>
             </section>

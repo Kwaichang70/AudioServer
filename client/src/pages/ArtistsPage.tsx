@@ -79,12 +79,12 @@ export default function ArtistsPage() {
       <h2 className="text-2xl font-bold mb-6">
         Artists <span className="text-sm font-normal text-gray-500">({total})</span>
       </h2>
-      {/* Roving-tabindex keyboard nav over the artist cards. Deliberately not
-          role="grid": navigable links, not tabular data. The div delegates
-          onKeyDown to its focusable <a> children. */}
+      {/* Roving-tabindex keyboard nav over the artist-card links. */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- delegates arrow keys to focusable card links */}
       <div
         ref={containerRef}
         onKeyDown={onKeyDown}
+        role="group"
         aria-label="Artists"
         className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4"
       >

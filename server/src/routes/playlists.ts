@@ -56,7 +56,7 @@ playlistsRouter.patch('/:id', (req, res) => {
   const existing = db.select().from(playlists).where(eq(playlists.id, req.params.id)).get();
   if (!existing) return res.status(404).json({ error: 'Playlist not found' });
 
-  const updates: Record<string, any> = {};
+  const updates: Partial<{ name: string; description: string }> = {};
   if (name !== undefined) updates.name = name;
   if (description !== undefined) updates.description = description;
 

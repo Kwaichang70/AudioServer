@@ -114,7 +114,9 @@ describe('Playback queue', () => {
   it('accepts a valid track shape', async () => {
     const res = await request(app)
       .post('/api/playback/queue/add')
-      .send({ track: { id: 'test-1', title: 'Hello', artistName: 'Artist' } });
+      .send({
+        track: { id: 'test-1', title: 'Hello', artistName: 'Artist', albumTitle: 'Album' },
+      });
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.data)).toBe(true);
   });

@@ -101,7 +101,7 @@ export default function StatsPage() {
     api
       .listenbrainzStats(range)
       .then((res) => {
-        if (!cancelled) setStats(res.data as Stats);
+        if (!cancelled) setStats(res.data);
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load stats');

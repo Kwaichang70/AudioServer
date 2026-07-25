@@ -3,7 +3,12 @@ const { Client: SsdpClient } = ssdp;
 import xml2js from 'xml2js';
 const { parseStringPromise } = xml2js;
 import { logger } from '../logger.js';
-import type { DeviceController, OutputDevice, DevicePlaybackStatus, TrackMetadata } from '@audioserver/shared';
+import type {
+  DeviceController,
+  OutputDevice,
+  DevicePlaybackStatus,
+  TrackMetadata,
+} from '@audioserver/shared';
 
 interface DlnaDevice {
   id: string;
@@ -13,6 +18,10 @@ interface DlnaDevice {
   location: string;
   isOnline: boolean;
 }
+
+type DlnaTrackMetadata = TrackMetadata & {
+  mimeType?: string;
+};
 
 export class DlnaController implements DeviceController {
   readonly deviceType = 'dlna' as const;
@@ -66,7 +75,12 @@ export class DlnaController implements DeviceController {
 
     const envDevices = process.env.DLNA_DEVICES || '';
     if (envDevices) {
-      probeTargets.push(...envDevices.split(',').map((s) => s.trim()).filter(Boolean));
+      probeTargets.push(
+        ...envDevices
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      );
     }
 
     // If no explicit targets, skip probing (user should set DLNA_DEVICES)
@@ -83,18 +97,18 @@ export class DlnaController implements DeviceController {
         } catch {
           // Device not reachable on this port
         }
-      })
+      }),
     );
   }
 
   private async findDescriptionUrl(host: string, port: number): Promise<string | null> {
     // Try common UPnP description paths
     const paths = [
-      '/',                            // Cocktail Audio, some renderers
+      '/', // Cocktail Audio, some renderers
       '/xml/device_description.xml', // Sonos
-      '/description.xml',            // Generic UPnP
-      '/rootDesc.xml',               // Some renderers
-      '/DeviceDescription.xml',      // Volumio/MPD
+      '/description.xml', // Generic UPnP
+      '/rootDesc.xml', // Some renderers
+      '/DeviceDescription.xml', // Volumio/MPD
     ];
 
     for (const path of paths) {
@@ -170,7 +184,7 @@ export class DlnaController implements DeviceController {
       });
 
       logger.info(`DLNA device found: ${friendlyName} at ${host} (${absoluteControlUrl})`);
-    } catch (err) {
+    } catch {
       // Failed to parse, skip
     }
   }
@@ -199,7 +213,9 @@ export class DlnaController implements DeviceController {
     try {
       await this.sendAction(device.controlUrl, 'Stop', { InstanceID: '0' });
       await this.waitForState(device.controlUrl, 'STOPPED', 3000);
-    } catch { /* ignore — may already be stopped */ }
+    } catch {
+      /* ignore — may already be stopped */
+    }
 
     // Set new URI
     const setResult = await this.sendAction(device.controlUrl, 'SetAVTransportURI', {
@@ -231,13 +247,19 @@ export class DlnaController implements DeviceController {
   }
 
   /** Poll transport state until it matches expected, or timeout */
-  private async waitForState(controlUrl: string, expected: string, timeoutMs: number): Promise<boolean> {
+  private async waitForState(
+    controlUrl: string,
+    expected: string,
+    timeoutMs: number,
+  ): Promise<boolean> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
       try {
         const info = await this.sendAction(controlUrl, 'GetTransportInfo', { InstanceID: '0' });
         if (info.includes(expected)) return true;
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       await new Promise((r) => setTimeout(r, 500));
     }
     return false;
@@ -309,26 +331,26 @@ export class DlnaController implements DeviceController {
 
   async getPlaybackState(deviceId: string): Promise<DevicePlaybackStatus> {
     const device = this.getDevice(deviceId);
-    try {
-      const result = await this.sendAction(device.controlUrl, 'GetTransportInfo', { InstanceID: '0' });
-      const stateMatch = result.match(/<CurrentTransportState>(\w+)<\/CurrentTransportState>/);
-      const state = stateMatch?.[1] || 'STOPPED';
+    const result = await this.sendAction(device.controlUrl, 'GetTransportInfo', {
+      InstanceID: '0',
+    });
+    const stateMatch = result.match(/<CurrentTransportState>(\w+)<\/CurrentTransportState>/);
+    const state = stateMatch?.[1] || 'STOPPED';
 
-      const posResult = await this.sendAction(device.controlUrl, 'GetPositionInfo', { InstanceID: '0' });
-      const posMatch = posResult.match(/<RelTime>([\d:]+)<\/RelTime>/);
-      const durMatch = posResult.match(/<TrackDuration>([\d:]+)<\/TrackDuration>/);
+    const posResult = await this.sendAction(device.controlUrl, 'GetPositionInfo', {
+      InstanceID: '0',
+    });
+    const posMatch = posResult.match(/<RelTime>([\d:]+)<\/RelTime>/);
+    const durMatch = posResult.match(/<TrackDuration>([\d:]+)<\/TrackDuration>/);
 
-      const volume = await this.getVolume(deviceId);
+    const volume = await this.getVolume(deviceId);
 
-      return {
-        state: state === 'PLAYING' ? 'playing' : state === 'PAUSED_PLAYBACK' ? 'paused' : 'stopped',
-        position: this.parseTime(posMatch?.[1] || '0:00:00'),
-        duration: this.parseTime(durMatch?.[1] || '0:00:00'),
-        volume,
-      };
-    } catch {
-      return { state: 'stopped', position: 0, duration: 0, volume: 50 };
-    }
+    return {
+      state: state === 'PLAYING' ? 'playing' : state === 'PAUSED_PLAYBACK' ? 'paused' : 'stopped',
+      position: this.parseTime(posMatch?.[1] || '0:00:00'),
+      duration: this.parseTime(durMatch?.[1] || '0:00:00'),
+      volume,
+    };
   }
 
   private parseTime(time: string): number {
@@ -338,7 +360,11 @@ export class DlnaController implements DeviceController {
     return parts[0] || 0;
   }
 
-  private async sendAction(controlUrl: string, action: string, args: Record<string, string>): Promise<string> {
+  private async sendAction(
+    controlUrl: string,
+    action: string,
+    args: Record<string, string>,
+  ): Promise<string> {
     const argsXml = Object.entries(args)
       .map(([k, v]) => {
         // Don't escape CurrentURIMetaData — it's already XML-escaped DIDL
@@ -365,10 +391,16 @@ export class DlnaController implements DeviceController {
       body,
     });
 
+    if (!res.ok) throw new Error(`DLNA ${action} failed with HTTP ${res.status}`);
+
     return res.text();
   }
 
-  private async sendRenderingAction(device: DlnaDevice, action: string, args: Record<string, string>): Promise<string> {
+  private async sendRenderingAction(
+    device: DlnaDevice,
+    action: string,
+    args: Record<string, string>,
+  ): Promise<string> {
     // Derive RenderingControl URL from AVTransport URL
     const renderUrl = device.controlUrl.replace(/AVTransport/gi, 'RenderingControl');
 
@@ -401,14 +433,20 @@ export class DlnaController implements DeviceController {
     const title = meta?.title || 'Unknown';
     const artist = meta?.artist || 'Unknown';
     const album = meta?.album || 'Unknown';
-    const mime = (meta as any)?.mimeType || 'audio/mpeg';
-    const coverUrl = (meta as any)?.coverUrl || '';
-    const coverTag = coverUrl ? `&lt;upnp:albumArtURI&gt;${this.escapeXml(coverUrl)}&lt;/upnp:albumArtURI&gt;` : '';
+    const mime = (meta as DlnaTrackMetadata | undefined)?.mimeType || 'audio/mpeg';
+    const coverUrl = meta?.coverUrl || '';
+    const coverTag = coverUrl
+      ? `&lt;upnp:albumArtURI&gt;${this.escapeXml(coverUrl)}&lt;/upnp:albumArtURI&gt;`
+      : '';
 
     return `&lt;DIDL-Lite xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot; xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot;&gt;&lt;item id=&quot;1&quot; parentID=&quot;0&quot; restricted=&quot;true&quot;&gt;&lt;dc:title&gt;${this.escapeXml(title)}&lt;/dc:title&gt;&lt;dc:creator&gt;${this.escapeXml(artist)}&lt;/dc:creator&gt;&lt;upnp:artist&gt;${this.escapeXml(artist)}&lt;/upnp:artist&gt;&lt;upnp:album&gt;${this.escapeXml(album)}&lt;/upnp:album&gt;${coverTag}&lt;upnp:class&gt;object.item.audioItem.musicTrack&lt;/upnp:class&gt;&lt;res protocolInfo=&quot;http-get:*:${mime}:*&quot;&gt;${this.escapeXml(uri)}&lt;/res&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;`;
   }
 
   private escapeXml(s: string): string {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 }

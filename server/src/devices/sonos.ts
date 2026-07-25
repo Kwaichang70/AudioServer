@@ -215,30 +215,26 @@ export class SonosController implements DeviceController {
   async getPlaybackState(deviceId: string): Promise<DevicePlaybackStatus> {
     const device = this.getDevice(deviceId);
     const base = this.baseUrl(device);
-    try {
-      const info = await this.soapAction(base, 'AVTransport', 'GetTransportInfo', {
-        InstanceID: '0',
-      });
-      const stateMatch = info.match(/<CurrentTransportState>(\w+)<\/CurrentTransportState>/);
-      const state = stateMatch?.[1] || 'STOPPED';
+    const info = await this.soapAction(base, 'AVTransport', 'GetTransportInfo', {
+      InstanceID: '0',
+    });
+    const stateMatch = info.match(/<CurrentTransportState>(\w+)<\/CurrentTransportState>/);
+    const state = stateMatch?.[1] || 'STOPPED';
 
-      const pos = await this.soapAction(base, 'AVTransport', 'GetPositionInfo', {
-        InstanceID: '0',
-      });
-      const posMatch = pos.match(/<RelTime>([\d:]+)<\/RelTime>/);
-      const durMatch = pos.match(/<TrackDuration>([\d:]+)<\/TrackDuration>/);
+    const pos = await this.soapAction(base, 'AVTransport', 'GetPositionInfo', {
+      InstanceID: '0',
+    });
+    const posMatch = pos.match(/<RelTime>([\d:]+)<\/RelTime>/);
+    const durMatch = pos.match(/<TrackDuration>([\d:]+)<\/TrackDuration>/);
 
-      const volume = await this.getVolume(deviceId);
+    const volume = await this.getVolume(deviceId);
 
-      return {
-        state: state === 'PLAYING' ? 'playing' : state === 'PAUSED_PLAYBACK' ? 'paused' : 'stopped',
-        position: this.parseTime(posMatch?.[1] || '0:00:00'),
-        duration: this.parseTime(durMatch?.[1] || '0:00:00'),
-        volume,
-      };
-    } catch {
-      return { state: 'stopped', position: 0, duration: 0, volume: 50 };
-    }
+    return {
+      state: state === 'PLAYING' ? 'playing' : state === 'PAUSED_PLAYBACK' ? 'paused' : 'stopped',
+      position: this.parseTime(posMatch?.[1] || '0:00:00'),
+      duration: this.parseTime(durMatch?.[1] || '0:00:00'),
+      volume,
+    };
   }
 
   private parseTime(time: string): number {
@@ -281,6 +277,8 @@ export class SonosController implements DeviceController {
       body,
     });
 
+    if (!res.ok) throw new Error(`Sonos ${action} failed with HTTP ${res.status}`);
+
     return res.text();
   }
 
@@ -308,7 +306,7 @@ export async function parseSonosZoneGroups(xml: string): Promise<Map<string, Son
     const coordinator = normalizeSonosId(groupAttrs.Coordinator || groupId);
     const members = normalizeArray(group.ZoneGroupMember || group.Member);
     const groupName = members
-      .map((member: any) => member.$?.ZoneName)
+      .map((member) => member.$?.ZoneName)
       .filter((name: unknown): name is string => typeof name === 'string' && name.length > 0)
       .join(' + ');
 
@@ -326,12 +324,47 @@ export async function parseSonosZoneGroups(xml: string): Promise<Map<string, Son
   return result;
 }
 
-function extractZoneGroups(parsed: any): any[] {
+interface SonosZoneGroupMemberNode {
+  $?: {
+    UUID?: string;
+    Uuid?: string;
+    ZoneName?: string;
+  };
+}
+
+interface SonosZoneGroupNode {
+  $?: {
+    ID?: string;
+    Coordinator?: string;
+  };
+  ZoneGroupMember?: SonosZoneGroupMemberNode | SonosZoneGroupMemberNode[];
+  Member?: SonosZoneGroupMemberNode | SonosZoneGroupMemberNode[];
+}
+
+interface SonosZoneGroupDocument {
+  ZoneGroups?: {
+    ZoneGroup?: SonosZoneGroupNode | SonosZoneGroupNode[];
+  };
+  ZoneGroupState?: {
+    ZoneGroups?: Array<{
+      ZoneGroup?: SonosZoneGroupNode | SonosZoneGroupNode[];
+    }>;
+    ZoneGroup?: SonosZoneGroupNode | SonosZoneGroupNode[];
+  };
+  root?: {
+    ZoneGroups?: Array<{
+      ZoneGroup?: SonosZoneGroupNode | SonosZoneGroupNode[];
+    }>;
+  };
+}
+
+function extractZoneGroups(parsed: unknown): SonosZoneGroupNode[] {
+  const document = parsed as SonosZoneGroupDocument;
   return normalizeArray(
-    parsed?.ZoneGroups?.ZoneGroup ||
-      parsed?.ZoneGroupState?.ZoneGroups?.[0]?.ZoneGroup ||
-      parsed?.ZoneGroupState?.ZoneGroup ||
-      parsed?.root?.ZoneGroups?.[0]?.ZoneGroup,
+    document?.ZoneGroups?.ZoneGroup ||
+      document?.ZoneGroupState?.ZoneGroups?.[0]?.ZoneGroup ||
+      document?.ZoneGroupState?.ZoneGroup ||
+      document?.root?.ZoneGroups?.[0]?.ZoneGroup,
   );
 }
 

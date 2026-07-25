@@ -173,6 +173,11 @@ describe('NowPlayingBar', () => {
     expect(screen.getAllByText('Night Drive').length).toBeGreaterThan(0);
     expect(screen.getByText('Second Song')).toBeInTheDocument();
 
+    const removeButton = screen.getByRole('button', { name: 'Remove Second Song from queue' });
+    expect(removeButton).toHaveClass('group-focus-within:opacity-100');
+    fireEvent.click(removeButton);
+    expect(mocks.actions.removeFromQueue).toHaveBeenCalledWith(1);
+
     fireEvent.click(screen.getByTitle('Clear queue'));
     expect(mocks.actions.clearQueue).toHaveBeenCalled();
   });

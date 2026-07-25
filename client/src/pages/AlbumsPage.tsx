@@ -72,14 +72,13 @@ export default function AlbumsPage() {
         </div>
       ) : (
         <>
-          {/* Roving-tabindex keyboard nav over the album cards. Deliberately
-              not role="grid": these are navigable links, not tabular data, and
-              the cards themselves carry focus. The div carries onKeyDown to
-              delegate to its focusable <a> children (jsx-a11y warns about this;
-              it's the standard event-delegation pattern). */}
+          {/* Roving-tabindex keyboard nav over the album-card links. The group
+              owns the delegated arrow-key handler; the links own focus. */}
+          {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- delegates arrow keys to focusable card links */}
           <div
             ref={containerRef}
             onKeyDown={onKeyDown}
+            role="group"
             aria-label="Albums"
             className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
           >

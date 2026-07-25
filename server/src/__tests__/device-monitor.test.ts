@@ -10,12 +10,13 @@ function makeStatus(
   return { state, position, duration, volume: 40 };
 }
 
-function makeMonitor(statuses: DevicePlaybackStatus[]) {
+function makeMonitor(statuses: Array<DevicePlaybackStatus | Error>) {
   const emit = vi.fn();
   const setState = vi.fn();
   const getPlaybackState = vi.fn(async () => {
     const next = statuses.shift();
     if (!next) throw new Error('No more statuses queued');
+    if (next instanceof Error) throw next;
     return next;
   });
 
@@ -89,7 +90,7 @@ describe('DeviceMonitor realtime sync', () => {
   it('does not treat a manual stop before the end as queue completion', async () => {
     const { monitor, setState } = makeMonitor([
       makeStatus('playing', 20),
-      makeStatus('stopped', 21),
+      makeStatus('stopped', 0),
     ]);
 
     await monitor.pollDeviceOnce('device-1');
@@ -98,7 +99,15 @@ describe('DeviceMonitor realtime sync', () => {
     expect(setState).toHaveBeenLastCalledWith({
       deviceId: 'device-1',
       state: 'stopped',
-      position: 21,
+      position: 0,
     });
+  });
+
+  it('propagates an unreachable device without publishing a false stopped state', async () => {
+    const { monitor, emit, setState } = makeMonitor([new Error('device offline')]);
+
+    await expect(monitor.pollDeviceOnce('device-1')).rejects.toThrow('device offline');
+    expect(emit).not.toHaveBeenCalled();
+    expect(setState).not.toHaveBeenCalled();
   });
 });

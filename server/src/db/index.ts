@@ -8,8 +8,8 @@ import { existsSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
-let db: ReturnType<typeof drizzle>;
-let rawDb: InstanceType<typeof Database>;
+let db: ReturnType<typeof drizzle> | undefined;
+let rawDb: InstanceType<typeof Database> | undefined;
 
 export function getDb() {
   if (!db) throw new Error('Database not initialized');
@@ -19,6 +19,12 @@ export function getDb() {
 export function getRawDb(): InstanceType<typeof Database> {
   if (!rawDb) throw new Error('Database not initialized');
   return rawDb;
+}
+
+export function closeDatabase(): void {
+  if (rawDb?.open) rawDb.close();
+  rawDb = undefined;
+  db = undefined;
 }
 
 /**

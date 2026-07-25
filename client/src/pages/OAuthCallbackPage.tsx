@@ -31,17 +31,13 @@ export default function OAuthCallbackPage() {
     api
       .providerAuthCallback(provider, code, redirectUri)
       .then((data) => {
-        if (data.data?.authenticated) {
-          setStatus('success');
-          setTimeout(() => navigate('/settings'), 1500);
-        } else {
-          setStatus('error');
-          setError(data.error || 'Authentication failed');
-        }
+        if (!data.data.authenticated) throw new Error('Authentication failed');
+        setStatus('success');
+        setTimeout(() => navigate('/settings'), 1500);
       })
-      .catch((err) => {
+      .catch((err: unknown) => {
         setStatus('error');
-        setError(err.message);
+        setError(err instanceof Error ? err.message : 'Authentication failed');
       });
   }, [provider, navigate]);
 

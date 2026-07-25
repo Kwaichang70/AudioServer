@@ -37,6 +37,111 @@ interface StoredQobuzSession {
   storedAt: number;
 }
 
+interface QobuzLoginResponse {
+  user_auth_token?: string;
+  user?: {
+    id?: number;
+    display_name?: string;
+    login?: string;
+  };
+}
+
+interface QobuzImageResponse {
+  large?: string;
+  medium?: string;
+  small?: string;
+}
+
+interface QobuzArtistSummaryResponse {
+  id: string | number;
+  name: string;
+}
+
+interface QobuzArtistResponse extends QobuzArtistSummaryResponse {
+  image?: QobuzImageResponse;
+  picture?: string;
+  albums?: QobuzPageResponse<QobuzAlbumResponse>;
+}
+
+interface QobuzAlbumResponse {
+  id: string | number;
+  title: string;
+  artist?: QobuzArtistSummaryResponse;
+  released_at?: number;
+  image?: QobuzImageResponse;
+  genre?: { name?: string };
+  tracks_count?: number;
+  tracks?: QobuzPageResponse<QobuzTrackResponse>;
+}
+
+interface QobuzTrackResponse {
+  id: string | number;
+  title: string;
+  album?: Pick<QobuzAlbumResponse, 'id' | 'title'>;
+  performer?: QobuzArtistSummaryResponse;
+  artist?: QobuzArtistSummaryResponse;
+  track_number?: number;
+  duration?: number;
+  maximum_sampling_rate?: number;
+  maximum_bit_depth?: number;
+}
+
+interface QobuzPlaylistResponse {
+  id: string | number;
+  name: string;
+  description?: string;
+  tracks_count?: number;
+  image_rectangle?: string[];
+  tracks?: QobuzPageResponse<QobuzTrackResponse>;
+}
+
+interface QobuzPageResponse<T> {
+  items?: T[];
+  total?: number;
+}
+
+interface QobuzSearchPageResponse<T> {
+  items?: Array<T | null>;
+}
+
+interface QobuzFavoritesResponse {
+  artists?: QobuzPageResponse<QobuzArtistResponse>;
+  albums?: QobuzPageResponse<QobuzAlbumResponse>;
+}
+
+interface QobuzSearchResponse {
+  artists?: QobuzSearchPageResponse<QobuzArtistResponse>;
+  albums?: QobuzSearchPageResponse<QobuzAlbumResponse>;
+  tracks?: QobuzSearchPageResponse<QobuzTrackResponse>;
+}
+
+interface QobuzPlaylistsResponse {
+  playlists?: QobuzPageResponse<QobuzPlaylistResponse>;
+}
+
+interface QobuzFileUrlResponse {
+  url?: string;
+  expires_at?: number;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isQobuzErrorResponse(value: unknown): boolean {
+  return isRecord(value) && value.status === 'error';
+}
+
+function getQobuzErrorMessage(value: unknown, fallback: string): string {
+  if (!isRecord(value)) return fallback;
+  if (typeof value.message === 'string') return value.message;
+  if (typeof value.error === 'string') return value.error;
+  if (isRecord(value.error) && typeof value.error.message === 'string') {
+    return value.error.message;
+  }
+  return fallback;
+}
+
 export class QobuzProviderError extends Error {
   constructor(
     public code: QobuzErrorCode,
@@ -225,7 +330,7 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
       throw new QobuzProviderError('qobuz_invalid_credentials', `Qobuz login failed: ${text}`, 401);
     }
 
-    const data = (await res.json()) as any;
+    const data = (await res.json()) as QobuzLoginResponse;
     if (!data.user_auth_token) {
       throw new QobuzProviderError(
         'qobuz_invalid_credentials',
@@ -235,7 +340,7 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
     }
 
     this.userAuthToken = data.user_auth_token;
-    this.userId = data.user?.id;
+    this.userId = data.user?.id ?? null;
     this.accountName = data.user?.display_name || data.user?.login || username;
     this.auth.isAuthenticated = true;
     this.isAvailable = true;
@@ -295,14 +400,17 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
 
   // ─── API ─────────────────────────────────────────────────────
 
-  private async apiRequest(endpoint: string, params: Record<string, string> = {}): Promise<any> {
+  private async apiRequest<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
     this.requireConfigured();
     this.requireAuthenticated();
 
-    return this.withAuthRetry(() => this.rawApiRequest(endpoint, params));
+    return this.withAuthRetry(() => this.rawApiRequest<T>(endpoint, params));
   }
 
-  private async rawApiRequest(endpoint: string, params: Record<string, string> = {}): Promise<any> {
+  private async rawApiRequest<T>(
+    endpoint: string,
+    params: Record<string, string> = {},
+  ): Promise<T> {
     const url = new URL(`${QOBUZ_API_URL}/${endpoint}`);
     url.searchParams.set('app_id', this.appId);
     for (const [k, v] of Object.entries(params)) {
@@ -314,7 +422,7 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
     });
 
     const text = await res.text();
-    let data: any = {};
+    let data: unknown = {};
     try {
       data = text ? JSON.parse(text) : {};
     } catch {
@@ -327,13 +435,13 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
         401,
       );
     }
-    if (!res.ok || data?.status === 'error') {
+    if (!res.ok || isQobuzErrorResponse(data)) {
       const err = this.mapApiError(endpoint, res.status, data);
       logger.error(`Qobuz API ${res.status}: ${endpoint} → ${err.message.slice(0, 200)}`);
       throw err;
     }
 
-    return data;
+    return data as T;
   }
 
   private async withAuthRetry<T>(request: () => Promise<T>): Promise<T> {
@@ -349,10 +457,8 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
     }
   }
 
-  private mapApiError(endpoint: string, status: number, data: any): QobuzProviderError {
-    const message = String(
-      data?.message || data?.error?.message || data?.error || `Qobuz API error: ${status}`,
-    );
+  private mapApiError(endpoint: string, status: number, data: unknown): QobuzProviderError {
+    const message = getQobuzErrorMessage(data, `Qobuz API error: ${status}`);
     const lower = message.toLowerCase();
     if (lower.includes('app') && lower.includes('secret')) {
       return new QobuzProviderError('qobuz_not_configured', message, 400);
@@ -378,11 +484,11 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
   async getArtists(_page?: number, _pageSize?: number) {
     if (!this.auth.isAuthenticated) return { items: [] as Artist[], total: 0 };
     try {
-      const data = await this.apiRequest('favorite/getUserFavorites', {
+      const data = await this.apiRequest<QobuzFavoritesResponse>('favorite/getUserFavorites', {
         type: 'artists',
         limit: '50',
       });
-      const artists = (data.artists?.items || []).map((a: any) => this.mapArtist(a));
+      const artists = (data.artists?.items || []).map((artist) => this.mapArtist(artist));
       return { items: artists, total: data.artists?.total || 0 };
     } catch {
       return { items: [] as Artist[], total: 0 };
@@ -393,7 +499,9 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
     if (!this.auth.isAuthenticated) return null;
     try {
       const qobuzId = id.replace('qobuz:', '');
-      const data = await this.apiRequest('artist/get', { artist_id: qobuzId });
+      const data = await this.apiRequest<QobuzArtistResponse>('artist/get', {
+        artist_id: qobuzId,
+      });
       return this.mapArtist(data);
     } catch {
       return null;
@@ -403,11 +511,11 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
   async getAlbums(_page?: number, _pageSize?: number) {
     if (!this.auth.isAuthenticated) return { items: [] as Album[], total: 0 };
     try {
-      const data = await this.apiRequest('favorite/getUserFavorites', {
+      const data = await this.apiRequest<QobuzFavoritesResponse>('favorite/getUserFavorites', {
         type: 'albums',
         limit: '50',
       });
-      const albums = (data.albums?.items || []).map((a: any) => this.mapAlbum(a));
+      const albums = (data.albums?.items || []).map((album) => this.mapAlbum(album));
       return { items: albums, total: data.albums?.total || 0 };
     } catch {
       return { items: [] as Album[], total: 0 };
@@ -418,7 +526,9 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
     if (!this.auth.isAuthenticated) return null;
     try {
       const qobuzId = id.replace('qobuz:', '');
-      const data = await this.apiRequest('album/get', { album_id: qobuzId });
+      const data = await this.apiRequest<QobuzAlbumResponse>('album/get', {
+        album_id: qobuzId,
+      });
       return this.mapAlbum(data);
     } catch {
       return null;
@@ -429,8 +539,10 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
     if (!this.auth.isAuthenticated) return [];
     try {
       const qobuzId = albumId.replace('qobuz:', '');
-      const data = await this.apiRequest('album/get', { album_id: qobuzId });
-      return (data.tracks?.items || []).map((t: any) => this.mapTrack(t, data));
+      const data = await this.apiRequest<QobuzAlbumResponse>('album/get', {
+        album_id: qobuzId,
+      });
+      return (data.tracks?.items || []).map((track) => this.mapTrack(track, data));
     } catch {
       return [];
     }
@@ -440,12 +552,12 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
     if (!this.auth.isAuthenticated) return [];
     try {
       const qobuzId = artistId.replace('qobuz:', '');
-      const data = await this.apiRequest('artist/get', {
+      const data = await this.apiRequest<QobuzArtistResponse>('artist/get', {
         artist_id: qobuzId,
         extra: 'albums',
         limit: '50',
       });
-      return (data.albums?.items || []).map((a: any) => this.mapAlbum(a));
+      return (data.albums?.items || []).map((album) => this.mapAlbum(album));
     } catch {
       return [];
     }
@@ -454,17 +566,20 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
   async search(query: string, limit = 10): Promise<SearchResults> {
     if (!this.auth.isAuthenticated) return { artists: [], albums: [], tracks: [], playlists: [] };
     try {
-      const data = await this.apiRequest('catalog/search', { query, limit: String(limit) });
+      const data = await this.apiRequest<QobuzSearchResponse>('catalog/search', {
+        query,
+        limit: String(limit),
+      });
       return {
         artists: (data.artists?.items || [])
-          .filter((a: any) => a?.id)
-          .map((a: any) => this.mapArtist(a)),
+          .filter((artist): artist is QobuzArtistResponse => Boolean(artist?.id))
+          .map((artist) => this.mapArtist(artist)),
         albums: (data.albums?.items || [])
-          .filter((a: any) => a?.id)
-          .map((a: any) => this.mapAlbum(a)),
+          .filter((album): album is QobuzAlbumResponse => Boolean(album?.id))
+          .map((album) => this.mapAlbum(album)),
         tracks: (data.tracks?.items || [])
-          .filter((t: any) => t?.id)
-          .map((t: any) => this.mapTrack(t)),
+          .filter((track): track is QobuzTrackResponse => Boolean(track?.id))
+          .map((track) => this.mapTrack(track)),
         playlists: [],
       };
     } catch (err) {
@@ -491,7 +606,7 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
       this.appSecret,
     );
 
-    const data = await this.apiRequest('track/getFileUrl', {
+    const data = await this.apiRequest<QobuzFileUrlResponse>('track/getFileUrl', {
       track_id: qobuzId,
       format_id: this.formatId,
       intent: 'stream',
@@ -517,8 +632,10 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
   async getPlaylists(): Promise<Playlist[]> {
     if (!this.auth.isAuthenticated) return [];
     try {
-      const data = await this.apiRequest('playlist/getUserPlaylists', { limit: '50' });
-      return (data.playlists?.items || []).map((p: any) => this.mapPlaylist(p));
+      const data = await this.apiRequest<QobuzPlaylistsResponse>('playlist/getUserPlaylists', {
+        limit: '50',
+      });
+      return (data.playlists?.items || []).map((playlist) => this.mapPlaylist(playlist));
     } catch {
       return [];
     }
@@ -528,12 +645,12 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
     if (!this.auth.isAuthenticated) return [];
     try {
       const qobuzId = playlistId.replace('qobuz:', '');
-      const data = await this.apiRequest('playlist/get', {
+      const data = await this.apiRequest<QobuzPlaylistResponse>('playlist/get', {
         playlist_id: qobuzId,
         extra: 'tracks',
         limit: '100',
       });
-      return (data.tracks?.items || []).map((t: any) => this.mapTrack(t));
+      return (data.tracks?.items || []).map((track) => this.mapTrack(track));
     } catch {
       return [];
     }
@@ -541,7 +658,7 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
 
   // ─── Mappers ─────────────────────────────────────────────────
 
-  private mapArtist(data: any): Artist {
+  private mapArtist(data: QobuzArtistResponse): Artist {
     return {
       id: `qobuz:${data.id}`,
       name: data.name,
@@ -550,7 +667,7 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
     };
   }
 
-  private mapAlbum(data: any): Album {
+  private mapAlbum(data: QobuzAlbumResponse): Album {
     return {
       id: `qobuz:${data.id}`,
       title: data.title,
@@ -564,12 +681,13 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
     };
   }
 
-  private mapTrack(data: any, album?: any): Track {
+  private mapTrack(data: QobuzTrackResponse, album?: QobuzAlbumResponse): Track {
+    const trackAlbum = album || data.album;
     return {
       id: `qobuz:${data.id}`,
       title: data.title,
-      albumId: `qobuz:${(album || data.album)?.id || ''}`,
-      albumTitle: (album || data.album)?.title || '',
+      albumId: `qobuz:${trackAlbum?.id || ''}`,
+      albumTitle: trackAlbum?.title || '',
       artistId: `qobuz:${data.performer?.id || data.artist?.id || ''}`,
       artistName: data.performer?.name || data.artist?.name || 'Unknown',
       trackNumber: data.track_number,
@@ -580,7 +698,7 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
     };
   }
 
-  private mapPlaylist(data: any): Playlist {
+  private mapPlaylist(data: QobuzPlaylistResponse): Playlist {
     return {
       id: `qobuz:${data.id}`,
       name: data.name,

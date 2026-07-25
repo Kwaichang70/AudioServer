@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
@@ -315,7 +315,8 @@ function SmartPlaylistList() {
               </Link>
               <button
                 onClick={() => handleDelete(pl.id)}
-                className="text-xs text-gray-600 hover:text-red-400 transition opacity-0 group-hover:opacity-100"
+                className="text-xs text-gray-600 hover:text-red-400 transition opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
+                aria-label={`Delete smart playlist ${pl.name}`}
               >
                 Delete
               </button>
@@ -342,27 +343,41 @@ function SmartPlaylistDetail({ id }: { id: string }) {
   const [editName, setEditName] = useState('');
   const [editRules, setEditRules] = useState<Rule[]>([{ ...EMPTY_RULE }]);
   const [saving, setSaving] = useState(false);
+  const loadRequestRef = useRef(0);
+  const activePlaylistIdRef = useRef(id);
+  activePlaylistIdRef.current = id;
+  const invalidateLoads = useCallback(() => {
+    loadRequestRef.current++;
+  }, []);
 
-  const loadAll = () => {
+  const loadAll = useCallback(async () => {
+    const requestId = ++loadRequestRef.current;
     setLoading(true);
-    api
-      .getSmartPlaylistTracks(id)
-      .then((res) => setTracks(res.data))
-      .catch(() => {});
-    api
-      .getSmartPlaylists()
-      .then((res) => {
-        const sp = res.data.find((p: SmartPlaylist) => p.id === id);
-        if (sp) setPlaylist(sp);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  };
+    try {
+      const [tracksResponse, playlistsResponse] = await Promise.all([
+        api.getSmartPlaylistTracks(id),
+        api.getSmartPlaylists(),
+      ]);
+      if (requestId !== loadRequestRef.current) return;
+      setTracks(tracksResponse.data);
+      setPlaylist(playlistsResponse.data.find((playlist) => playlist.id === id) ?? null);
+    } catch {
+      // Preserve the current/reset state; callers can retry through a later load.
+    } finally {
+      if (requestId === loadRequestRef.current) setLoading(false);
+    }
+  }, [id]);
 
   useEffect(() => {
-    loadAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+    setTracks([]);
+    setPlaylist(null);
+    setEditing(false);
+    setEditName('');
+    setEditRules([{ ...EMPTY_RULE }]);
+    setSaving(false);
+    void loadAll();
+    return invalidateLoads;
+  }, [invalidateLoads, loadAll]);
 
   const startEdit = () => {
     if (!playlist) return;
@@ -382,12 +397,14 @@ function SmartPlaylistDetail({ id }: { id: string }) {
       toast('Fill in all fields', 'error');
       return;
     }
+    const playlistId = id;
     setSaving(true);
     try {
       await api.updateSmartPlaylist(id, { name: editName.trim(), rules: editRules });
+      if (activePlaylistIdRef.current !== playlistId) return;
       toast('Smart playlist updated', 'success');
       setEditing(false);
-      loadAll();
+      void loadAll();
     } catch (err) {
       toast(err instanceof Error ? err.message : 'Save failed', 'error');
     } finally {

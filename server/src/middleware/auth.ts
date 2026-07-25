@@ -9,6 +9,7 @@ declare global {
   namespace Express {
     interface Request {
       userId?: string;
+      requestId?: string;
     }
   }
 }
@@ -34,6 +35,41 @@ function isSignedStreamPath(path: string): boolean {
   );
 }
 
+interface UserTokenPayload {
+  userId?: unknown;
+}
+
+export function isFirstRun(): boolean {
+  const row = getRawDb().prepare('SELECT COUNT(*) as count FROM users').get() as
+    | { count: number }
+    | undefined;
+  return !row || row.count === 0;
+}
+
+export function userExists(userId: unknown): userId is string {
+  if (typeof userId !== 'string' || userId.length === 0) return false;
+  const row = getRawDb().prepare('SELECT 1 FROM users WHERE id = ?').get(userId);
+  return row !== undefined;
+}
+
+/** Verify a session JWT and return its user only while that account still exists. */
+export function getExistingUserIdFromToken(token: unknown): string | null {
+  if (typeof token !== 'string' || token.length === 0) return null;
+  try {
+    const payload = jwt.verify(token, config.jwtSecret);
+    if (typeof payload !== 'object' || payload === null) return null;
+    const userId = (payload as UserTokenPayload).userId;
+    return userExists(userId) ? userId : null;
+  } catch {
+    return null;
+  }
+}
+
+function isAuthorizedStreamUser(userId: string): boolean {
+  if (userId === 'first-run') return isFirstRun();
+  return userExists(userId);
+}
+
 /**
  * Attach req.userId if a valid Bearer token is present. Never fails.
  * Runs on every request so downstream handlers can do role-checks.
@@ -41,12 +77,8 @@ function isSignedStreamPath(path: string): boolean {
 export function attachUser(req: Request, _res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith('Bearer ')) {
-    try {
-      const payload = jwt.verify(authHeader.slice(7), config.jwtSecret) as { userId: string };
-      req.userId = payload.userId;
-    } catch {
-      // ignore invalid token; requireAuth handles rejection
-    }
+    const userId = getExistingUserIdFromToken(authHeader.slice(7));
+    if (userId) req.userId = userId;
   }
   next();
 }
@@ -73,7 +105,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     const token = typeof req.query.t === 'string' ? req.query.t : '';
     if (token) {
       const userId = verifyStreamToken(token);
-      if (userId) {
+      if (userId && isAuthorizedStreamUser(userId)) {
         req.userId = userId;
         next();
         return;
@@ -83,11 +115,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   }
 
   // First-run: no users yet → allow everything so the operator can register.
-  const db = getRawDb();
-  const row = db.prepare('SELECT COUNT(*) as count FROM users').get() as
-    | { count: number }
-    | undefined;
-  if (!row || row.count === 0) {
+  if (isFirstRun()) {
     next();
     return;
   }

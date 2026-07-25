@@ -44,7 +44,6 @@ export default function LoginPage({ onAuth }: Props) {
             onChange={(e) => setUsername(e.target.value)}
             placeholder="Username"
             className="w-full px-4 py-2.5 bg-surface-dark border border-white/10 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent"
-            autoFocus
             required
           />
           <input

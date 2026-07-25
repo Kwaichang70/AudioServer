@@ -1,8 +1,9 @@
 import { Router } from 'express';
-import { networkInterfaces } from 'os';
 import { getRawDb } from '../db/index.js';
 import { providers } from '../providers/registry.js';
 import { getLibrespotState } from '../services/librespot.js';
+import { config } from '../config.js';
+import { getLanAddress } from '../utils/network.js';
 
 export const healthRouter = Router();
 
@@ -94,6 +95,7 @@ healthRouter.get('/', (_req, res) => {
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
     lanAddress: getLanAddress(),
+    port: config.port,
     environment: process.env.NODE_ENV || 'development',
     db: { status: dbStatus },
     library: { ...dbStats, lastScanAt },
@@ -106,20 +108,3 @@ healthRouter.get('/', (_req, res) => {
     },
   });
 });
-
-function getLanAddress(): string | null {
-  const nets = networkInterfaces();
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name] || []) {
-      if (net.family === 'IPv4' && !net.internal) {
-        if (net.address.startsWith('192.168.')) return net.address;
-      }
-    }
-  }
-  for (const name of Object.keys(nets)) {
-    for (const net of nets[name] || []) {
-      if (net.family === 'IPv4' && !net.internal) return net.address;
-    }
-  }
-  return null;
-}

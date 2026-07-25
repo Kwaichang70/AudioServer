@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAudioContext, type TrackInfo } from '../context/AudioContext.js';
@@ -51,50 +51,84 @@ export default function HistoryPage() {
   const [recentAlbums, setRecentAlbums] = useState<RecentAlbum[]>([]);
   const [topArtists, setTopArtists] = useState<TopArtist[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
+  const requestEpochRef = useRef(0);
+  const loadingMoreRef = useRef(false);
   const { playTrack } = useAudioContext();
   const { containerRef, onKeyDown } = useGridNavigation<HTMLDivElement>(entries.length, {
     orientation: 'vertical',
   });
 
   useEffect(() => {
+    const requestEpoch = ++requestEpochRef.current;
+    const isCurrent = () => requestEpochRef.current === requestEpoch;
     setLoading(true);
+    setLoadingMore(false);
+    loadingMoreRef.current = false;
+    if (view !== 'tracks') setHasMore(false);
     if (view === 'tracks') {
       api
         .getHistoryTracks(1, DEFAULT_HISTORY_PAGE_SIZE)
         .then((res) => {
+          if (!isCurrent()) return;
           setEntries(res.data);
           setHasMore(res.meta?.page < res.meta?.totalPages);
           setPage(1);
         })
         .catch(() => {})
-        .finally(() => setLoading(false));
+        .finally(() => {
+          if (isCurrent()) setLoading(false);
+        });
     } else if (view === 'albums') {
       api
         .getRecentAlbums()
-        .then((res) => setRecentAlbums(res.data))
+        .then((res) => {
+          if (isCurrent()) setRecentAlbums(res.data);
+        })
         .catch(() => {})
-        .finally(() => setLoading(false));
+        .finally(() => {
+          if (isCurrent()) setLoading(false);
+        });
     } else {
       api
         .getTopArtists()
-        .then((res) => setTopArtists(res.data))
+        .then((res) => {
+          if (isCurrent()) setTopArtists(res.data);
+        })
         .catch(() => {})
-        .finally(() => setLoading(false));
+        .finally(() => {
+          if (isCurrent()) setLoading(false);
+        });
     }
+
+    return () => {
+      if (isCurrent()) requestEpochRef.current += 1;
+    };
   }, [view]);
 
   const loadMore = () => {
+    if (loadingMoreRef.current || view !== 'tracks') return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    const requestEpoch = requestEpochRef.current;
     const nextPage = page + 1;
     api
       .getHistoryTracks(nextPage, DEFAULT_HISTORY_PAGE_SIZE)
       .then((res) => {
+        if (requestEpochRef.current !== requestEpoch) return;
         setEntries((prev) => [...prev, ...res.data]);
         setHasMore(res.meta?.page < res.meta?.totalPages);
         setPage(nextPage);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (requestEpochRef.current === requestEpoch) {
+          loadingMoreRef.current = false;
+          setLoadingMore(false);
+        }
+      });
   };
 
   const views: { key: View; label: string }[] = [
@@ -136,7 +170,14 @@ export default function HistoryPage() {
         ) : (
           <>
             {/* Vertical roving-tabindex keyboard nav over the history rows. */}
-            <div ref={containerRef} onKeyDown={onKeyDown} className="space-y-1">
+            {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- delegates arrow keys to focusable history buttons */}
+            <div
+              ref={containerRef}
+              onKeyDown={onKeyDown}
+              role="group"
+              aria-label="Playback history"
+              className="space-y-1"
+            >
               {entries.map((entry) => (
                 <button
                   key={entry.id}
@@ -194,9 +235,10 @@ export default function HistoryPage() {
               <div className="flex justify-center mt-6">
                 <button
                   onClick={loadMore}
-                  className="px-6 py-2 bg-surface-light border border-white/10 rounded hover:border-accent transition"
+                  disabled={loadingMore}
+                  className="px-6 py-2 bg-surface-light border border-white/10 rounded hover:border-accent transition disabled:opacity-50"
                 >
-                  Load More
+                  {loadingMore ? 'Loading...' : 'Load More'}
                 </button>
               </div>
             )}

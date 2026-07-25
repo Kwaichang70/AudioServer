@@ -12,6 +12,12 @@ interface StoredTokens {
   expiresAt: number;
 }
 
+interface StoredTokenRow {
+  access_token: string;
+  refresh_token: string;
+  expires_at: number;
+}
+
 function deriveKey(): Buffer {
   return pbkdf2Sync(config.jwtSecret, SALT, 100000, 32, 'sha256');
 }
@@ -62,7 +68,9 @@ function looksEncrypted(value: unknown): boolean {
 
 export function loadTokens(provider: string): StoredTokens | null {
   const db = getRawDb();
-  const row = db.prepare('SELECT * FROM provider_tokens WHERE provider = ?').get(provider) as any;
+  const row = db.prepare('SELECT * FROM provider_tokens WHERE provider = ?').get(provider) as
+    | StoredTokenRow
+    | undefined;
   if (!row) return null;
 
   try {

@@ -45,6 +45,12 @@ export class DeviceMonitor {
   private lastStates = new Map<string, DevicePlaybackUpdate>();
   private subscriberCounts = new Map<string, number>();
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+  // Devices with server-driven playback (see services/server-player.ts). Their
+  // polling must survive client disconnects — the whole point is that the
+  // queue keeps advancing while the tablet sleeps — so unsubscribe/stop only
+  // applies to devices that are not pinned.
+  private pinnedDevices = new Set<string>();
+  private consecutiveErrors = new Map<string, number>();
 
   constructor(private deps: DeviceMonitorDependencies = defaultDependencies) {}
 
@@ -63,7 +69,24 @@ export class DeviceMonitor {
     const count = Math.max(0, (this.subscriberCounts.get(deviceId) || 0) - 1);
     this.subscriberCounts.set(deviceId, count);
 
-    if (count === 0) {
+    if (count === 0 && !this.pinnedDevices.has(deviceId)) {
+      this.stopPolling(deviceId);
+    }
+  }
+
+  /** Keep polling this device regardless of connected clients. */
+  pin(deviceId: string): void {
+    if (deviceId === 'browser') return;
+    this.pinnedDevices.add(deviceId);
+    if (!this.pollingIntervals.has(deviceId)) {
+      this.startPolling(deviceId);
+    }
+  }
+
+  /** Release a pin; polling stops unless a client is still subscribed. */
+  unpin(deviceId: string): void {
+    this.pinnedDevices.delete(deviceId);
+    if ((this.subscriberCounts.get(deviceId) || 0) === 0) {
       this.stopPolling(deviceId);
     }
   }
@@ -110,14 +133,26 @@ export class DeviceMonitor {
 
   private startPolling(deviceId: string): void {
     this.deps.logger.info(`DeviceMonitor: start polling ${deviceId}`);
+    this.consecutiveErrors.set(deviceId, 0);
 
     const interval = setInterval(async () => {
       try {
         await this.pollDeviceOnce(deviceId);
+        this.consecutiveErrors.set(deviceId, 0);
       } catch {
-        // Device unreachable, stop polling
-        this.deps.logger.debug(`DeviceMonitor: ${deviceId} unreachable, stopping poll`);
-        this.stopPolling(deviceId);
+        // Pinned devices (server-driven playback) tolerate transient failures
+        // — one Wi-Fi hiccup must not kill the engine that advances the queue
+        // overnight. Unpinned monitoring keeps the old fail-fast behavior.
+        const errors = (this.consecutiveErrors.get(deviceId) || 0) + 1;
+        this.consecutiveErrors.set(deviceId, errors);
+        const limit = this.pinnedDevices.has(deviceId) ? 10 : 1;
+        if (errors >= limit) {
+          this.deps.logger.debug(
+            `DeviceMonitor: ${deviceId} unreachable (${errors}x), stopping poll`,
+          );
+          this.pinnedDevices.delete(deviceId);
+          this.stopPolling(deviceId);
+        }
       }
     }, 2000);
 
@@ -130,6 +165,7 @@ export class DeviceMonitor {
       clearInterval(interval);
       this.pollingIntervals.delete(deviceId);
       this.lastStates.delete(deviceId);
+      this.consecutiveErrors.delete(deviceId);
       this.deps.logger.info(`DeviceMonitor: stop polling ${deviceId}`);
     }
   }
@@ -160,10 +196,10 @@ export class DeviceMonitor {
   }
 
   private syncPlaybackState(update: DevicePlaybackUpdate, last?: DevicePlaybackUpdate): void {
+    const lastAtEnd = !!last && isAtEnd(last);
+    const updateAtEnd = isAtEnd(update);
     const ended =
-      last?.state === 'playing' &&
-      update.state === 'stopped' &&
-      ((last.duration > 0 && last.position >= last.duration - 2) || update.position === 0);
+      last?.state === 'playing' && update.state === 'stopped' && (lastAtEnd || updateAtEnd);
 
     if (ended) {
       this.deps.logger.info(`DeviceMonitor: track ended on ${update.deviceId}, advancing queue`);
@@ -184,6 +220,10 @@ export class DeviceMonitor {
 }
 
 export const deviceMonitor = new DeviceMonitor();
+
+function isAtEnd(update: DevicePlaybackUpdate): boolean {
+  return update.duration > 0 && update.position >= Math.max(0, update.duration - 2);
+}
 
 function normalizeDeviceState(state: DevicePlaybackStatus['state']): DevicePlaybackUpdate['state'] {
   if (state === 'paused') return 'paused';

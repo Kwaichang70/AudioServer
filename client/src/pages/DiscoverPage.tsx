@@ -77,7 +77,7 @@ export default function DiscoverPage() {
     api
       .listenbrainzDiscover()
       .then((res) => {
-        if (!cancelled) setData(res.data as Discover);
+        if (!cancelled) setData(res.data);
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load');

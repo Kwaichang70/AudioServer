@@ -4,8 +4,14 @@ import { eq } from 'drizzle-orm';
 import { logger } from '../logger.js';
 
 // music-metadata parseFile (ESM compat)
-const mm = await import('music-metadata');
-const parseFile = (mm as any).parseFile;
+interface ParsedLyricsMetadata {
+  common: { lyrics?: Array<string | { text?: string }> };
+}
+
+const metadataModule = (await import('music-metadata')) as unknown as {
+  parseFile: (path: string) => Promise<ParsedLyricsMetadata>;
+};
+const { parseFile } = metadataModule;
 
 const LRCLIB_API = 'https://lrclib.net/api';
 
@@ -13,6 +19,11 @@ interface LyricsResult {
   plain?: string;
   synced?: string; // LRC format
   source: 'embedded' | 'lrclib';
+}
+
+interface LrclibResponse {
+  syncedLyrics?: string | null;
+  plainLyrics?: string | null;
 }
 
 // In-memory cache
@@ -66,7 +77,7 @@ export async function getLyrics(trackId: string): Promise<LyricsResult | null> {
     });
 
     if (res.ok) {
-      const data = await res.json() as any;
+      const data = (await res.json()) as LrclibResponse;
       const result: LyricsResult = { source: 'lrclib' };
       if (data.syncedLyrics) result.synced = data.syncedLyrics;
       if (data.plainLyrics) result.plain = data.plainLyrics;

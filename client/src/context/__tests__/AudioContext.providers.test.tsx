@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => {
     setReplayGain: vi.fn(),
     getCurrentTime: vi.fn(() => 0),
     getDuration: vi.fn(() => 0),
+    isPaused: vi.fn(() => false),
   };
   const api = {
     getHealth: vi.fn(() => Promise.resolve({})),
@@ -29,6 +30,8 @@ const mocks = vi.hoisted(() => {
     getAlbumCoverUrl: vi.fn((id: string) => `/api/library/albums/${id}/cover`),
     play: vi.fn(),
     recordPlay: vi.fn(),
+    setServerQueue: vi.fn(() => Promise.resolve({})),
+    stop: vi.fn(() => Promise.resolve({})),
   };
   return {
     audio,

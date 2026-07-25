@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 
@@ -27,27 +27,54 @@ export default function ArtistPage() {
   const [albums, setAlbums] = useState<Album[]>([]);
   const [similar, setSimilar] = useState<SimilarArtist[]>([]);
   const [favorited, setFavorited] = useState(false);
+  const activeArtistIdRef = useRef(id);
+  activeArtistIdRef.current = id;
 
   useEffect(() => {
     if (!id) return;
+    let cancelled = false;
+    setArtist(null);
+    setAlbums([]);
     setSimilar([]);
-    api.getArtist(id).then((res) => setArtist(res.data));
-    api.getArtistAlbums(id).then((res) => setAlbums(res.data));
+    setFavorited(false);
+    api
+      .getArtist(id)
+      .then((res) => {
+        if (!cancelled) setArtist(res.data);
+      })
+      .catch(() => {});
+    api
+      .getArtistAlbums(id)
+      .then((res) => {
+        if (!cancelled) setAlbums(res.data);
+      })
+      .catch(() => {});
     api
       .getSimilarArtists(id)
-      .then((res) => setSimilar(res.data?.similar ?? []))
-      .catch(() => setSimilar([]));
+      .then((res) => {
+        if (!cancelled) setSimilar(res.data?.similar ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setSimilar([]);
+      });
     api
       .checkFavorite('artist', id)
-      .then((res) => setFavorited(res.data.favorited))
+      .then((res) => {
+        if (!cancelled) setFavorited(res.data.favorited);
+      })
       .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   const toggleFavorite = async () => {
     if (!id) return;
+    const artistId = id;
     try {
       const res = await api.toggleFavorite('artist', id);
-      setFavorited(res.data.favorited);
+      if (activeArtistIdRef.current === artistId) setFavorited(res.data.favorited);
     } catch {
       // ignore — UI state stays as-is
     }

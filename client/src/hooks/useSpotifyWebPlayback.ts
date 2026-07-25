@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client.js';
 
 // Minimal typings for the slice of the Spotify Web Playback SDK we use. The SDK
@@ -200,5 +200,8 @@ export function useSpotifyWebPlayback(enabled: boolean): SpotifyWebPlaybackState
     playerRef.current?.pause().catch(() => {});
   }, []);
 
-  return { deviceId, ready, error, playback, setVolume, pause };
+  return useMemo(
+    () => ({ deviceId, ready, error, playback, setVolume, pause }),
+    [deviceId, ready, error, playback, setVolume, pause],
+  );
 }
