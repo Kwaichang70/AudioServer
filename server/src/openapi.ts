@@ -52,14 +52,43 @@ export const openApiSpec = {
           password: { type: 'string', minLength: 8 },
         },
       },
+      SetupCredentials: {
+        type: 'object',
+        required: ['username', 'password', 'setupCode'],
+        properties: {
+          username: { type: 'string', minLength: 1 },
+          password: { type: 'string', minLength: 8 },
+          setupCode: {
+            type: 'string',
+            description:
+              'One-time code from the server log, setup-code.txt next to the database, or SETUP_CODE.',
+          },
+        },
+      },
       AuthResult: {
         type: 'object',
         properties: {
-          token: { type: 'string' },
+          token: { type: 'string', description: 'Bearer token bound to a revocable session' },
+          expiresAt: { type: 'integer', description: 'Session expiry (ms since epoch)' },
           user: {
             type: 'object',
-            properties: { id: { type: 'string' }, username: { type: 'string' } },
+            properties: {
+              id: { type: 'string' },
+              username: { type: 'string' },
+              role: { type: 'string', enum: ['admin', 'user'] },
+            },
           },
+        },
+      },
+      Session: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          createdAt: { type: 'integer' },
+          expiresAt: { type: 'integer' },
+          lastSeenAt: { type: 'integer', nullable: true },
+          userAgent: { type: 'string', nullable: true },
+          current: { type: 'boolean' },
         },
       },
       Album: {
@@ -131,14 +160,24 @@ export const openApiSpec = {
         },
       },
     },
+    '/auth/setup-status': {
+      get: {
+        tags: ['Auth'],
+        summary: 'Whether the installation still needs its first (admin) account',
+        security: [],
+        responses: { 200: ok('{ needsSetup, setupCodeSource? }') },
+      },
+    },
     '/auth/register': {
       post: {
         tags: ['Auth'],
-        summary: 'Create the first user (or a new user)',
+        summary: 'Create the first admin account (setup mode only, needs the setup code)',
         security: [],
         requestBody: {
           required: true,
-          content: { 'application/json': { schema: { $ref: '#/components/schemas/Credentials' } } },
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/SetupCredentials' } },
+          },
         },
         responses: {
           200: {
@@ -177,12 +216,113 @@ export const openApiSpec = {
         },
       },
     },
+    '/auth/logout': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Revoke the current session (idempotent)',
+        security: [],
+        responses: { 200: ok('{ ok: true }') },
+      },
+    },
     '/auth/me': {
       get: {
         tags: ['Auth'],
-        summary: 'Current user (or whether setup is needed)',
+        summary: 'Current user with sessionId, or null when the token is not (or no longer) valid',
         security: [],
-        responses: { 200: ok('user or needsSetup flag') },
+        responses: { 200: ok('user or null') },
+      },
+    },
+    '/auth/sessions': {
+      get: {
+        tags: ['Auth'],
+        summary: 'Active sessions of the current user',
+        responses: {
+          200: {
+            description: 'Sessions',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    data: { type: 'array', items: { $ref: '#/components/schemas/Session' } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/auth/sessions/{id}': {
+      delete: {
+        tags: ['Auth'],
+        summary: 'Revoke one of your own sessions',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('{ ok, current }'), 404: ok('not your session') },
+      },
+    },
+    '/auth/sessions/revoke-others': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Revoke every session except the current one',
+        responses: { 200: ok('{ revoked }') },
+      },
+    },
+    '/auth/password': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Change own password (other sessions are revoked)',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['currentPassword', 'newPassword'],
+                properties: {
+                  currentPassword: { type: 'string' },
+                  newPassword: { type: 'string', minLength: 8 },
+                },
+              },
+            },
+          },
+        },
+        responses: { 200: ok('{ ok, revokedSessions }'), 403: ok('current password wrong') },
+      },
+    },
+    '/auth/users': {
+      get: {
+        tags: ['Auth'],
+        summary: 'List users (admin)',
+        responses: { 200: ok('users'), 403: ok('admin role required') },
+      },
+    },
+    '/auth/users/{id}/reset-password': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Set a new password for a user and revoke all their sessions (admin)',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['password'],
+                properties: { password: { type: 'string', minLength: 8 } },
+              },
+            },
+          },
+        },
+        responses: { 200: ok('{ ok, revokedSessions }'), 403: ok('admin role required') },
+      },
+    },
+    '/auth/users/{id}/revoke-sessions': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Sign a user out everywhere (admin)',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('{ revoked }'), 403: ok('admin role required') },
       },
     },
     '/auth/stream-token': {

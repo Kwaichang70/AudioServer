@@ -38,6 +38,8 @@ export interface ServerToClientEvents {
   'device:discovered': (device: { id: string; name: string; type: string }) => void;
   'device:lost': (device: { id: string; name: string }) => void;
   'library:scan-progress': (progress: ScanStatus) => void;
+  /** Sent right before the server closes a socket whose login session was revoked. */
+  'session:revoked': () => void;
 }
 
 export interface ClientToServerEvents {

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'child_process';
 import { createServer } from 'net';
-import { mkdtempSync, rmSync, mkdirSync } from 'fs';
+import { existsSync, mkdtempSync, rmSync, mkdirSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -115,12 +115,38 @@ describe('server startup and shutdown (smoke)', () => {
       expect(ready.status).toBe('ready');
       expect(ready.db.status).toBe('ok');
 
-      const health = await fetch(`${base}/api/health`).then((r) => r.json());
+      // Fresh database → setup mode: the public surface is setup-status plus
+      // the probes; full diagnostics need a session.
+      const setup = await fetch(`${base}/api/auth/setup-status`).then((r) => r.json());
+      expect(setup.data.needsSetup).toBe(true);
+      const anonymousHealth = await fetch(`${base}/api/health`);
+      expect(anonymousHealth.status).toBe(401);
+      expect(output).toContain('setup code');
+
+      // Anonymous requests never learn which routes exist.
+      const anonymousMissing = await fetch(`${base}/api/does-not-exist`);
+      expect(anonymousMissing.status).toBe(401);
+
+      // Complete setup the way an operator would: read the code the server
+      // wrote next to the database, create the admin, use the session.
+      const setupCode = readFileSync(join(tmp, 'setup-code.txt'), 'utf8').trim();
+      expect(setupCode).toMatch(/^[0-9A-F]{4}-[0-9A-F]{4}$/);
+      const register = await fetch(`${base}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'admin', password: 'smoke-test-pass', setupCode }),
+      });
+      expect(register.status).toBe(200);
+      const token = (await register.json()).data.token as string;
+      expect(existsSync(join(tmp, 'setup-code.txt'))).toBe(false);
+      const auth = { Authorization: `Bearer ${token}` };
+
+      const health = await fetch(`${base}/api/health`, { headers: auth }).then((r) => r.json());
       expect(health.status).toBe('ok');
       expect(health.library.tracks).toBe(0);
 
       // Unknown API routes must be a JSON 404 even in production (no SPA fallback).
-      const missing = await fetch(`${base}/api/does-not-exist`);
+      const missing = await fetch(`${base}/api/does-not-exist`, { headers: auth });
       expect(missing.status).toBe(404);
 
       child.kill('SIGTERM');

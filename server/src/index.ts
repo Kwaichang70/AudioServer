@@ -32,6 +32,8 @@ import { initServerPlayer } from './services/server-player.js';
 import { globalLimiter } from './middleware/rateLimiter.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { attachUser, requireAuth } from './middleware/auth.js';
+import { announceSetupIfRequired } from './services/setup.js';
+import { purgeExpiredSessions } from './services/sessions.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { openApiSpec } from './openapi.js';
 
@@ -42,7 +44,43 @@ initSocketIO(httpServer);
 // Middleware
 app.use(
   helmet({
-    contentSecurityPolicy: false, // SPA inline scripts; tighten in a later phase
+    // Content-Security-Policy-Report-Only (V02.4): browsers report what an
+    // enforcing policy WOULD block to /api/csp-report, without blocking
+    // anything yet. Watch the server log for "CSP report" lines while using
+    // the SPA (covers, radio streams, Spotify Web Playback SDK, OAuth
+    // callbacks); when a full cycle stays quiet, flip reportOnly to false.
+    contentSecurityPolicy: {
+      reportOnly: true,
+      useDefaults: false,
+      directives: {
+        'default-src': ["'self'"],
+        'base-uri': ["'self'"],
+        'object-src': ["'none'"],
+        'frame-ancestors': ["'self'"],
+        'form-action': ["'self'"],
+        // Vite emits no inline scripts; the Spotify Web Playback SDK is the
+        // only third-party script and it loads an iframe of its own.
+        'script-src': ["'self'", 'https://sdk.scdn.co'],
+        'frame-src': ["'self'", 'https://sdk.scdn.co', 'https://*.spotify.com'],
+        // Tailwind is compiled, but React and the SDK set inline style attrs.
+        'style-src': ["'self'", "'unsafe-inline'"],
+        // Covers/artist images come from providers and radio directories.
+        'img-src': ["'self'", 'data:', 'blob:', 'https:', 'http:'],
+        // Local streams are same-origin; radio and provider streams are not.
+        'media-src': ["'self'", 'blob:', 'https:', 'http:'],
+        'connect-src': [
+          "'self'",
+          'ws:',
+          'wss:',
+          'https://*.spotify.com',
+          'https://*.scdn.co',
+          'https://*.spotifycdn.com',
+        ],
+        'worker-src': ["'self'", 'blob:'],
+        'manifest-src': ["'self'"],
+        'report-uri': ['/api/csp-report'],
+      },
+    },
     crossOriginResourcePolicy: { policy: 'cross-origin' }, // allow <img src> from SPA origin
   }),
 );
@@ -76,7 +114,13 @@ app.use(
     callback(null, { origin: false });
   }),
 );
-app.use(express.json());
+// CSP violation reports arrive as application/csp-report (report-uri) or
+// application/reports+json (Reporting API); parse them as JSON too.
+app.use(
+  express.json({
+    type: ['application/json', 'application/csp-report', 'application/reports+json'],
+  }),
+);
 app.use(globalLimiter);
 app.use(requestLogger);
 app.use(attachUser);
@@ -87,6 +131,26 @@ app.use(requireAuth);
 // editor.swagger.io / Postman, or any OpenAPI-aware IDE.
 app.get('/api/openapi.json', (_req, res) => {
   res.json(openApiSpec);
+});
+// Public sink for Content-Security-Policy-Report-Only violations. Logged at
+// warn level with the fields an operator needs to tune the policy; bodies
+// are untrusted browser input, so only whitelisted fields are echoed.
+app.post('/api/csp-report', (req, res) => {
+  const body = req.body as
+    | { 'csp-report'?: Record<string, unknown> }
+    | Array<{ body?: Record<string, unknown> }>
+    | undefined;
+  const reports = Array.isArray(body)
+    ? body.map((r) => r?.body ?? {})
+    : [body?.['csp-report'] ?? (body as Record<string, unknown>) ?? {}];
+  for (const r of reports) {
+    const pick = (k: string) => (typeof r[k] === 'string' ? (r[k] as string).slice(0, 300) : '');
+    logger.warn(
+      `CSP report: directive=${pick('violated-directive') || pick('effectiveDirective') || pick('effective-directive')} ` +
+        `blocked=${pick('blocked-uri') || pick('blockedURL')} document=${pick('document-uri') || pick('documentURL')}`,
+    );
+  }
+  res.status(204).end();
 });
 app.use('/api/auth', authRouter);
 app.use('/api/health', healthRouter);
@@ -127,6 +191,9 @@ app.use(errorHandler);
 async function main() {
   validateConfig();
   await initDatabase();
+  const purged = purgeExpiredSessions();
+  if (purged > 0) logger.info(`Sessions: purged ${purged} expired/revoked row(s)`);
+  announceSetupIfRequired();
   await providers.initialize();
   playbackService.initialize();
   // Server-driven playback: pushes the next queue track to DLNA/Sonos devices

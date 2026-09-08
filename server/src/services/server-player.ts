@@ -1,7 +1,7 @@
 import { playbackService } from './playback.js';
 import { deviceMonitor } from './device-monitor.js';
 import { deviceManager } from '../devices/manager.js';
-import { signStreamToken } from '../middleware/auth.js';
+import { signSystemStreamToken } from '../middleware/auth.js';
 import { scrobbler } from './scrobbler.js';
 import { getRawDb } from '../db/index.js';
 import { getLanAddress } from '../utils/network.js';
@@ -76,7 +76,7 @@ async function sendTrackToDevice(deviceId: string, track: AdvanceTrack): Promise
   const lanAddress = getLanAddress();
   if (!lanAddress) throw new Error('no LAN address available');
 
-  const token = signStreamToken(ownerUserId);
+  const token = signSystemStreamToken();
   const streamUrl = `http://${lanAddress}:${config.port}/api/library/tracks/${track.id}/stream?t=${encodeURIComponent(token)}`;
 
   await deviceManager.play(deviceId, streamUrl, {

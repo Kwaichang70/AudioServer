@@ -110,10 +110,28 @@ export interface UserAccount {
   username: string;
   role: string;
   created_at?: number | string | null;
+  /** Present on GET /auth/me: the caller's own session id. */
+  sessionId?: string;
+}
+
+export interface SetupStatus {
+  needsSetup: boolean;
+  setupCodeSource?: 'env' | 'generated';
+}
+
+export interface SessionInfo {
+  id: string;
+  userId: string;
+  createdAt: number;
+  expiresAt: number;
+  lastSeenAt: number | null;
+  userAgent: string | null;
+  current: boolean;
 }
 
 export interface AuthResult {
   token: string;
+  expiresAt?: number;
   user: Omit<UserAccount, 'role'> & { role?: string };
 }
 

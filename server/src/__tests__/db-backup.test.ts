@@ -32,12 +32,9 @@ describe('database backup and restore', () => {
     teardown = ctx.teardown;
     liveDbPath = ctx.dbPath;
 
-    // An account through the real registration route (bcrypt hash and all).
-    const reg = await request(app)
-      .post('/api/auth/register')
-      .send({ username: 'admin', password: 'changeme123' });
-    expect(reg.status).toBe(200);
-    const token = reg.body.data.token as string;
+    // The helper seeded an admin and a member account (bcrypt hashes and
+    // open sessions), which is exactly what a restore must bring back.
+    const token = ctx.admin!.token;
 
     // Library rows + playlist + history straight into the schema.
     const db = getRawDb();
@@ -77,7 +74,7 @@ describe('database backup and restore', () => {
     expect(existsSync(dest)).toBe(true);
     expect(result.schemaVersion).toBe(SCHEMA_VERSION);
     expect(result.counts).toMatchObject({
-      users: 1,
+      users: 2,
       artists: 1,
       albums: 1,
       tracks: 2,
@@ -113,9 +110,11 @@ describe('database backup and restore', () => {
     closeDatabase();
     await initDatabase(target);
     const db = getRawDb();
-    expect(db.prepare('SELECT username, role FROM users').all()).toEqual([
+    expect(db.prepare('SELECT username, role FROM users ORDER BY username').all()).toEqual([
       { username: 'admin', role: 'admin' },
+      { username: 'member', role: 'user' },
     ]);
+    expect((db.prepare('SELECT COUNT(*) AS c FROM sessions').get() as { c: number }).c).toBe(2);
     expect((db.prepare('SELECT COUNT(*) AS c FROM tracks').get() as { c: number }).c).toBe(2);
     expect(db.prepare('SELECT track_id FROM playlist_tracks ORDER BY position').all()).toEqual([
       { track_id: 'tr1' },

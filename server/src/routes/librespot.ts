@@ -10,6 +10,14 @@ import {
 import { deviceManager } from '../devices/manager.js';
 import { logger } from '../logger.js';
 import { config } from '../config.js';
+import { z } from 'zod';
+import { requireAdmin } from '../middleware/auth.js';
+import { validate } from '../utils/validate.js';
+
+const librespotStartSchema = z.object({
+  username: z.string().min(1).max(256),
+  password: z.string().min(1).max(256),
+});
 
 export const librespotRouter = Router();
 
@@ -29,24 +37,25 @@ librespotRouter.get('/status', async (_req, res) => {
 });
 
 // Start librespot with Spotify credentials
-librespotRouter.post('/start', async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    res.status(400).json({ error: 'Spotify username and password required' });
-    return;
-  }
-  const ok = await startLibrespot(username, password);
-  if (ok) {
-    res.json({ data: { started: true } });
-  } else {
-    res
-      .status(500)
-      .json({ error: 'Failed to start librespot. Check if librespot and ffmpeg are installed.' });
-  }
-});
+librespotRouter.post(
+  '/start',
+  requireAdmin,
+  validate({ body: librespotStartSchema }),
+  async (req, res) => {
+    const { username, password } = req.body;
+    const ok = await startLibrespot(username, password);
+    if (ok) {
+      res.json({ data: { started: true } });
+    } else {
+      res
+        .status(500)
+        .json({ error: 'Failed to start librespot. Check if librespot and ffmpeg are installed.' });
+    }
+  },
+);
 
 // Stop librespot
-librespotRouter.post('/stop', (_req, res) => {
+librespotRouter.post('/stop', requireAdmin, (_req, res) => {
   stopLibrespot();
   res.json({ data: { stopped: true } });
 });

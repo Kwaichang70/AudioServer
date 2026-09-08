@@ -128,6 +128,16 @@ Open:
 http://diskstation:3001
 ```
 
+First deployment (no accounts yet): the app shows the setup screen and asks
+for the setup code. Read it from the log
+(`docker-compose logs audioserver | grep "setup code"`) or from
+`/data/setup-code.txt` in the data volume, or set `SETUP_CODE` in `.env`
+before starting. Create the admin account with it.
+
+Existing deployment: every account has to sign in again once after this
+release (sessions are now stored server-side and revocable). Settings →
+"Account & Sessions" shows signed-in devices, password change and sign-out.
+
 Check:
 
 - Settings shows Qobuz as configured.

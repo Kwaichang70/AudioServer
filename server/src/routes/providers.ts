@@ -1,7 +1,24 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { providers } from '../providers/registry.js';
 import { QobuzProviderError } from '../providers/qobuz.js';
 import { logger } from '../logger.js';
+import { requireAdmin } from '../middleware/auth.js';
+import { validate } from '../utils/validate.js';
+
+// Provider connections are global for the whole household (one Spotify/Tidal/
+// Qobuz account per server), so connecting, completing OAuth and disconnecting
+// are admin-only. Reading status, searching and streaming stay open to every
+// signed-in user. See docs/permissions.md.
+const oauthInitSchema = z.object({ redirectUri: z.string().url().max(2048) });
+const oauthCallbackSchema = z.object({
+  code: z.string().min(1).max(4096),
+  redirectUri: z.string().url().max(2048),
+});
+const qobuzLoginSchema = z.object({
+  username: z.string().min(1).max(256),
+  password: z.string().min(1).max(256),
+});
 
 export const providersRouter = Router();
 
@@ -69,38 +86,40 @@ providersRouter.get('/tidal/status', (_req, res) => {
   });
 });
 
-providersRouter.post('/tidal/auth/init', (req, res) => {
-  if (!tidal.isAvailable) {
-    res
-      .status(400)
-      .json({ error: 'Tidal not configured. Set TIDAL_CLIENT_ID and TIDAL_CLIENT_SECRET.' });
-    return;
-  }
-  const { redirectUri } = req.body;
-  if (!redirectUri) {
-    res.status(400).json({ error: 'redirectUri required' });
-    return;
-  }
-  res.json({ data: { authUrl: tidal.getAuthUrl(redirectUri) } });
-});
+providersRouter.post(
+  '/tidal/auth/init',
+  requireAdmin,
+  validate({ body: oauthInitSchema }),
+  (req, res) => {
+    if (!tidal.isAvailable) {
+      res
+        .status(400)
+        .json({ error: 'Tidal not configured. Set TIDAL_CLIENT_ID and TIDAL_CLIENT_SECRET.' });
+      return;
+    }
+    const { redirectUri } = req.body;
+    res.json({ data: { authUrl: tidal.getAuthUrl(redirectUri) } });
+  },
+);
 
-providersRouter.post('/tidal/auth/callback', async (req, res) => {
-  const { code, redirectUri } = req.body;
-  if (!code || !redirectUri) {
-    res.status(400).json({ error: 'code and redirectUri required' });
-    return;
-  }
-  try {
-    await tidal.auth.login({ code, redirectUri });
-    logger.info('Tidal: OAuth flow completed');
-    res.json({ data: { authenticated: true } });
-  } catch (err) {
-    logger.error(`Tidal auth callback failed: ${err}`);
-    res.status(500).json({ error: String(err) });
-  }
-});
+providersRouter.post(
+  '/tidal/auth/callback',
+  requireAdmin,
+  validate({ body: oauthCallbackSchema }),
+  async (req, res) => {
+    const { code, redirectUri } = req.body;
+    try {
+      await tidal.auth.login({ code, redirectUri });
+      logger.info('Tidal: OAuth flow completed');
+      res.json({ data: { authenticated: true } });
+    } catch (err) {
+      logger.error(`Tidal auth callback failed: ${err}`);
+      res.status(500).json({ error: String(err) });
+    }
+  },
+);
 
-providersRouter.post('/tidal/auth/logout', async (_req, res) => {
+providersRouter.post('/tidal/auth/logout', requireAdmin, async (_req, res) => {
   await tidal.auth.logout();
   res.json({ data: { authenticated: false } });
 });
@@ -205,38 +224,40 @@ providersRouter.get('/spotify/status', (_req, res) => {
   });
 });
 
-providersRouter.post('/spotify/auth/init', (req, res) => {
-  if (!spotify.isAvailable) {
-    res
-      .status(400)
-      .json({ error: 'Spotify not configured. Set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET.' });
-    return;
-  }
-  const { redirectUri } = req.body;
-  if (!redirectUri) {
-    res.status(400).json({ error: 'redirectUri required' });
-    return;
-  }
-  res.json({ data: { authUrl: spotify.getAuthUrl(redirectUri) } });
-});
+providersRouter.post(
+  '/spotify/auth/init',
+  requireAdmin,
+  validate({ body: oauthInitSchema }),
+  (req, res) => {
+    if (!spotify.isAvailable) {
+      res.status(400).json({
+        error: 'Spotify not configured. Set SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET.',
+      });
+      return;
+    }
+    const { redirectUri } = req.body;
+    res.json({ data: { authUrl: spotify.getAuthUrl(redirectUri) } });
+  },
+);
 
-providersRouter.post('/spotify/auth/callback', async (req, res) => {
-  const { code, redirectUri } = req.body;
-  if (!code || !redirectUri) {
-    res.status(400).json({ error: 'code and redirectUri required' });
-    return;
-  }
-  try {
-    await spotify.auth.login({ code, redirectUri });
-    logger.info('Spotify: OAuth flow completed');
-    res.json({ data: { authenticated: true } });
-  } catch (err) {
-    logger.error(`Spotify auth callback failed: ${err}`);
-    res.status(500).json({ error: String(err) });
-  }
-});
+providersRouter.post(
+  '/spotify/auth/callback',
+  requireAdmin,
+  validate({ body: oauthCallbackSchema }),
+  async (req, res) => {
+    const { code, redirectUri } = req.body;
+    try {
+      await spotify.auth.login({ code, redirectUri });
+      logger.info('Spotify: OAuth flow completed');
+      res.json({ data: { authenticated: true } });
+    } catch (err) {
+      logger.error(`Spotify auth callback failed: ${err}`);
+      res.status(500).json({ error: String(err) });
+    }
+  },
+);
 
-providersRouter.post('/spotify/auth/logout', async (_req, res) => {
+providersRouter.post('/spotify/auth/logout', requireAdmin, async (_req, res) => {
   await spotify.auth.logout();
   res.json({ data: { authenticated: false } });
 });
@@ -261,23 +282,24 @@ providersRouter.get('/qobuz/status', (_req, res) => {
 });
 
 // Login with username + password
-providersRouter.post('/qobuz/auth/login', async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    res.status(400).json({ error: 'Username and password required' });
-    return;
-  }
-  try {
-    await qobuz.auth.login({ username, password });
-    logger.info('Qobuz: Login successful');
-    res.json({ data: qobuzStatus() });
-  } catch (err) {
-    logger.error(`Qobuz login failed: ${err}`);
-    sendQobuzError(res, err);
-  }
-});
+providersRouter.post(
+  '/qobuz/auth/login',
+  requireAdmin,
+  validate({ body: qobuzLoginSchema }),
+  async (req, res) => {
+    const { username, password } = req.body;
+    try {
+      await qobuz.auth.login({ username, password });
+      logger.info('Qobuz: Login successful');
+      res.json({ data: qobuzStatus() });
+    } catch (err) {
+      logger.error(`Qobuz login failed: ${err}`);
+      sendQobuzError(res, err);
+    }
+  },
+);
 
-providersRouter.post('/qobuz/auth/logout', async (_req, res) => {
+providersRouter.post('/qobuz/auth/logout', requireAdmin, async (_req, res) => {
   await qobuz.auth.logout();
   res.json({ data: qobuzStatus() });
 });

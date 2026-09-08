@@ -80,6 +80,24 @@ export const users = sqliteTable('users', {
   createdAt: integer('created_at', { mode: 'timestamp' }),
 });
 
+/**
+ * Login sessions (V02.3). A JWT carries the session id; the session row is
+ * the revocable part: logout, "sign out everywhere", an admin password reset
+ * or deleting the user marks or removes rows here, and every later request,
+ * socket handshake or stream token that references the session is refused.
+ */
+export const sessions = sqliteTable('sessions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at').notNull(),
+  expiresAt: integer('expires_at').notNull(),
+  lastSeenAt: integer('last_seen_at'),
+  revokedAt: integer('revoked_at'),
+  userAgent: text('user_agent'),
+});
+
 export const providerTokens = sqliteTable('provider_tokens', {
   provider: text('provider').primaryKey(),
   accessToken: text('access_token').notNull(),

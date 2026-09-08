@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { getRawDb, initDatabase } from '../db/index.js';
-import { generateToken } from '../middleware/auth.js';
+import { createSession, revokeSession } from '../services/sessions.js';
 import { isValidSocketToken } from '../socketio.js';
 
 describe('Socket.IO auth token validation', () => {
@@ -24,21 +24,24 @@ describe('Socket.IO auth token validation', () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('accepts JWT tokens for existing users', () => {
-    expect(isValidSocketToken(generateToken('user-1'))).toBe(true);
+  it('accepts session tokens for existing users', () => {
+    expect(isValidSocketToken(createSession('user-1').token)).toBe(true);
   });
 
-  it('rejects correctly signed JWT tokens for unknown users', () => {
-    expect(isValidSocketToken(generateToken('missing-user'))).toBe(false);
+  it('rejects a token once its session is revoked', () => {
+    const { token, sessionId } = createSession('user-1');
+    expect(isValidSocketToken(token)).toBe(true);
+    revokeSession(sessionId);
+    expect(isValidSocketToken(token)).toBe(false);
   });
 
-  it('rejects a JWT after its user is deleted', () => {
+  it('rejects a token after its user is deleted', () => {
     getRawDb()
       .prepare(
         "INSERT INTO users (id, username, password_hash, role) VALUES ('user-2', 'deleted-socket-user', 'hash', 'user')",
       )
       .run();
-    const token = generateToken('user-2');
+    const { token } = createSession('user-2');
     expect(isValidSocketToken(token)).toBe(true);
 
     getRawDb().prepare("DELETE FROM users WHERE id = 'user-2'").run();

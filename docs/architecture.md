@@ -124,11 +124,18 @@ authenticated providers in parallel and merges results with a priority order
 play/pause/seek to the controller for the selected device, or to the browser
 audio element directly.
 
-**Auth surface.** Two hooks: `attachUser` (always-on, never fails — populates
-`req.userId` if Bearer is valid) and `requireAuth` (gates `/api/*` paths
-except `/api/auth/login`, `/auth/register`, `/auth/me`, `/health`). Signed
-stream tokens cover the `<img>`/`<audio>` flow where the browser can't send
-Authorization headers.
+**Auth surface.** Three hooks: `attachUser` (always-on, never fails —
+resolves the Bearer token to a revocable session row and populates
+`req.userId` / `req.sessionId` / `req.userRole`), `requireAuth` (gates every
+`/api/*` path except setup-status, login/logout/register, `/auth/me`, the
+health probes, the OpenAPI document and the CSP report sink; there is no
+zero-users bypass, the first admin is created with a setup code) and
+`requireAdmin` for household-wide mutations (see `docs/permissions.md`).
+Signed stream tokens cover the `<img>`/`<audio>` flow where the browser can't
+send Authorization headers; they are bound to a session (or to the server
+itself for device playback) and die with it. Helmet sends a
+`Content-Security-Policy-Report-Only` header; violations land in the log via
+`POST /api/csp-report`.
 
 **SQLite + WAL.** Single-process app; better-sqlite3 in WAL mode is fast
 enough for 10k+ tracks without a separate DB process. Drizzle ORM for typed

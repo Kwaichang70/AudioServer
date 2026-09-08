@@ -1,9 +1,10 @@
-import express from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { v4 as uuid } from 'uuid';
 import { initDatabase, getRawDb } from '../../db/index.js';
-import { attachUser, requireAuth } from '../../middleware/auth.js';
+import { attachUser, hashPassword, requireAuth } from '../../middleware/auth.js';
 import { errorHandler, notFoundHandler } from '../../middleware/errorHandler.js';
 import { authRouter } from '../../routes/auth.js';
 import { healthRouter } from '../../routes/health.js';
@@ -13,7 +14,33 @@ import { playlistsRouter } from '../../routes/playlists.js';
 import { providersRouter } from '../../routes/providers.js';
 import { historyRouter } from '../../routes/history.js';
 import { smartPlaylistsRouter } from '../../routes/smart-playlists.js';
+import { scrobbleRouter } from '../../routes/scrobble.js';
+import { librespotRouter } from '../../routes/librespot.js';
 import { openApiSpec } from '../../openapi.js';
+import { createSession } from '../../services/sessions.js';
+
+export const TEST_PASSWORD = 'changeme123';
+
+export interface TestAppOptions {
+  /**
+   * 'admin' (default): the database gets an admin ("admin") and a regular
+   * user ("member"), and requests WITHOUT an Authorization header act as the
+   * admin. Existing suites that only care about library/playlist behaviour
+   * keep working without touching auth.
+   *
+   * 'none': a pristine setup-mode database and no header injection. Use it
+   * for suites that test setup, login and permissions themselves.
+   */
+  auth?: 'admin' | 'none';
+}
+
+export interface TestUser {
+  id: string;
+  username: string;
+  role: 'admin' | 'user';
+  token: string;
+  sessionId: string;
+}
 
 /**
  * Build an isolated Express app + sqlite DB for a single test suite.
@@ -24,13 +51,28 @@ import { openApiSpec } from '../../openapi.js';
  * but heavy services (scanner, scrobbler, librespot) are intentionally NOT
  * started — tests should focus on HTTP behaviour, not on background jobs.
  */
-export async function createTestApp() {
+export async function createTestApp(options: TestAppOptions = {}) {
+  const mode = options.auth ?? 'admin';
   const tmp = mkdtempSync(join(tmpdir(), 'audioserver-test-'));
   const dbPath = join(tmp, 'test.db');
   await initDatabase(dbPath);
 
+  let admin: TestUser | null = null;
+  let member: TestUser | null = null;
+  if (mode === 'admin') {
+    admin = await seedUser('admin', 'admin');
+    member = await seedUser('member', 'user');
+  }
+
   const app = express();
   app.use(express.json());
+  if (admin) {
+    const adminToken = admin.token;
+    app.use((req: Request, _res: Response, next: NextFunction) => {
+      if (!req.headers.authorization) req.headers.authorization = `Bearer ${adminToken}`;
+      next();
+    });
+  }
   app.use(attachUser);
   app.use(requireAuth);
   app.get('/api/openapi.json', (_req, res) => {
@@ -44,12 +86,16 @@ export async function createTestApp() {
   app.use('/api/providers', providersRouter);
   app.use('/api/history', historyRouter);
   app.use('/api/smart-playlists', smartPlaylistsRouter);
+  app.use('/api/scrobble', scrobbleRouter);
+  app.use('/api/librespot', librespotRouter);
   app.use('/api', notFoundHandler);
   app.use(errorHandler);
 
   return {
     app,
     dbPath,
+    admin,
+    member,
     teardown() {
       try {
         getRawDb().close();
@@ -59,4 +105,14 @@ export async function createTestApp() {
       rmSync(tmp, { recursive: true, force: true });
     },
   };
+}
+
+/** Insert a user straight into the open database and open a session for it. */
+export async function seedUser(username: string, role: 'admin' | 'user'): Promise<TestUser> {
+  const id = uuid();
+  getRawDb()
+    .prepare('INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)')
+    .run(id, username, await hashPassword(TEST_PASSWORD), role);
+  const session = createSession(id, 'vitest');
+  return { id, username, role, token: session.token, sessionId: session.sessionId };
 }

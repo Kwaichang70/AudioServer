@@ -2,40 +2,54 @@ import { Server as SocketServer } from 'socket.io';
 import type { Server as HttpServer } from 'http';
 import { config } from './config.js';
 import { logger } from './logger.js';
-import { getExistingUserIdFromToken, isFirstRun } from './middleware/auth.js';
+import { getPrincipalFromToken } from './middleware/auth.js';
+import { onSessionsRevoked } from './services/sessions.js';
 import { deviceMonitor } from './services/device-monitor.js';
 import type { ServerToClientEvents, ClientToServerEvents } from './types/socket-events.js';
 
-let io: SocketServer<ClientToServerEvents, ServerToClientEvents>;
-
-export function isValidSocketToken(token: unknown): boolean {
-  return getExistingUserIdFromToken(token) !== null;
+interface SocketData {
+  userId: string;
+  sessionId: string;
 }
 
-export function initSocketIO(
-  httpServer: HttpServer,
-): SocketServer<ClientToServerEvents, ServerToClientEvents> {
-  io = new SocketServer<ClientToServerEvents, ServerToClientEvents>(httpServer, {
+let io: SocketServer<ClientToServerEvents, ServerToClientEvents, Record<never, never>, SocketData>;
+
+export function isValidSocketToken(token: unknown): boolean {
+  return getPrincipalFromToken(token) !== null;
+}
+
+export function initSocketIO(httpServer: HttpServer) {
+  io = new SocketServer<
+    ClientToServerEvents,
+    ServerToClientEvents,
+    Record<never, never>,
+    SocketData
+  >(httpServer, {
     cors: {
       origin: config.allowedOrigins.length > 0 ? config.allowedOrigins : '*',
       credentials: true,
     },
   });
 
-  // Auth middleware
+  // Auth middleware: a socket needs the same session a request needs. There
+  // is no setup-mode bypass; nothing is pushed to anonymous sockets.
   io.use((socket, next) => {
     try {
-      if (isFirstRun()) return next();
-
       const token = socket.handshake.auth?.token || socket.handshake.query?.token;
       if (!token) return next(new Error('Authentication required'));
-
-      if (!isValidSocketToken(token)) return next(new Error('Authentication failed'));
+      const principal = getPrincipalFromToken(token);
+      if (!principal) return next(new Error('Authentication failed'));
+      socket.data.userId = principal.userId;
+      socket.data.sessionId = principal.sessionId;
       next();
     } catch {
       next(new Error('Authentication failed'));
     }
   });
+
+  // A revoked session must lose its live connection as well, otherwise a
+  // signed-out browser would keep receiving queue/state events.
+  onSessionsRevoked((sessionIds) => disconnectSessions(sessionIds));
 
   io.on('connection', (socket) => {
     logger.info(`Client connected: ${socket.id}`);
@@ -75,7 +89,23 @@ export function initSocketIO(
   return io;
 }
 
-export function getIO(): SocketServer<ClientToServerEvents, ServerToClientEvents> {
+/** Close every socket bound to one of the given sessions. Returns how many were closed. */
+export function disconnectSessions(sessionIds: string[]): number {
+  if (!io || sessionIds.length === 0) return 0;
+  const wanted = new Set(sessionIds);
+  let closed = 0;
+  for (const socket of io.sockets.sockets.values()) {
+    if (wanted.has(socket.data.sessionId)) {
+      socket.emit('session:revoked');
+      socket.disconnect(true);
+      closed++;
+    }
+  }
+  if (closed > 0) logger.info(`Socket.IO: closed ${closed} connection(s) of revoked sessions`);
+  return closed;
+}
+
+export function getIO() {
   if (!io) throw new Error('Socket.IO not initialized');
   return io;
 }

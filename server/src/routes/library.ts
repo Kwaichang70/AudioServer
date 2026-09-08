@@ -5,6 +5,7 @@ import { desc, eq, like, or, sql } from 'drizzle-orm';
 import { scanLibrary, getScanStatus } from '../services/scanner.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
+import { requireAdmin } from '../middleware/auth.js';
 import { createReadStream, existsSync, statSync } from 'fs';
 import { extname } from 'path';
 // ApiResponse type removed — using inline format with buildMeta
@@ -417,7 +418,7 @@ libraryRouter.get('/search', (req, res) => {
 
 // ─── Scan ────────────────────────────────────────────────────────
 
-libraryRouter.post('/scan', (_req, res) => {
+libraryRouter.post('/scan', requireAdmin, (_req, res) => {
   const status = getScanStatus();
   if (status.isScanning) {
     res.json({ data: status, message: 'Scan already in progress' });
@@ -438,7 +439,7 @@ libraryRouter.get('/scan/status', (_req, res) => {
 
 // ─── Cover Art Fetch ─────────────────────────────────────────────
 
-libraryRouter.post('/covers/fetch', (_req, res) => {
+libraryRouter.post('/covers/fetch', requireAdmin, (_req, res) => {
   const status = getCoverFetchStatus();
   if (status.isRunning) {
     res.json({ data: status, message: 'Already running' });
@@ -456,7 +457,7 @@ libraryRouter.get('/covers/fetch/status', (_req, res) => {
 
 // ─── Artist Image Fetch ──────────────────────────────────────────
 
-libraryRouter.post('/artists/images/fetch', (_req, res) => {
+libraryRouter.post('/artists/images/fetch', requireAdmin, (_req, res) => {
   const status = getArtistFetchStatus();
   if (status.isRunning) {
     res.json({ data: status, message: 'Already running' });

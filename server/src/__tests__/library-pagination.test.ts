@@ -88,11 +88,11 @@ describe('Library pagination', () => {
     expect(res.body.meta).toEqual({ page: 2, limit: 4, total: 10, totalPages: 3 });
   });
 
-  it('records the baseline Drizzle migration', async () => {
+  it('records the Drizzle migrations (initial + sessions)', async () => {
     const row = getRawDb().prepare('SELECT COUNT(*) as count FROM __drizzle_migrations').get() as {
       count: number;
     };
 
-    expect(row.count).toBe(1);
+    expect(row.count).toBe(2);
   });
 });

@@ -8,6 +8,7 @@ import { join } from 'path';
 import { initSocketIO } from '../socketio.js';
 import { deviceMonitor } from '../services/device-monitor.js';
 import { getRawDb, initDatabase } from '../db/index.js';
+import { createSession, revokeSession } from '../services/sessions.js';
 
 describe('Socket.IO device subscriptions', () => {
   let tmp: string;
@@ -19,6 +20,11 @@ describe('Socket.IO device subscriptions', () => {
   beforeAll(async () => {
     tmp = mkdtempSync(join(tmpdir(), 'audioserver-socket-subscriptions-'));
     await initDatabase(join(tmp, 'test.db'));
+    getRawDb()
+      .prepare(
+        "INSERT INTO users (id, username, password_hash, role) VALUES ('user-1', 'socket-user', 'hash', 'user')",
+      )
+      .run();
     vi.spyOn(deviceMonitor, 'startHealthChecks').mockImplementation(() => undefined);
     subscribe = vi.spyOn(deviceMonitor, 'subscribe').mockImplementation(() => undefined);
     unsubscribe = vi.spyOn(deviceMonitor, 'unsubscribe').mockImplementation(() => undefined);
@@ -40,13 +46,45 @@ describe('Socket.IO device subscriptions', () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('deduplicates subscriptions and cleans remaining devices on disconnect', async () => {
+  function connect(token?: string): ClientSocket {
     const port = (httpServer.address() as AddressInfo).port;
-    client = connectClient(`http://127.0.0.1:${port}`, {
+    return connectClient(`http://127.0.0.1:${port}`, {
       forceNew: true,
       reconnection: false,
       transports: ['websocket'],
+      auth: token ? { token } : {},
     });
+  }
+
+  it('refuses a handshake without a valid session token', async () => {
+    const anonymous = connect();
+    const err = await new Promise<Error>((resolve, reject) => {
+      anonymous.once('connect_error', resolve);
+      anonymous.once('connect', () => reject(new Error('connected without a token')));
+    });
+    expect(err.message).toBe('Authentication required');
+    anonymous.disconnect();
+  });
+
+  it('closes the socket when its session is revoked', async () => {
+    const { token, sessionId } = createSession('user-1');
+    const socket = connect(token);
+    await new Promise<void>((resolve, reject) => {
+      socket.once('connect', resolve);
+      socket.once('connect_error', reject);
+    });
+    const notified = new Promise<void>((resolve) => socket.once('session:revoked', resolve));
+    const disconnected = new Promise<string>((resolve) => socket.once('disconnect', resolve));
+
+    revokeSession(sessionId);
+
+    await notified;
+    expect(await disconnected).toBe('io server disconnect');
+    socket.disconnect();
+  });
+
+  it('deduplicates subscriptions and cleans remaining devices on disconnect', async () => {
+    client = connect(createSession('user-1').token);
     await new Promise<void>((resolve, reject) => {
       client!.once('connect', resolve);
       client!.once('connect_error', reject);

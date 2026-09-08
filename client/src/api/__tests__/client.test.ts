@@ -124,13 +124,17 @@ describe('API client', () => {
   it('register sends credentials', async () => {
     mockJsonResponse({ data: { token: 'jwt', user: { id: '1', username: 'admin' } } });
 
-    await api.register('admin', 'password123');
+    await api.register('admin', 'password123', 'AB12-CD34');
 
     expect(mockFetch).toHaveBeenCalledWith(
       '/api/auth/register',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ username: 'admin', password: 'password123' }),
+        body: JSON.stringify({
+          username: 'admin',
+          password: 'password123',
+          setupCode: 'AB12-CD34',
+        }),
       }),
     );
   });

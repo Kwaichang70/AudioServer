@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client.js';
 import { useToast } from '../components/Toast.js';
 import { useAudioContext, type ReplayGainMode } from '../context/AudioContext.js';
+import { useAuth } from '../context/AuthContext.js';
 import { DEVICE_POLL_INTERVAL, STORAGE_KEYS } from '../constants.js';
 import { useSocket, type LibraryScanProgress } from '../hooks/useSocket.js';
 
@@ -25,6 +26,45 @@ interface UserAccount {
   id: string;
   username: string;
   role: 'admin' | 'user' | string;
+}
+
+interface SessionRow {
+  id: string;
+  createdAt: number;
+  expiresAt: number;
+  lastSeenAt: number | null;
+  userAgent: string | null;
+  current: boolean;
+}
+
+function describeUserAgent(ua: string | null): string {
+  if (!ua) return 'Unknown device';
+  const os = /iPhone|iPad/.test(ua)
+    ? 'iOS'
+    : /Android/.test(ua)
+      ? 'Android'
+      : /Windows/.test(ua)
+        ? 'Windows'
+        : /Mac OS/.test(ua)
+          ? 'macOS'
+          : /Linux/.test(ua)
+            ? 'Linux'
+            : 'Other';
+  const browser = /Edg\//.test(ua)
+    ? 'Edge'
+    : /Firefox\//.test(ua)
+      ? 'Firefox'
+      : /Chrome\//.test(ua)
+        ? 'Chrome'
+        : /Safari\//.test(ua)
+          ? 'Safari'
+          : 'Browser';
+  return `${browser} on ${os}`;
+}
+
+function formatWhen(ts: number | null): string {
+  if (!ts) return 'never';
+  return new Date(ts).toLocaleString();
 }
 
 interface ScrobbleConfig {
@@ -63,6 +103,7 @@ export default function SettingsPage() {
   const [scanning, setScanning] = useState(false);
   const [scanInfo, setScanInfo] = useState('');
   const { toast } = useToast();
+  const { isAdmin } = useAuth();
   const socket = useSocket();
   const scanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const scanCompleteToastRef = useRef(false);
@@ -248,185 +289,205 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      {/* Library */}
-      <section className="mb-10">
-        <h3 className="text-lg font-semibold mb-4 text-gray-300">Local Library</h3>
-        <div className="bg-surface-light rounded-lg p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Music Library Scanner</p>
-              <p className="text-xs text-gray-500">Scan your local music folders for new tracks</p>
-            </div>
-            <button
-              onClick={startScan}
-              disabled={scanning}
-              className="px-4 py-1.5 text-sm bg-accent rounded hover:bg-accent-hover transition disabled:opacity-50"
-            >
-              {scanning ? 'Scanning...' : 'Scan Now'}
-            </button>
-          </div>
-          {(scanning || scanInfo) && (
-            <p className="text-xs text-gray-400 animate-pulse">{scanInfo}</p>
-          )}
+      {/* Account: password + sessions (every user) */}
+      <SecuritySection />
 
-          {/* Cover Art Fetch */}
-          <div className="flex items-center justify-between pt-2 border-t border-white/5">
-            <div>
-              <p className="text-sm font-medium">Fetch Missing Cover Art</p>
-              <p className="text-xs text-gray-500">
-                Download covers from MusicBrainz for albums without embedded art
-              </p>
+      {!isAdmin && (
+        <section className="mb-10">
+          <div className="bg-surface-light rounded-lg p-4 text-sm text-gray-400">
+            Library scans, streaming-provider connections, Librespot, scrobbling targets and user
+            accounts are managed by an administrator. See docs/permissions.md for the full matrix.
+          </div>
+        </section>
+      )}
+
+      {/* Library (admin) */}
+      {isAdmin && (
+        <section className="mb-10">
+          <h3 className="text-lg font-semibold mb-4 text-gray-300">Local Library</h3>
+          <div className="bg-surface-light rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Music Library Scanner</p>
+                <p className="text-xs text-gray-500">
+                  Scan your local music folders for new tracks
+                </p>
+              </div>
+              <button
+                onClick={startScan}
+                disabled={scanning}
+                className="px-4 py-1.5 text-sm bg-accent rounded hover:bg-accent-hover transition disabled:opacity-50"
+              >
+                {scanning ? 'Scanning...' : 'Scan Now'}
+              </button>
             </div>
-            <button
-              onClick={async () => {
-                try {
-                  // Use the api client so the Bearer token is attached — requireAuth
-                  // would otherwise 401 these /api/* calls.
-                  const data = await api.fetchCovers();
-                  toast(data.message || 'Cover fetch started', 'info');
-                  if (coverPollRef.current) clearInterval(coverPollRef.current);
-                  coverPollRef.current = setInterval(async () => {
-                    try {
-                      const statusRes = await api.getCoverFetchStatus();
-                      const s = statusRes.data;
-                      if (s.isRunning) {
-                        toast(`Covers: ${s.processed}/${s.total} (${s.found} found)`, 'info');
-                      } else {
+            {(scanning || scanInfo) && (
+              <p className="text-xs text-gray-400 animate-pulse">{scanInfo}</p>
+            )}
+
+            {/* Cover Art Fetch */}
+            <div className="flex items-center justify-between pt-2 border-t border-white/5">
+              <div>
+                <p className="text-sm font-medium">Fetch Missing Cover Art</p>
+                <p className="text-xs text-gray-500">
+                  Download covers from MusicBrainz for albums without embedded art
+                </p>
+              </div>
+              <button
+                onClick={async () => {
+                  try {
+                    // Use the api client so the Bearer token is attached — requireAuth
+                    // would otherwise 401 these /api/* calls.
+                    const data = await api.fetchCovers();
+                    toast(data.message || 'Cover fetch started', 'info');
+                    if (coverPollRef.current) clearInterval(coverPollRef.current);
+                    coverPollRef.current = setInterval(async () => {
+                      try {
+                        const statusRes = await api.getCoverFetchStatus();
+                        const s = statusRes.data;
+                        if (s.isRunning) {
+                          toast(`Covers: ${s.processed}/${s.total} (${s.found} found)`, 'info');
+                        } else {
+                          if (coverPollRef.current) clearInterval(coverPollRef.current);
+                          coverPollRef.current = null;
+                          toast(
+                            `Cover art done: ${s.found} found, ${s.notFound} not found`,
+                            'success',
+                          );
+                        }
+                      } catch {
+                        // A failing status poll must stop the interval, not loop forever
                         if (coverPollRef.current) clearInterval(coverPollRef.current);
                         coverPollRef.current = null;
-                        toast(
-                          `Cover art done: ${s.found} found, ${s.notFound} not found`,
-                          'success',
-                        );
                       }
-                    } catch {
-                      // A failing status poll must stop the interval, not loop forever
-                      if (coverPollRef.current) clearInterval(coverPollRef.current);
-                      coverPollRef.current = null;
-                    }
-                  }, 10000);
-                } catch (err) {
-                  toast(`Cover fetch failed: ${String(err)}`, 'error');
-                }
-              }}
-              className="px-4 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-accent transition"
-            >
-              Fetch Covers
-            </button>
-          </div>
-
-          {/* Artist Images */}
-          <div className="flex items-center justify-between pt-2 border-t border-white/5">
-            <div>
-              <p className="text-sm font-medium">Fetch Artist Images</p>
-              <p className="text-xs text-gray-500">
-                Download artist photos from Spotify (requires Spotify connection)
-              </p>
+                    }, 10000);
+                  } catch (err) {
+                    toast(`Cover fetch failed: ${String(err)}`, 'error');
+                  }
+                }}
+                className="px-4 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-accent transition"
+              >
+                Fetch Covers
+              </button>
             </div>
-            <button
-              onClick={async () => {
-                try {
-                  const data = await api.fetchArtistImages();
-                  toast(data.message || 'Artist image fetch started', 'info');
-                  if (artistPollRef.current) clearInterval(artistPollRef.current);
-                  artistPollRef.current = setInterval(async () => {
-                    try {
-                      const statusRes = await api.getArtistImageFetchStatus();
-                      const s = statusRes.data;
-                      if (s.isRunning) {
-                        toast(`Artists: ${s.processed}/${s.total} (${s.found} found)`, 'info');
-                      } else {
+
+            {/* Artist Images */}
+            <div className="flex items-center justify-between pt-2 border-t border-white/5">
+              <div>
+                <p className="text-sm font-medium">Fetch Artist Images</p>
+                <p className="text-xs text-gray-500">
+                  Download artist photos from Spotify (requires Spotify connection)
+                </p>
+              </div>
+              <button
+                onClick={async () => {
+                  try {
+                    const data = await api.fetchArtistImages();
+                    toast(data.message || 'Artist image fetch started', 'info');
+                    if (artistPollRef.current) clearInterval(artistPollRef.current);
+                    artistPollRef.current = setInterval(async () => {
+                      try {
+                        const statusRes = await api.getArtistImageFetchStatus();
+                        const s = statusRes.data;
+                        if (s.isRunning) {
+                          toast(`Artists: ${s.processed}/${s.total} (${s.found} found)`, 'info');
+                        } else {
+                          if (artistPollRef.current) clearInterval(artistPollRef.current);
+                          artistPollRef.current = null;
+                          toast(`Artist images done: ${s.found} found`, 'success');
+                        }
+                      } catch {
                         if (artistPollRef.current) clearInterval(artistPollRef.current);
                         artistPollRef.current = null;
-                        toast(`Artist images done: ${s.found} found`, 'success');
                       }
-                    } catch {
-                      if (artistPollRef.current) clearInterval(artistPollRef.current);
-                      artistPollRef.current = null;
-                    }
-                  }, 10000);
-                } catch (err) {
-                  toast(`Artist image fetch failed: ${String(err)}`, 'error');
-                }
+                    }, 10000);
+                  } catch (err) {
+                    toast(`Artist image fetch failed: ${String(err)}`, 'error');
+                  }
+                }}
+                className="px-4 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-accent transition"
+              >
+                Fetch Images
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Streaming Providers (admin) */}
+      {isAdmin && (
+        <section className="mb-10">
+          <h3 className="text-lg font-semibold mb-4 text-gray-300">Streaming Providers</h3>
+          <div className="space-y-3">
+            {/* Spotify */}
+            <ProviderCard
+              name="Spotify"
+              icon="&#127925;"
+              status={status?.spotify}
+              onConnect={() => connectProvider('spotify')}
+              onDisconnect={() => disconnectProvider('spotify')}
+              envVars={['SPOTIFY_CLIENT_ID', 'SPOTIFY_CLIENT_SECRET']}
+            />
+
+            {/* Tidal */}
+            <ProviderCard
+              name="Tidal"
+              icon="&#127926;"
+              status={status?.tidal}
+              onConnect={() => connectProvider('tidal')}
+              onDisconnect={() => disconnectProvider('tidal')}
+              envVars={['TIDAL_CLIENT_ID', 'TIDAL_CLIENT_SECRET']}
+              note="Catalog and preview only. Use Qobuz or local NAS playback for full tracks."
+            />
+
+            {/* Qobuz (username/password) */}
+            <QobuzCard status={status?.qobuz} onStatusChange={loadStatus} />
+          </div>
+        </section>
+      )}
+
+      {/* Librespot (admin) */}
+      {isAdmin && (
+        <section className="mb-10">
+          <h3 className="text-lg font-semibold mb-4 text-gray-300">
+            Librespot (Spotify to any device)
+          </h3>
+          <div className="bg-surface-light rounded-lg p-4 space-y-3">
+            <p className="text-xs text-gray-500">
+              Librespot acts as a Spotify Connect receiver on this server, decoding audio and
+              streaming it to any DLNA/Volumio device. Requires librespot + ffmpeg installed.
+            </p>
+            <p className="text-xs text-gray-500">
+              Install: <code className="text-gray-400">cargo install librespot</code> and{' '}
+              <code className="text-gray-400">ffmpeg</code>
+            </p>
+            <button
+              onClick={async () => {
+                const res = await api.librespotStatus();
+                const d = res.data;
+                toast(
+                  d.librespotInstalled
+                    ? `Librespot: ${d.isRunning ? 'running' : 'stopped'}, ffmpeg: ${d.ffmpegInstalled ? 'yes' : 'no'}`
+                    : 'Librespot not installed',
+                  d.librespotInstalled ? 'info' : 'error',
+                );
               }}
-              className="px-4 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-accent transition"
+              className="px-3 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-accent transition"
             >
-              Fetch Images
+              Check Status
             </button>
           </div>
-        </div>
-      </section>
-
-      {/* Streaming Providers */}
-      <section className="mb-10">
-        <h3 className="text-lg font-semibold mb-4 text-gray-300">Streaming Providers</h3>
-        <div className="space-y-3">
-          {/* Spotify */}
-          <ProviderCard
-            name="Spotify"
-            icon="&#127925;"
-            status={status?.spotify}
-            onConnect={() => connectProvider('spotify')}
-            onDisconnect={() => disconnectProvider('spotify')}
-            envVars={['SPOTIFY_CLIENT_ID', 'SPOTIFY_CLIENT_SECRET']}
-          />
-
-          {/* Tidal */}
-          <ProviderCard
-            name="Tidal"
-            icon="&#127926;"
-            status={status?.tidal}
-            onConnect={() => connectProvider('tidal')}
-            onDisconnect={() => disconnectProvider('tidal')}
-            envVars={['TIDAL_CLIENT_ID', 'TIDAL_CLIENT_SECRET']}
-            note="Catalog and preview only. Use Qobuz or local NAS playback for full tracks."
-          />
-
-          {/* Qobuz (username/password) */}
-          <QobuzCard status={status?.qobuz} onStatusChange={loadStatus} />
-        </div>
-      </section>
-
-      {/* Librespot */}
-      <section className="mb-10">
-        <h3 className="text-lg font-semibold mb-4 text-gray-300">
-          Librespot (Spotify to any device)
-        </h3>
-        <div className="bg-surface-light rounded-lg p-4 space-y-3">
-          <p className="text-xs text-gray-500">
-            Librespot acts as a Spotify Connect receiver on this server, decoding audio and
-            streaming it to any DLNA/Volumio device. Requires librespot + ffmpeg installed.
-          </p>
-          <p className="text-xs text-gray-500">
-            Install: <code className="text-gray-400">cargo install librespot</code> and{' '}
-            <code className="text-gray-400">ffmpeg</code>
-          </p>
-          <button
-            onClick={async () => {
-              const res = await api.librespotStatus();
-              const d = res.data;
-              toast(
-                d.librespotInstalled
-                  ? `Librespot: ${d.isRunning ? 'running' : 'stopped'}, ffmpeg: ${d.ffmpegInstalled ? 'yes' : 'no'}`
-                  : 'Librespot not installed',
-                d.librespotInstalled ? 'info' : 'error',
-              );
-            }}
-            className="px-3 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-accent transition"
-          >
-            Check Status
-          </button>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* Theme */}
       <ThemeSection />
 
-      {/* User Management */}
-      <UserManagementSection />
+      {/* User Management (admin) */}
+      {isAdmin && <UserManagementSection />}
 
-      {/* Scrobbling */}
-      <ScrobblingSection />
+      {/* Scrobbling (admin) */}
+      {isAdmin && <ScrobblingSection />}
 
       {/* About */}
       <section>
@@ -599,29 +660,48 @@ function ThemeSection() {
 
 function UserManagementSection() {
   const [users, setUsers] = useState<UserAccount[]>([]);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState('user');
+  const [resetFor, setResetFor] = useState<string | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
   const { toast } = useToast();
+  const { user: me } = useAuth();
 
   useEffect(() => {
     api
-      .getMe()
-      .then((res) => {
-        if (res.data?.role === 'admin') {
-          setIsAdmin(true);
-          api
-            .getUsers()
-            .then((r) => setUsers(r.data))
-            .catch(() => {});
-        }
-      })
+      .getUsers()
+      .then((r) => setUsers(r.data))
       .catch(() => {});
   }, []);
 
-  if (!isAdmin) return null;
+  const handleResetPassword = async (id: string, username: string) => {
+    if (resetPassword.length < 8) {
+      toast('Password needs at least 8 characters', 'error');
+      return;
+    }
+    try {
+      const res = await api.resetUserPassword(id, resetPassword);
+      toast(
+        `Password for "${username}" reset (${res.data.revokedSessions} session(s) signed out)`,
+        'success',
+      );
+      setResetFor(null);
+      setResetPassword('');
+    } catch (err: unknown) {
+      toast(getErrorMessage(err, 'Failed to reset password'), 'error');
+    }
+  };
+
+  const handleRevokeSessions = async (id: string, username: string) => {
+    try {
+      const res = await api.revokeUserSessions(id);
+      toast(`"${username}" signed out everywhere (${res.data.revoked} session(s))`, 'info');
+    } catch (err: unknown) {
+      toast(getErrorMessage(err, 'Failed to revoke sessions'), 'error');
+    }
+  };
 
   const handleCreate = async () => {
     if (!newUsername.trim() || !newPassword) return;
@@ -698,27 +778,211 @@ function UserManagementSection() {
         )}
 
         {users.map((user) => (
-          <div key={user.id} className="flex items-center justify-between py-1">
-            <div>
-              <span className="text-sm">{user.username}</span>
-              <span
-                className={`ml-2 text-[10px] px-1.5 py-0.5 rounded ${
-                  user.role === 'admin' ? 'bg-accent/20 text-accent' : 'bg-white/5 text-gray-500'
-                }`}
-              >
-                {user.role}
-              </span>
+          <div key={user.id} className="py-1 space-y-1">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-sm">{user.username}</span>
+                <span
+                  className={`ml-2 text-[10px] px-1.5 py-0.5 rounded ${
+                    user.role === 'admin' ? 'bg-accent/20 text-accent' : 'bg-white/5 text-gray-500'
+                  }`}
+                >
+                  {user.role}
+                </span>
+                {user.id === me?.id && <span className="ml-2 text-[10px] text-gray-500">you</span>}
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setResetFor(resetFor === user.id ? null : user.id);
+                    setResetPassword('');
+                  }}
+                  className="text-xs text-gray-500 hover:text-white transition"
+                >
+                  Reset password
+                </button>
+                {user.id !== me?.id && (
+                  <button
+                    onClick={() => handleRevokeSessions(user.id, user.username)}
+                    className="text-xs text-gray-500 hover:text-white transition"
+                  >
+                    Sign out everywhere
+                  </button>
+                )}
+                {user.role !== 'admin' && (
+                  <button
+                    onClick={() => handleDelete(user.id, user.username)}
+                    className="text-xs text-gray-600 hover:text-red-400 transition"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
             </div>
-            {user.role !== 'admin' && (
-              <button
-                onClick={() => handleDelete(user.id, user.username)}
-                className="text-xs text-gray-600 hover:text-red-400 transition"
-              >
-                Delete
-              </button>
+            {resetFor === user.id && (
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                  placeholder="New password (8+ chars)"
+                  autoComplete="new-password"
+                  className="flex-1 px-3 py-1.5 text-sm bg-surface-dark border border-white/10 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent"
+                />
+                <button
+                  onClick={() => handleResetPassword(user.id, user.username)}
+                  className="px-3 py-1.5 text-sm bg-accent rounded hover:bg-accent-hover transition"
+                >
+                  Set
+                </button>
+              </div>
             )}
           </div>
         ))}
+      </div>
+    </section>
+  );
+}
+
+function SecuritySection() {
+  const { user, signOut } = useAuth();
+  const { toast } = useToast();
+  const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const loadSessions = useCallback(() => {
+    api
+      .getSessions()
+      .then((r) => setSessions(r.data))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    loadSessions();
+  }, [loadSessions]);
+
+  const changePassword = async () => {
+    if (newPassword.length < 8) {
+      toast('New password needs at least 8 characters', 'error');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await api.changePassword(currentPassword, newPassword);
+      toast(`Password changed; ${res.data.revokedSessions} other session(s) signed out`, 'success');
+      setCurrentPassword('');
+      setNewPassword('');
+      loadSessions();
+    } catch (err: unknown) {
+      toast(getErrorMessage(err, 'Failed to change password'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revoke = async (session: SessionRow) => {
+    try {
+      await api.revokeSession(session.id);
+      if (session.current) {
+        await signOut();
+        return;
+      }
+      toast('Session signed out', 'info');
+      loadSessions();
+    } catch (err: unknown) {
+      toast(getErrorMessage(err, 'Failed to sign out session'), 'error');
+    }
+  };
+
+  const revokeOthers = async () => {
+    try {
+      const res = await api.revokeOtherSessions();
+      toast(`${res.data.revoked} other session(s) signed out`, 'info');
+      loadSessions();
+    } catch (err: unknown) {
+      toast(getErrorMessage(err, 'Failed to sign out other sessions'), 'error');
+    }
+  };
+
+  return (
+    <section className="mb-10">
+      <h3 className="text-lg font-semibold mb-4 text-gray-300">Account &amp; Sessions</h3>
+      <div className="bg-surface-light rounded-lg p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium">{user?.username}</p>
+            <p className="text-xs text-gray-500">Role: {user?.role}</p>
+          </div>
+          <button
+            onClick={() => signOut()}
+            className="px-3 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-accent transition"
+          >
+            Sign out
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-xs text-gray-500">
+            Change password. Other devices are signed out; this one stays signed in.
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="Current password"
+              autoComplete="current-password"
+              className="flex-1 min-w-[140px] px-3 py-1.5 text-sm bg-surface-dark border border-white/10 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent"
+            />
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="New password (8+ chars)"
+              autoComplete="new-password"
+              className="flex-1 min-w-[140px] px-3 py-1.5 text-sm bg-surface-dark border border-white/10 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent"
+            />
+            <button
+              onClick={changePassword}
+              disabled={busy || !currentPassword || !newPassword}
+              className="px-4 py-1.5 text-sm bg-accent rounded hover:bg-accent-hover transition disabled:opacity-50"
+            >
+              Change
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-500">
+              Signed-in devices ({sessions.length}). Sessions expire after 30 days.
+            </p>
+            {sessions.length > 1 && (
+              <button onClick={revokeOthers} className="text-xs text-gray-400 hover:text-white">
+                Sign out other devices
+              </button>
+            )}
+          </div>
+          {sessions.map((s) => (
+            <div key={s.id} className="flex items-center justify-between text-sm">
+              <div>
+                <span>{describeUserAgent(s.userAgent)}</span>
+                {s.current && <span className="ml-2 text-[10px] text-accent">this device</span>}
+                <p className="text-xs text-gray-500">
+                  Last seen {formatWhen(s.lastSeenAt)} · signed in {formatWhen(s.createdAt)}
+                </p>
+              </div>
+              <button
+                onClick={() => revoke(s)}
+                className="text-xs text-gray-500 hover:text-red-400 transition"
+              >
+                {s.current ? 'Sign out' : 'Revoke'}
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   );

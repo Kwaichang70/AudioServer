@@ -29,6 +29,14 @@ Development ports:
 - Backend API: `http://localhost:3001`
 - Vite frontend: `http://localhost:5173`
 
+First start (no accounts yet): the server prints a one-time **setup code** to
+its log and writes it to `setup-code.txt` next to the database. Open the app,
+choose a username and password and enter that code to create the admin
+account. Until then only the setup screen and the health probes are reachable.
+Set `SETUP_CODE` in the environment to choose the code yourself. Further
+accounts are created by an admin in Settings; roles are described in
+[docs/permissions.md](docs/permissions.md).
+
 The HTTP API is described by an OpenAPI 3.1 document at `GET /api/openapi.json`
 (public — no auth). Paste it into [editor.swagger.io](https://editor.swagger.io)
 or Postman to browse the endpoints, request bodies, and auth schemes.
@@ -95,6 +103,9 @@ DATABASE_PATH=/data/audioserver.db
 MUSIC_LIBRARY_PATHS=/music
 JWT_SECRET=replace-with-openssl-rand-hex-32
 ```
+
+Optional: `SETUP_CODE=...` fixes the first-run setup code instead of generating
+one (only used while no account exists).
 
 Recommended logging:
 
@@ -242,6 +253,7 @@ Scanner finds no music:
 - [docs/architecture.md](docs/architecture.md) — system + request-lifecycle diagrams, module ownership, key design decisions.
 - [docs/providers.md](docs/providers.md) — per-provider OAuth + scrobbling setup (Tidal, Spotify, Last.fm, ListenBrainz, Qobuz).
 - [docs/backup-restore.md](docs/backup-restore.md) — database backup, restore, update and rollback runbook.
+- [docs/permissions.md](docs/permissions.md) — what a regular user vs. an admin may do, and how sessions work.
 - [SECURITY_AUDIT.md](SECURITY_AUDIT.md) — dependency audit with the assessment of every remaining finding.
 - [CHANGELOG.md](CHANGELOG.md) — sprint-by-sprint history.
 

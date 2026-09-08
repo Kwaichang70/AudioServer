@@ -2,7 +2,7 @@
 
 **Datum:** 7 september 2026  
 **Onderzochte versie:** commit cd3f094, lokale werkmap AudioServer  
-**Status:** analyse afgerond; V01 uitgevoerd op 8 september 2026 (zie §11), V02–V12 nog te plannen.  
+**Status:** analyse afgerond; V01 en V02 uitgevoerd op 8 september 2026 (zie §11), V03–V12 nog te plannen.  
 **Doel:** een betrouwbare muziekserver voor de NAS, met een voorspelbare bediening op telefoon/tablet en goede ondersteuning voor lokale muziek en externe bronnen.
 
 ## 1. Advies en afbakening
@@ -259,7 +259,7 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 | Sprint | Resultaat                                          | Afhankelijk van                   | Status                                                   |
 | ------ | -------------------------------------------------- | --------------------------------- | -------------------------------------------------------- |
 | V01    | Herhaalbare, beter beveiligde releasebasis         | Geen                              | Uitgevoerd in code (8 sep 2026); wacht op NAS-acceptatie |
-| V02    | Betrouwbare setup, aanmelding en beheerrechten     | V01                               | Gepland                                                  |
+| V02    | Betrouwbare setup, aanmelding en beheerrechten     | V01                               | Uitgevoerd in code (8 sep 2026); wacht op NAS-acceptatie |
 | V03    | Correcte wachtrij en herstel tussen clients        | V01–V02                           | Gepland                                                  |
 | V04    | Zelfstandige lokale/Qobuz-playback op server       | V03                               | Gepland                                                  |
 | V05    | Betrouwbare luistergegevens en tijdstempels        | V03–V04                           | Gepland                                                  |
@@ -300,18 +300,22 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 **Doel:** een nieuwe en bestaande gebruiker krijgt een voorspelbare, afgeschermde toegang.  
 **Bevinding:** B02.
 
-- [ ] **V02.1 · 2 dagen:** setupstatus en eenmalige installatiecode via een lokaal beheerkanaal; alleen setup, statische bestanden en minimale health publiek bij nul gebruikers.
-- [ ] **V02.2 · 2 dagen:** centrale admincontrole voor globale providerinstellingen, tokenimport, scanbeheer en andere systeemmutaties; expliciete rechtenmatrix met admin/gebruiker.
-- [ ] **V02.3 · 2,5 dag:** authcontrole via sessiestatus, verlopen token correct afhandelen, afmelden, sessies intrekken en een beheerde herstelroute voor wachtwoorden. Ook socketauth en streamtokens toetsen.
-- [ ] **V02.4 · 1,5 dag:** invoervalidatie op de betrokken routes aanvullen; token-URL's uit logs verwijderen; CSP eerst in rapportagemodus toetsen tegen de eigen SPA en Spotify SDK.
+- [x] **V02.1 · 2 dagen:** setupstatus en eenmalige installatiecode via een lokaal beheerkanaal; alleen setup, statische bestanden en minimale health publiek bij nul gebruikers.
+      _Gedaan:_ `GET /api/auth/setup-status`; setupcode (8 hex, `XXXX-XXXX`) wordt bij nul gebruikers in het serverlog gemeld en naast de database in `setup-code.txt` (0600) geschreven, of komt uit `SETUP_CODE`. `/register` maakt uitsluitend de eerste admin aan en eist die code; daarna wordt de code gewist. `requireAuth` laat bij nul gebruikers niets meer door behalve setup-status, login/logout/register, `/auth/me`, `/health/live|ready`, OpenAPI en het CSP-rapport; `/api/health` (volledige diagnostiek) vereist nu een sessie. Socket.IO heeft geen setupbypass meer; het anonieme first-run-streamtoken is verwijderd.
+- [x] **V02.2 · 2 dagen:** centrale admincontrole voor globale providerinstellingen, tokenimport, scanbeheer en andere systeemmutaties; expliciete rechtenmatrix met admin/gebruiker.
+      _Gedaan:_ `requireAdmin` op gebruikersbeheer, tokenimport, Spotify/Tidal OAuth init/callback/logout, Qobuz login/logout, Last.fm/ListenBrainz koppelen/ontkoppelen, scan-, cover- en artiestenfoto-fetch en Librespot start/stop. Matrix in `docs/permissions.md`; elke admin-rij wordt in `sessions-permissions.test.ts` als gebruiker (403) én anoniem (401) getest. De Settings-pagina toont die secties alleen aan admins.
+- [x] **V02.3 · 2,5 dag:** authcontrole via sessiestatus, verlopen token correct afhandelen, afmelden, sessies intrekken en een beheerde herstelroute voor wachtwoorden. Ook socketauth en streamtokens toetsen.
+      _Gedaan:_ tabel `sessions` (migratie `0001_sessions`, schemaversie 2); JWT draagt een sessie-id en geldt alleen zolang de rij bestaat, niet ingetrokken en niet verlopen is (30 dagen). Nieuwe routes: logout (idempotent), eigen sessies tonen/intrekken, “overal anders afmelden”, wachtwoord wijzigen; admin: wachtwoord resetten (beëindigt alle sessies van die gebruiker) en sessies intrekken. Ingetrokken sessies krijgen `session:revoked` en hun socket wordt gesloten; streamtokens zijn aan de sessie gebonden, servergestuurde apparaatweergave gebruikt een `system`-token. Client: `AuthContext` bepaalt de status via `/auth/setup-status` + `/auth/me`, een 401 of gesloten socket brengt de app terug naar het loginscherm; uitlogknop in de header, sectie “Account & Sessions” in Settings. Bestaande tokens van vóór deze release zijn ongeldig: iedereen logt één keer opnieuw in.
+- [x] **V02.4 · 1,5 dag:** invoervalidatie op de betrokken routes aanvullen; token-URL's uit logs verwijderen; CSP eerst in rapportagemodus toetsen tegen de eigen SPA en Spotify SDK.
+      _Gedaan:_ zod-validatie op OAuth init/callback, Qobuz-login, Librespot-start, alle nieuwe auth-routes en padparameters. Gecontroleerd dat request- en errorlogging alleen `req.path` loggen (geen query, dus geen `?t=`-tokens) en dat apparaatlogs de stream-URL niet bevatten. Helmet stuurt `Content-Security-Policy-Report-Only` met `report-uri /api/csp-report`; overtredingen komen als `CSP report:` in het log. Browserflow (Chromium, productiebuild) gaf 0 overtredingen; de Spotify Web Playback SDK is in deze omgeving niet te laden en moet op de NAS met een Spotify-account worden bekeken voordat de policy afdwingend wordt.
 
 **Acceptatie:**
 
-- Zonder setupcode kunnen twee gelijktijdige bezoekers geen beheer over een nieuwe installatie verkrijgen.
-- Een gewone gebruiker kan geen globale providerverbinding wijzigen; API-tests bewijzen 403.
-- Ongeldige/verlopen tokens tonen aanmelding, ook als localStorage nog een waarde bevat.
-- Afmelden of intrekken beëindigt de eigen sessie en bijbehorende sockettoegang volgens het vastgelegde beleid.
-- Setup met lege bibliotheek, bestaande gebruiker en provideruitval is als browserflow getest.
+- Zonder setupcode kunnen twee gelijktijdige bezoekers geen beheer over een nieuwe installatie verkrijgen. _Gehaald: zonder/verkeerde code 400/403; met code wint precies één van twee gelijktijdige registraties (`auth-flow.test.ts`); smoke-test leest de code uit `setup-code.txt` zoals een operator._
+- Een gewone gebruiker kan geen globale providerverbinding wijzigen; API-tests bewijzen 403. _Gehaald: 24 admin-routes × (gebruiker 403, anoniem 401) in `sessions-permissions.test.ts`._
+- Ongeldige/verlopen tokens tonen aanmelding, ook als localStorage nog een waarde bevat. _Gehaald: `AuthContext.test.tsx` en browserflow stap 9 (rommeltoken in localStorage → loginscherm)._
+- Afmelden of intrekken beëindigt de eigen sessie en bijbehorende sockettoegang volgens het vastgelegde beleid. _Gehaald: sessie-lifecycle-tests (logout, revoke, revoke-others, wachtwoord wijzigen/resetten), socket wordt bij intrekking gesloten (`socketio-subscriptions.test.ts`), browserflow stap 8: admin trekt sessies in en de tablet-pagina valt terug op login. Beleid in `docs/permissions.md`._
+- Setup met lege bibliotheek, bestaande gebruiker en provideruitval is als browserflow getest. _Gehaald in Chromium tegen de productiebuild met lege bibliotheek en zonder providercredentials (Settings toont de providerkaarten als “niet geconfigureerd”): setupscherm → foute code → registratie → admin-Settings → gebruiker aanmaken → uitloggen → inloggen als gebruiker zonder beheersecties → intrekking → stale token → opnieuw inloggen. Het script staat niet in de repo (Playwright is geen projectafhankelijkheid); herhaal het op de NAS bij de eerste uitrol._
 
 ### V03 — Wachtrij als één consistente afspeelsessie
 
@@ -596,6 +600,27 @@ Uitgevoerd op branch `claude/verbeterplan-sprints-uitvoering-tdav7i`, omgeving L
 **Wacht op acceptatie (NAS):** restore van een back-up van de echte database op de NAS met tijdmeting; volledige bibliotheekscan met music-metadata 11 zonder verlies van tracks; Sonos/DLNA-discovery en Qobuz-playback na de dependency-upgrades. Pas daarna is V01 “DONE” volgens §9.
 
 **Beslismoment na V02** blijft staan; V02 kan starten.
+
+### V02 — 8 september 2026
+
+Zelfde branch en omgeving als V01.
+
+| Controle                   | Na V01                        | Na V02                                                                        |
+| -------------------------- | ----------------------------- | ----------------------------------------------------------------------------- |
+| Servertests                | 158 tests, 26 bestanden       | 194 tests, 27 bestanden (setup, rechtenmatrix, sessies, socketintrekking)     |
+| Clienttests                | 84 tests, 17 bestanden        | 89 tests, 18 bestanden (`AuthContext`)                                        |
+| Lint / typecheck / build   | groen                         | groen                                                                         |
+| Publiek bij nul gebruikers | alle API-routes               | setup-status, login/logout/register, `/auth/me`, probes, OpenAPI, CSP-rapport |
+| Admin-only routes met test | 3 (gebruikersbeheer)          | 24, gedocumenteerd in `docs/permissions.md`                                   |
+| Sessies                    | JWT 30 dagen, niet intrekbaar | serverside sessies, intrekbaar, socket en streamtoken volgen                  |
+| CSP                        | uit                           | report-only, 0 overtredingen in browserflow                                   |
+| Schemaversie               | 1                             | 2 (`sessions`)                                                                |
+
+**Gedragswijzigingen voor de gebruiker:** eenmalig opnieuw inloggen na de update; `GET /api/health` vereist nu een token (`/live` en `/ready` blijven publiek); registratie is alleen nog de eerste setup met code.
+
+**Wacht op acceptatie (NAS):** setup op een verse container met de code uit `docker logs`; CSP-rapporten bekijken tijdens Spotify Web Playback en OAuth-callbacks voordat de policy afdwingend wordt; Sonos/DLNA-weergave met het `system`-streamtoken.
+
+**Beslismoment na V02:** basis is veilig en herhaalbaar; V03 (wachtrij als één afspeelsessie) kan starten.
 
 ## Bronverwijzingen naar de onderzochte code
 

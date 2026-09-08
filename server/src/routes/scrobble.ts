@@ -2,6 +2,10 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { scrobbler } from '../services/scrobbler.js';
 import { validate } from '../utils/validate.js';
+import { requireAdmin } from '../middleware/auth.js';
+
+// Scrobbling targets are configured once for the server (one Last.fm /
+// ListenBrainz account), so connecting and disconnecting are admin-only.
 
 export const scrobbleRouter = Router();
 
@@ -32,7 +36,7 @@ scrobbleRouter.get('/config', (_req, res) => {
 });
 
 // Last.fm: get auth URL (fetches a request token + builds api_key+token URL)
-scrobbleRouter.get('/lastfm/auth-url', async (_req, res) => {
+scrobbleRouter.get('/lastfm/auth-url', requireAdmin, async (_req, res) => {
   if (!process.env.LASTFM_API_KEY) {
     res.status(400).json({ error: 'LASTFM_API_KEY not configured' });
     return;
@@ -45,37 +49,47 @@ scrobbleRouter.get('/lastfm/auth-url', async (_req, res) => {
 });
 
 // Last.fm: complete auth with token
-scrobbleRouter.post('/lastfm/auth', validate({ body: tokenSchema }), async (req, res) => {
-  try {
-    const username = await scrobbler.authenticateLastfm(req.body.token);
-    res.json({ data: { username, authenticated: true } });
-  } catch (err) {
-    res.status(500).json({ error: String(err) });
-  }
-});
+scrobbleRouter.post(
+  '/lastfm/auth',
+  requireAdmin,
+  validate({ body: tokenSchema }),
+  async (req, res) => {
+    try {
+      const username = await scrobbler.authenticateLastfm(req.body.token);
+      res.json({ data: { username, authenticated: true } });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  },
+);
 
 // Last.fm: disconnect
-scrobbleRouter.post('/lastfm/disconnect', (_req, res) => {
+scrobbleRouter.post('/lastfm/disconnect', requireAdmin, (_req, res) => {
   scrobbler.saveConfig({ lastfmEnabled: false, lastfmSessionKey: null, lastfmUsername: null });
   res.json({ data: { ok: true } });
 });
 
 // ListenBrainz: connect with token
-scrobbleRouter.post('/listenbrainz/auth', validate({ body: tokenSchema }), async (req, res) => {
-  try {
-    const valid = await scrobbler.validateListenbrainz(req.body.token);
-    if (!valid) {
-      res.status(401).json({ error: 'Invalid ListenBrainz token' });
-      return;
+scrobbleRouter.post(
+  '/listenbrainz/auth',
+  requireAdmin,
+  validate({ body: tokenSchema }),
+  async (req, res) => {
+    try {
+      const valid = await scrobbler.validateListenbrainz(req.body.token);
+      if (!valid) {
+        res.status(401).json({ error: 'Invalid ListenBrainz token' });
+        return;
+      }
+      res.json({ data: { authenticated: true } });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
     }
-    res.json({ data: { authenticated: true } });
-  } catch (err) {
-    res.status(500).json({ error: String(err) });
-  }
-});
+  },
+);
 
 // ListenBrainz: disconnect
-scrobbleRouter.post('/listenbrainz/disconnect', (_req, res) => {
+scrobbleRouter.post('/listenbrainz/disconnect', requireAdmin, (_req, res) => {
   scrobbler.saveConfig({ listenbrainzEnabled: false, listenbrainzToken: null });
   res.json({ data: { ok: true } });
 });

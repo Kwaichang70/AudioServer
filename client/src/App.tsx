@@ -1,10 +1,9 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { lazy, Suspense } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout.js';
 import LoginPage from './pages/LoginPage.js';
 import ErrorBoundary from './components/ErrorBoundary.js';
-import { api, ensureStreamToken, clearStreamToken } from './api/client.js';
-import { STORAGE_KEYS } from './constants.js';
+import { useAuth } from './context/AuthContext.js';
 
 // Lazy-loaded pages (code splitting)
 const HomePage = lazy(() => import('./pages/HomePage.js'));
@@ -31,37 +30,11 @@ function PageLoader() {
 }
 
 export default function App() {
-  const [authChecked, setAuthChecked] = useState(false);
-  const [needsAuth, setNeedsAuth] = useState(false);
+  // Auth state comes from the server (/auth/setup-status + /auth/me), see
+  // AuthContext. A stale token in localStorage never keeps the app "open".
+  const { status, signIn } = useAuth();
 
-  useEffect(() => {
-    // Run auth-check and stream-token fetch in parallel so the first render
-    // already has a token for <img>/<audio> tags.
-    Promise.allSettled([api.getStats(), ensureStreamToken()]).then(([statsResult]) => {
-      if (statsResult.status === 'fulfilled') {
-        setNeedsAuth(false);
-        setAuthChecked(true);
-        return;
-      }
-      const err = statsResult.reason;
-      if (err?.message?.includes('Unauthorized') || err?.message?.includes('401')) {
-        const token = localStorage.getItem(STORAGE_KEYS.authToken);
-        setNeedsAuth(!token);
-      } else {
-        setNeedsAuth(false);
-      }
-      setAuthChecked(true);
-    });
-  }, []);
-
-  const handleAuth = (token: string) => {
-    localStorage.setItem(STORAGE_KEYS.authToken, token);
-    clearStreamToken();
-    ensureStreamToken().catch(() => {});
-    setNeedsAuth(false);
-  };
-
-  if (!authChecked) {
+  if (status === 'loading') {
     return (
       <div className="min-h-screen bg-surface-dark flex items-center justify-center text-gray-400">
         Loading...
@@ -69,8 +42,12 @@ export default function App() {
     );
   }
 
-  if (needsAuth) {
-    return <LoginPage onAuth={handleAuth} />;
+  if (status === 'setup') {
+    return <LoginPage mode="setup" onAuth={signIn} />;
+  }
+
+  if (status === 'anonymous') {
+    return <LoginPage mode="login" onAuth={signIn} />;
   }
 
   return (

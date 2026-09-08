@@ -4,6 +4,48 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## V02 — Setup, sessions and admin rights (verbeterplan sprint 2)
+
+Everyone signs in again once after this release: tokens are now bound to
+server-side sessions.
+
+**Setup mode** (`docs/permissions.md`, `README.md`)
+
+- With zero accounts the API answers 401 for everything except setup-status,
+  login/logout/register, `/auth/me`, the health probes, the OpenAPI document
+  and the CSP report sink. The old "first run lets everything through" bypass
+  is gone, for HTTP and for Socket.IO.
+- The first admin is created with a one-time setup code that the server
+  prints to its log and writes to `setup-code.txt` next to the database
+  (`SETUP_CODE` to choose it). `/register` does nothing else any more.
+
+**Admin rights**
+
+- `requireAdmin` on user management, token import, provider OAuth/login/
+  logout, scrobbling connect/disconnect, library scans and bulk fetches,
+  Librespot start/stop. `docs/permissions.md` lists the matrix; a test
+  asserts every row. Settings hides those sections from regular users.
+
+**Sessions**
+
+- `sessions` table (migration `0001_sessions`, schema version 2). JWTs carry
+  a session id and stop working when the session is revoked, expired or its
+  user deleted. Logout, "sign out other devices", change password (admin:
+  reset password, revoke sessions) are new routes; sockets of a revoked
+  session are closed with `session:revoked`; stream tokens are session-bound
+  (server-driven device playback uses a `system` token).
+- Client: `AuthContext` decides signed-in state from `/auth/setup-status` +
+  `/auth/me`; any 401 or a closed socket returns to the login screen; sign-out
+  in the header; "Account & Sessions" in Settings.
+- Login/register rate limits now count failed attempts only.
+
+**Hardening**
+
+- zod validation on provider OAuth/login, Librespot start and all auth routes.
+- `Content-Security-Policy-Report-Only` with `POST /api/csp-report` logging
+  violations; zero reports in the browser flow, Spotify SDK still to check.
+- `GET /api/health` now needs a session; `/live` and `/ready` stay public.
+
 ## V01 — Release basis (verbeterplan sprint 1)
 
 First sprint of [VERBETERPLAN_SPRINTS.md](VERBETERPLAN_SPRINTS.md): make every

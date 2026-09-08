@@ -33,6 +33,8 @@ import type {
   RecentAlbum,
   ScanStatus,
   ScrobbleConfig,
+  SessionInfo,
+  SetupStatus,
   SimilarArtistsResult,
   SmartPlaylist,
   SpotifyConnectDevice,
@@ -245,11 +247,33 @@ export const api = {
     fetchApi(`/devices/${id}/volume`, { method: 'POST', body: JSON.stringify({ volume }) }),
 
   // ─── Auth ───────────────────────────────────────────────────
-  register: (username: string, password: string): Promise<ApiResponse<AuthResult>> =>
-    fetchApi('/auth/register', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  getSetupStatus: (): Promise<ApiResponse<SetupStatus>> => fetchApi('/auth/setup-status'),
+  register: (
+    username: string,
+    password: string,
+    setupCode: string,
+  ): Promise<ApiResponse<AuthResult>> =>
+    fetchApi('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, password, setupCode }),
+    }),
   login: (username: string, password: string): Promise<ApiResponse<AuthResult>> =>
     fetchApi('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  logout: (): Promise<OkResponse> => fetchApi('/auth/logout', { method: 'POST' }),
   getMe: (): Promise<ApiResponse<UserAccount | null>> => fetchApi('/auth/me'),
+  getSessions: (): Promise<ApiResponse<SessionInfo[]>> => fetchApi('/auth/sessions'),
+  revokeSession: (id: string): Promise<ApiResponse<{ ok: boolean; current: boolean }>> =>
+    fetchApi(`/auth/sessions/${id}`, { method: 'DELETE' }),
+  revokeOtherSessions: (): Promise<ApiResponse<{ revoked: number }>> =>
+    fetchApi('/auth/sessions/revoke-others', { method: 'POST' }),
+  changePassword: (
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<ApiResponse<{ ok: boolean; revokedSessions: number }>> =>
+    fetchApi('/auth/password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
 
   // ─── Users (admin) ──────────────────────────────────────────
   getUsers: (): Promise<ApiResponse<UserAccount[]>> => fetchApi('/auth/users'),
@@ -264,6 +288,16 @@ export const api = {
     }),
   deleteUser: (id: string): Promise<OkResponse> =>
     fetchApi(`/auth/users/${id}`, { method: 'DELETE' }),
+  resetUserPassword: (
+    id: string,
+    password: string,
+  ): Promise<ApiResponse<{ ok: boolean; revokedSessions: number }>> =>
+    fetchApi(`/auth/users/${id}/reset-password`, {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
+  revokeUserSessions: (id: string): Promise<ApiResponse<{ revoked: number }>> =>
+    fetchApi(`/auth/users/${id}/revoke-sessions`, { method: 'POST' }),
 
   // ─── Playback ──────────────────────────────────────────────
   getNowPlaying: (): Promise<PlaybackStateResponse> => fetchApi('/playback/now-playing'),

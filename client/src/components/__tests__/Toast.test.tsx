@@ -12,7 +12,7 @@ describe('Toast', () => {
     render(
       <ToastProvider>
         <ToastTrigger text="Hello toast" />
-      </ToastProvider>
+      </ToastProvider>,
     );
 
     await act(async () => {
@@ -28,7 +28,7 @@ describe('Toast', () => {
     render(
       <ToastProvider>
         <ToastTrigger text="Temporary" />
-      </ToastProvider>
+      </ToastProvider>,
     );
 
     await act(async () => {

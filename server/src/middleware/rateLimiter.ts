@@ -15,20 +15,29 @@ export const globalLimiter = rateLimit({
     req.path.startsWith('/assets/'),
 });
 
-// Auth login: max 5 attempts per 15 minutes per IP
+// Auth login: max 10 FAILED attempts per 15 minutes per IP. Successful logins
+// are not counted, so a household that signs in on several devices in a row
+// is not locked out while a password guesser still is.
 export const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 10,
+  skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many login attempts, please try again in 15 minutes' },
+  message: {
+    error: 'TooManyRequests',
+    message: 'Too many login attempts, try again in 15 minutes',
+  },
 });
 
-// Auth register: max 3 attempts per hour per IP
+// Setup registration: max 10 failed attempts per hour per IP. The setup code
+// has 2^32 possibilities, so this makes guessing it impractical while still
+// forgiving a few typos.
 export const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 3,
+  max: 10,
+  skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many registration attempts, please try again later' },
+  message: { error: 'TooManyRequests', message: 'Too many setup attempts, try again later' },
 });

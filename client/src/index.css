@@ -3,7 +3,8 @@
 @tailwind utilities;
 
 /* Theme CSS variables */
-:root, [data-theme="dark"] {
+:root,
+[data-theme='dark'] {
   --surface-dark: #0f0f23;
   --surface: #1a1a2e;
   --surface-light: #16213e;
@@ -11,7 +12,7 @@
   --accent-hover: #ff6b81;
 }
 
-[data-theme="light"] {
+[data-theme='light'] {
   --surface-dark: #f0f0f5;
   --surface: #ffffff;
   --surface-light: #e8e8f0;
@@ -19,16 +20,30 @@
   --accent-hover: #d63050;
 }
 
-[data-theme="light"] body,
-[data-theme="light"] .bg-surface-dark { background-color: var(--surface-dark); }
-[data-theme="light"] .bg-surface { background-color: var(--surface); }
-[data-theme="light"] .bg-surface-light { background-color: var(--surface-light); }
-[data-theme="light"] .text-white { color: #1a1a2e; }
-[data-theme="light"] .text-gray-400 { color: #555; }
-[data-theme="light"] .text-gray-500 { color: #777; }
-[data-theme="light"] .border-white\/10 { border-color: rgba(0,0,0,0.1); }
+[data-theme='light'] body,
+[data-theme='light'] .bg-surface-dark {
+  background-color: var(--surface-dark);
+}
+[data-theme='light'] .bg-surface {
+  background-color: var(--surface);
+}
+[data-theme='light'] .bg-surface-light {
+  background-color: var(--surface-light);
+}
+[data-theme='light'] .text-white {
+  color: #1a1a2e;
+}
+[data-theme='light'] .text-gray-400 {
+  color: #555;
+}
+[data-theme='light'] .text-gray-500 {
+  color: #777;
+}
+[data-theme='light'] .border-white\/10 {
+  border-color: rgba(0, 0, 0, 0.1);
+}
 
-[data-theme="oled"] {
+[data-theme='oled'] {
   --surface-dark: #000000;
   --surface: #0a0a0a;
   --surface-light: #111111;
@@ -54,8 +69,14 @@ body {
 }
 
 @keyframes fade-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .animate-fade-in {
   animation: fade-in 0.2s ease-out;
@@ -68,7 +89,8 @@ body {
 
 /* Touch-friendly tap targets */
 @media (pointer: coarse) {
-  button, a {
+  button,
+  a {
     min-height: 44px;
     min-width: 44px;
   }

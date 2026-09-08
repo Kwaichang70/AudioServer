@@ -3,6 +3,7 @@ import { Outlet, NavLink } from 'react-router-dom';
 import NowPlayingBar from './NowPlayingBar.js';
 import { AudioProvider } from '../context/AudioContext.js';
 import { KeyboardShortcuts } from './KeyboardShortcuts.js';
+import { useAuth } from '../context/AuthContext.js';
 
 const NowPlayingFull = lazy(() => import('./NowPlayingFull.js'));
 
@@ -26,6 +27,7 @@ const navItems = [
 export default function Layout() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showFullscreen, setShowFullscreen] = useState(false);
+  const { user, signOut } = useAuth();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -60,13 +62,25 @@ export default function Layout() {
             </nav>
           </div>
 
-          {/* Mobile hamburger */}
-          <button
-            onClick={() => setMenuOpen(!menuOpen)}
-            className="md:hidden text-gray-400 hover:text-white text-xl"
-          >
-            {menuOpen ? '\u2715' : '\u2630'}
-          </button>
+          <div className="flex items-center gap-3">
+            {user && (
+              <button
+                onClick={() => signOut()}
+                title={`Signed in as ${user.username}. Click to sign out.`}
+                className="hidden md:inline-flex items-center gap-2 text-xs text-gray-400 hover:text-white transition"
+              >
+                <span className="max-w-[10rem] truncate">{user.username}</span>
+                <span className="px-2 py-0.5 rounded border border-white/10">Sign out</span>
+              </button>
+            )}
+            {/* Mobile hamburger */}
+            <button
+              onClick={() => setMenuOpen(!menuOpen)}
+              className="md:hidden text-gray-400 hover:text-white text-xl"
+            >
+              {menuOpen ? '\u2715' : '\u2630'}
+            </button>
+          </div>
         </header>
 
         {/* Mobile menu */}
@@ -87,6 +101,14 @@ export default function Layout() {
                 {item.label}
               </NavLink>
             ))}
+            {user && (
+              <button
+                onClick={() => signOut()}
+                className="px-3 py-1 rounded text-sm text-gray-400 hover:text-white transition"
+              >
+                Sign out ({user.username})
+              </button>
+            )}
           </nav>
         )}
 

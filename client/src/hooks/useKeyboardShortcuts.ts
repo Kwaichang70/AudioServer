@@ -4,8 +4,15 @@ import { useAudioContext } from '../context/AudioContext.js';
 
 export function useKeyboardShortcuts() {
   const {
-    isPlaying, pause, resume, playNext, playPrevious,
-    volume, setVolume, toggleShuffle, toggleRepeat,
+    isPlaying,
+    pause,
+    resume,
+    playNext,
+    playPrevious,
+    volume,
+    setVolume,
+    toggleShuffle,
+    toggleRepeat,
   } = useAudioContext();
   const navigate = useNavigate();
 
@@ -64,5 +71,16 @@ export function useKeyboardShortcuts() {
 
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [isPlaying, pause, resume, playNext, playPrevious, volume, setVolume, toggleShuffle, toggleRepeat, navigate]);
+  }, [
+    isPlaying,
+    pause,
+    resume,
+    playNext,
+    playPrevious,
+    volume,
+    setVolume,
+    toggleShuffle,
+    toggleRepeat,
+    navigate,
+  ]);
 }

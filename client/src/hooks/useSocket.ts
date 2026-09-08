@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { SOCKET_RECONNECT_ATTEMPTS, SOCKET_RECONNECT_DELAY, STORAGE_KEYS } from '../constants.js';
+import { SESSION_LOST_EVENT } from '../context/AuthContext.js';
 
 interface DevicePlaybackUpdate {
   deviceId: string;
@@ -40,6 +41,7 @@ interface ServerToClientEvents {
   'device:playback-update': (update: DevicePlaybackUpdate) => void;
   'playback:track-changed': (track: PlaybackTrack) => void;
   'library:scan-progress': (progress: LibraryScanProgress) => void;
+  'session:revoked': () => void;
 }
 
 interface ClientToServerEvents {
@@ -84,6 +86,15 @@ export function useSocket(): UseSocketReturn {
     });
 
     socket.on('disconnect', () => setConnected(false));
+
+    // The server closes sockets whose login session was revoked (logout on
+    // another device, admin reset). Tell AuthContext so the UI shows the
+    // login screen instead of silently reconnecting forever.
+    const sessionLost = () => window.dispatchEvent(new Event(SESSION_LOST_EVENT));
+    socket.on('session:revoked', sessionLost);
+    socket.on('connect_error', (err: Error) => {
+      if (/authentication/i.test(err.message)) sessionLost();
+    });
 
     socket.on('device:playback-update', setDeviceUpdate);
     socket.on('playback:track-changed', setTrackChanged);
