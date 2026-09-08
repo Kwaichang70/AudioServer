@@ -1,6 +1,5 @@
 import { readdir, stat } from 'node:fs/promises';
 import { extname, basename, dirname } from 'path';
-// @ts-expect-error - music-metadata types don't export parseFile in ESM mode
 import { parseFile, selectCover } from 'music-metadata';
 import { v4 as uuid } from 'uuid';
 import { getDb, getRawDb } from '../db/index.js';

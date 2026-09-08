@@ -40,5 +40,8 @@
     "prettier": "^3.8.3",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.59.4"
+  },
+  "overrides": {
+    "qs": "^6.16.0"
   }
 }

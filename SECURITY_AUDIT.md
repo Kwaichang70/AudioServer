@@ -1,186 +1,120 @@
-# Security Audit - Qobuz Release
+# Security Audit - Dependencies
 
-Date: 2026-05-28
+Date: 2026-09-08 (sprint V01.2 of [VERBETERPLAN_SPRINTS.md](VERBETERPLAN_SPRINTS.md))
+Supersedes: the 2026-05-28 Qobuz-release audit (see git history for that text).
 
 ## Scope
 
-This audit covers the production dependency surface after the Qobuz playback
-work. The usable audit result is from:
+Production dependency surface as installed from a clean `npm ci` on Node 22
+(production runtime) and Node 24 (development). Source of truth:
 
 ```bash
 npm audit --omit=dev --json
 ```
 
-The full external audit was not rerun after sandbox review because npm audit
-sends dependency metadata to the npm audit service. Keep that privacy tradeoff
-explicit when rerunning this on private code.
-
-Local dependency-tree context was checked with:
-
-```bash
-npm ls music-metadata file-type drizzle-orm node-ssdp ip express qs express-rate-limit ip-address socket.io ws uuid lodash --all
-```
+`npm audit` sends dependency metadata to the npm audit service; keep that in
+mind when re-running it on private code. CI runs the same command on every
+push as a report-only step (`.github/workflows/ci.yml`), so the picture below
+is refreshed automatically; this document records the assessment.
 
 ## Result
 
-Production audit result:
+| Date       | Critical | High | Moderate | Low | Packages |
+| ---------- | -------- | ---- | -------- | --- | -------- |
+| 2026-09-07 | 0        | 11   | 6        | 2   | 19       |
+| 2026-09-08 | 0        | 2    | 0        | 0   | 2        |
 
-- Critical: 0
-- High: 5
-- Moderate: 11
-- Total: 16
+Both remaining findings are the same dependency chain (`node-ssdp -> ip`),
+see "Accepted findings" below. The development tree has four more moderate
+findings, all in `drizzle-kit`'s bundled esbuild; they never ship.
 
-## Priority Fixes
+## What changed
 
-### P1 - Audio metadata parser DoS
+Fixes were applied in small groups; the full suite (server + client tests,
+lint, typecheck, build, startup smoke test) was run after each group.
 
-Packages:
+1. **Transport, parsers, helpers (lockfile-only, `npm audit fix`).**
+   `socket.io`/`engine.io`/`ws`/`socket.io-parser`/`socket.io-adapter`,
+   `express-rate-limit` + `ip-address`, `body-parser`, `lodash`,
+   `react-router`/`react-router-dom` (7.14.1 -> 7.18.3), `uuid`, `esbuild` via
+   `tsx`. All inside the existing semver ranges.
+2. **`qs` (query-string parser under Express).** The fixed release (6.16.0)
+   lies outside the `~6.15.1` range Express 4.22.2 declares, so the root
+   `package.json` carries an npm `overrides` entry. Remove the override once
+   Express itself depends on `>=6.16.0`.
+3. **`music-metadata` 10.6 -> 11.15 (major).** Fixes the ASF-parser infinite
+   loop (GHSA-v6c2-xwv6-8xf7, GHSA-5v7r-6r5c-r473). Relevant: the scanner
+   parses every file on the NAS share, so one malformed WMA file could have
+   pinned a scan forever. The `@ts-expect-error` shims on `parseFile` were
+   removed because 11.x ships correct ESM types. Verified with the scanner and
+   cover-art suites plus a parse of a generated WAV under `node --import
+tsx/esm`.
+4. **`drizzle-orm` 0.38 -> 0.45.2 and `drizzle-kit` 0.30 -> 0.31 (major).**
+   Fixes GHSA-gpj5-g38j-94v9 (identifier escaping). The app never builds SQL
+   identifiers from user input, so the reachable risk was low, but a direct
+   high-severity dependency with a clean upgrade path is not worth an
+   exception. Migrations, the version guard and the backup/restore suite run
+   against the new version.
+5. **Express 4.22.1 -> 4.22.2, tsx 4.19 -> 4.23** (minor/patch, needed for
+   the `qs` and `esbuild` ranges).
 
-- `music-metadata@10.9.1`
-- `file-type@19.6.0`, via `music-metadata`
+## Accepted findings
 
-Risk:
+### `node-ssdp@4.0.1` -> `ip@1.1.9` (high, GHSA-2p57-rm9w-gvfp)
 
-The scanner parses files from the NAS music library. A malformed ASF/WMA file
-can trigger parser issues in this dependency chain. This is relevant because
-the app scans user-controlled media files.
+- **What the advisory covers:** `ip.isPublic()` / `isPrivate()` misclassify
+  some addresses, which matters when an application uses those helpers to
+  decide whether a URL is safe to fetch (SSRF guard).
+- **What AudioServer executes:** `node-ssdp` calls only `ip.address()` to
+  build its own SSDP `LOCATION` header (`node_modules/node-ssdp/lib/index.js`,
+  one call site). Neither the app nor `node-ssdp` calls `isPublic`/`isPrivate`.
+  The vulnerable function is not on any reachable code path.
+- **Why no upgrade:** 4.0.1 is the newest `node-ssdp` release and still pins
+  `ip@^1.1.5`; `ip@2.0.1` carries the same advisory. `npm audit fix --force`
+  would _downgrade_ to `node-ssdp@1.0.0`, which is an unrelated old API. Not a
+  remediation.
+- **Mitigation in place:** discovery only runs on the LAN (`network_mode:
+host`), the SSDP client never fetches operator-controlled URLs based on an
+  `ip` classification, and discovery is disabled in tests.
+- **Owner:** Danny de Lacombe. **Review date:** 2026-12-01, or earlier when
+  either `node-ssdp` publishes a release without `ip`, or the device layer is
+  reworked in sprint V10/E03 (then evaluate replacing `node-ssdp` with a small
+  in-house SSDP client, which is roughly 150 lines of `dgram`).
 
-Plan:
+### `drizzle-kit` -> `@esbuild-kit/*` -> `esbuild@0.18` (moderate, dev only)
 
-- Upgrade `music-metadata` to the fixed 11.x line in a dedicated dependency
-  branch.
-- Run server tests and a manual NAS scan.
-- Verify WMA/MP3/FLAC parsing and cover extraction.
+- Development-only tooling for `npm run db:generate`; not installed in the
+  production image (`npm prune --omit=dev` in the Dockerfile) and never
+  listening on a port in this project. The advisory concerns esbuild's dev
+  server. No action beyond tracking `drizzle-kit` releases; re-check at the
+  same review date.
 
-Do not use `npm audit fix --force` for this because it can apply broad major
-updates without project-specific validation.
+## Verification performed
 
-### P1 - Drizzle ORM SQL identifier issue
+- `npm ci` on a clean tree, then `npm run lint`, `npm run typecheck`,
+  `npm test` (server 158, client 84), `npm run build`.
+- Startup/shutdown smoke test (`server/src/__tests__/startup-smoke.test.ts`)
+  boots the real entrypoint on the upgraded tree.
+- Production image build + readiness + graceful stop run in CI (`docker` job).
 
-Package:
+Not verified in this pass (needs the NAS and hardware): a full library scan of
+the real collection with `music-metadata` 11, Sonos/DLNA discovery with the
+current `node-ssdp`, and Qobuz playback. Those are the acceptance steps for the
+next NAS deployment (see [docs/backup-restore.md](docs/backup-restore.md) for
+the update procedure that includes them).
 
-- `drizzle-orm@0.38.4`
+## Re-running the audit
 
-Risk:
+```bash
+npm ci
+npm audit --omit=dev            # production surface
+npm audit                       # including dev tooling
+npm ls ip node-ssdp qs music-metadata drizzle-orm --all
+```
 
-The reported issue concerns escaped SQL identifiers. Current app queries are
-mostly static and internal, so exposure appears lower than raw user-supplied
-identifier usage, but it is still a direct high-severity dependency.
+Rules of thumb:
 
-Plan:
-
-- Upgrade Drizzle to the fixed 0.45.x line in the same dependency pass or a
-  separate migration pass.
-- Run repository/search/library tests.
-- Manually verify existing SQLite database startup and migrations.
-
-### P1/P2 - Device discovery dependency chain
-
-Packages:
-
-- `node-ssdp@4.0.1`
-- `ip@1.1.9`, via `node-ssdp`
-- `lodash@4.17.23`, via `node-ssdp -> async`
-
-Risk:
-
-The audit recommends a problematic `node-ssdp` major change. This code path is
-limited to LAN device discovery, but it still touches network inputs.
-
-Plan:
-
-- Do not blindly downgrade/major-switch `node-ssdp`.
-- Review whether `node-ssdp` can be replaced, patched, or isolated.
-- Keep device discovery disabled in tests by default.
-- Keep production deployment on a trusted LAN only.
-
-### P2 - Express request parsing chain
-
-Packages:
-
-- `express@4.22.1`
-- `body-parser@1.20.4`
-- `qs@6.14.2`
-
-Risk:
-
-The reported `qs` issue can affect stringification with comma arrays. The app
-does not intentionally expose that behavior as a core feature, but Express is a
-public HTTP boundary.
-
-Plan:
-
-- Update Express/body-parser/qs within the non-breaking fixed range when
-  available in the lockfile.
-- Run API route tests and a production build.
-
-### P2 - Rate limit address parser
-
-Packages:
-
-- `express-rate-limit@8.3.2`
-- `ip-address@10.1.0`
-
-Risk:
-
-The audit flags HTML-emitting helper methods in `ip-address`. The app uses this
-through rate limiting, not direct HTML rendering, so practical exposure appears
-low.
-
-Plan:
-
-- Update `express-rate-limit` and `ip-address`.
-- Verify login/auth and API rate-limit behavior.
-
-### P2 - Socket transport chain
-
-Packages:
-
-- `socket.io@4.8.3`
-- `engine.io@6.6.6`
-- `engine.io-client@6.6.4`
-- `socket.io-adapter@2.5.6`
-- `ws@8.18.3`
-
-Risk:
-
-The reported `ws` issue is transitive. The app uses Socket.IO for realtime
-client updates.
-
-Plan:
-
-- Update Socket.IO packages and lockfile.
-- Verify realtime playback/device/library updates in the browser.
-
-### P3 - UUID bounds check
-
-Package:
-
-- `uuid@11.1.0`
-
-Risk:
-
-Direct dependency with a moderate advisory. The likely fix is a small patch
-upgrade.
-
-Plan:
-
-- Update to the fixed patch release.
-- Run typecheck and tests.
-
-## Recommended Remediation Order
-
-1. `music-metadata` and scanner verification.
-2. Drizzle upgrade and SQLite verification.
-3. `node-ssdp` replacement or containment decision.
-4. Express/rate-limit/socket/uuid lockfile refresh.
-
-## Acceptance Criteria
-
-- `npm audit --omit=dev` no longer reports high-severity production issues, or
-  any remaining high issue has a written exception.
-- `npm run typecheck` passes.
-- Server and client tests pass.
-- A manual NAS scan completes without deleting valid tracks.
-- Browser playback, Qobuz playback, local playback, and device discovery are
-  smoke-tested after dependency changes.
+- Never run `npm audit fix --force` on this repository; it proposes major
+  downgrades (`node-ssdp@1.0.0`) as "fixes".
+- Apply fixes in groups (transport, parser, database), run the whole suite
+  after each group, and record any new exception here with an owner and date.

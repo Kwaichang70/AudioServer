@@ -1,4 +1,3 @@
-// @ts-expect-error - music-metadata types don't export parseFile in ESM mode
 import { parseFile, selectCover } from 'music-metadata';
 import { getDb } from '../db/index.js';
 import { tracks } from '../db/schema.js';
