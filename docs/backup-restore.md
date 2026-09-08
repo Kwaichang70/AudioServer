@@ -156,7 +156,8 @@ back. It runs in CI on every push.
 
 ## Measurements
 
-| Check                                            | Result (2026-09-08)                                    |
-| ------------------------------------------------ | ------------------------------------------------------ |
-| Backup + verify + restore, 0.16 MB test database | < 1 s each (Linux container, Node 22)                  |
-| Restore on the NAS-size database                 | not measured yet; record here at the first NAS restore |
+| Check                                            | Result (2026-09-08)                                               |
+| ------------------------------------------------ | ----------------------------------------------------------------- |
+| Backup + verify + restore, 0.16 MB test database | < 1 s each (Linux container, Node 22)                             |
+| Production image: start to `/api/health/ready`   | 3 s; Docker `healthy` after 4 s; `docker stop` exit 0 (CI run 50) |
+| Restore on the NAS-size database                 | not measured yet; record here at the first NAS restore            |
