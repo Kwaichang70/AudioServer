@@ -99,6 +99,6 @@ VOLUME /data
 VOLUME /music
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD curl -f http://localhost:3001/api/health || exit 1
+  CMD curl -fsS http://localhost:3001/api/health/ready || exit 1
 
 CMD ["node", "--import", "tsx/esm", "server/src/index.ts"]

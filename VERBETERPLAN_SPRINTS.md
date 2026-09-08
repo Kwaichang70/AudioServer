@@ -1,0 +1,620 @@
+# AudioServer — analyse en verbeterplan in sprints
+
+**Datum:** 7 september 2026  
+**Onderzochte versie:** commit cd3f094, lokale werkmap AudioServer  
+**Status:** analyse afgerond; alle hieronder beschreven implementaties zijn nog te plannen.  
+**Doel:** een betrouwbare muziekserver voor de NAS, met een voorspelbare bediening op telefoon/tablet en goede ondersteuning voor lokale muziek en externe bronnen.
+
+## 1. Advies en afbakening
+
+AudioServer heeft al een brede functionele basis. De grootste winst zit in het betrouwbaar laten samenwerken van de bestaande onderdelen: wachtrij, afspeelapparaat, gebruikerssessie, bibliotheek en streamingbron. Nieuwe functies zijn zinvol, maar bouwen nu deels op een onvolledig gedeeld afspeelmodel en onbetrouwbare luistergegevens.
+
+**Aanbevolen volgorde:**
+
+1. Maak releases controleerbaar, werk kwetsbare afhankelijkheden bij en verbeter aanmelding en beheerrechten.
+2. Herstel wachtrijen en laat de server lokale muziek én Qobuz zelfstandig doorspelen.
+3. Bewaar luistergegevens en bibliotheekrelaties correct, ook na verplaatsen of verwijderen van bestanden.
+4. Verbeter zoeken, bronkeuze en mobiele bediening.
+5. Voeg daarna persoonlijke profielen, afzonderlijke kamerwachtrijen, aantoonbaar betere trackovergangen en uitgebreidere ontdekfuncties toe.
+
+De bestaande Express/React/SQLite-opzet is hiervoor bruikbaar. Een volledige herschrijving, microservices of een andere database zijn op basis van deze analyse niet nodig. Wel moet één onderdeel verantwoordelijk worden voor de afspeelstatus en moeten gebruikers, zones en bronnen expliciete domeinbegrippen worden.
+
+### Onderzoeksmethode
+
+- Broncode van server, client en gedeelde interfaces bekeken, met nadruk op afspelen, scanner, opslag, authenticatie, providers, apparaten en service worker.
+- Bestaande sprintdocumenten vergeleken met de daadwerkelijke implementatie.
+- Tests, lint, typecontrole, productiebuild en actuele npm-controle van productieafhankelijkheden uitgevoerd.
+- Aanvullende controles uitgevoerd met een tijdelijke SQLite-database **in het geheugen**, zonder de muziekbibliotheek te wijzigen.
+- Primaire documentatie van vergelijkbare producten en integraties geraadpleegd; bronnen staan bij de relevante conclusies.
+
+**Niet uitgevoerd:** een visuele gebruikstest in een draaiende browser, een Docker-imagebouw, prestatietests met een grote NAS-bibliotheek, echte audiometingen, of acceptatietests met Synology, Sonos/DLNA/Volumio en streamingaccounts. Uitspraken over deze situaties zijn codebevindingen of nog te toetsen verwachtingen. Een geslaagde unit-test bewijst geen correcte audio-uitvoer op hardware.
+
+Dit document is de nieuwe planningsbasis. [SPRINTS.md][oude-sprints], [SPRINT_AUDIT.md][oude-audit] en [NEXT_STEPS.md][oude-next] blijven historische context; hun nummering wordt niet hergebruikt. De nieuwe sprints krijgen prefix **V**.
+
+## 2. Wat de app al kan
+
+| Onderdeel | Aanwezig in code | Beoordeling |
+| --- | --- | --- |
+| Lokale bibliotheek | NAS-paden, metadata, incrementele scan, albumedities op map/kwaliteit, covers, genres en paginering | Goede basis; behoud van identiteit en gegevens bij wijzigingen verdient aandacht. |
+| Browseraudio | Lokale bestanden, Qobuz/radio, crossfade, optionele ReplayGain, Media Session en sneltoetsen | Audiofouten en echte gapless-overgangen moeten beter worden afgehandeld en bewezen. |
+| Netwerkspelers | DLNA, Sonos, Volumio, discovery, apparaatstatus, retries en Sonos-groepsinformatie | Dit is echte apparaatcode, niet alleen mocks. Afzonderlijke gelijktijdige wachtrijen ontbreken. |
+| Afspelen zonder actieve tablet | Servergestuurd doorspelen voor lokale nummers op netwerkapparaten | Belangrijke recente verbetering, maar providers en herstel na herstart zijn nog onvolledig. |
+| Qobuz | Aanmelding, status, zoeken, albums en opvragen van een verse stream-URL | Bestaande hoofdroute voor externe volledige nummers; werking per account/apparaat nog live toetsen. |
+| Spotify | OAuth, catalogus, Web Playback SDK, Connect, albumcontext en librespot-hulp | Meer dan een stub; actuele API-compatibiliteit en foutmeldingen blijven noodzakelijk. |
+| Tidal | Catalogus/metadata; volledige playback wordt expliciet geblokkeerd | Bewuste productkeuze behouden totdat een ondersteunde route aantoonbaar haalbaar is. |
+| Muziekbeheer | Playlists, M3U import/export, slimme playlists, favorieten en geschiedenis | Basis bestaat; persoonlijke scheiding en duurzame verwijzingen naar externe nummers ontbreken. |
+| Ontdekken | ListenBrainz-aanbevelingen en nieuwe releases, statistieken, lyrics, internetradio | Uitbreiden vanuit deze basis; geen tweede los ontdeksysteem bouwen. |
+| Gebruikers en mobiel | Accounts met rollen, gebruikersbeheer, thema's, responsive CSS, manifest en service worker | Rollen maken de gegevens nog niet persoonlijk; een betrouwbare offline shell ontbreekt. |
+| Onderhoud | Logging, request-ID's, healthroutes, shutdown, OpenAPI, tests, Docker | Releasecontrole, readiness en herstelprocedure aanscherpen. |
+
+De [README][project-readme] en oudere auditteksten lopen op punten achter op de code. De oude waarschuwing over opruimen bij onbereikbare NAS-roots is bijvoorbeeld inmiddels afgevangen via succesvolle/mislukte scanroots. Ook API-404-volgorde en graceful shutdown zijn al geïmplementeerd. Deze zaken hoeven niet opnieuw te worden gebouwd.
+
+## 3. Uitgevoerde controles
+
+| Controle | Resultaat op 7 september 2026 | Betekenis |
+| --- | --- | --- |
+| npm test — server | 150 tests geslaagd, 24 testbestanden | Bestaande serverregressies groen. |
+| npm test — client | 84 tests geslaagd, 17 testbestanden | Bestaande clientregressies groen. |
+| npm run lint | Geslaagd; geen waarschuwingen/fouten gemeld | Statische codecontrole groen. |
+| npm run typecheck | Geslaagd | TypeScript-projecten consistent. |
+| npm run build | Geslaagd | Server en client bouwen; geen bewijs voor een werkende NAS-release. |
+| Buildmelding | Browserslist-browsergegevens circa zes maanden oud | Kleine onderhoudstaak; geen buildblokkade. |
+| npm audit --omit=dev --json | 19 gemelde kwetsbare pakketten: 11 high, 6 moderate, 2 low, 0 critical | Remediatie en beoordeling per daadwerkelijk gebruikte codeketen nodig. |
+| Aanvullende wachtrijcontrole | Bij A → B → A → C gaat de index na de tweede A terug naar 0; daarna volgt B | Concrete fout buiten de bestaande testdekking. |
+| Aanvullende opslagcontrole | Drizzle-insert zonder tijdstempel levert played_at = NULL en created_at = NULL op | SQL-defaults worden niet vanzelf gebruikt door deze schema-inserts. |
+| Aanvullende modulecontrole | Directe ESM-import van playback.ts faalt op een circulaire afhankelijkheid; vooraf importeren van socketio.ts voorkomt dit | Importvolgordegevoeligheid; geen bewijs dat de normale startup faalt. |
+
+De lokale controles draaiden op **Node 24.19.0**. Het Dockerfile gebruikt standaard **Node 22**. De releasecontrole moet ook de daadwerkelijke productie-runtime afdekken.
+
+De 19 npm-meldingen zijn **pakketten**, geen 19 bewezen aanvalsroutes. Voorbeelden zijn music-metadata/file-type, drizzle-orm, Engine.IO/Socket.IO/ws, node-ssdp/ip en React Router. Sommige meldingen betreffen functies die deze app mogelijk niet gebruikt, zoals serverrendering. Een automatische downgrade die npm voor node-ssdp suggereert is geen verantwoord herstelplan. Gebruik [de eerdere security-audit][oude-security] als achtergrond, maar neem de nieuwe scan als uitgangspunt.
+
+## 4. Belangrijkste bevindingen
+
+**Prioriteiten:** P1 = betrouwbaarheid, toegang of behoud van gebruikersgegevens; P2 = belangrijke kwaliteit of bruikbaarheid; P3 = uitbreiding na validatie van de behoefte. “Bevestigd” betekent hier codebewijs of een uitgevoerde gerichte controle, niet automatisch een hardwaretest.
+
+### B01 — Releaseborging en afhankelijkheden zijn niet actueel
+
+**P1 · bevestigd · V01**
+
+De historische changelog noemt een CI-workflow, maar in deze checkout staat geen .github/workflows/ci.yml en Git bevat hier geen workflowbestand. Er zijn wel goede lokale scripts. De actuele dependencycontrole meldt bovendien nog relevante kwetsbaarheden.
+
+**Gevolg:** een lokale groene build geeft onvoldoende zekerheid dat een schone installatie of NAS-image dezelfde uitkomst heeft.
+
+**Aanpak:** herstel een geautomatiseerde controle op schone checkout, beoordeel en verhelp de meldingen, test de productie-image en leg een kleine herstelprocedure vast. Zie [Dockerfile][docker] en [testapp][test-app]; die testapp start de zware achtergrondservices bewust niet.
+
+### B02 — Eerste installatie, beheerrechten en verlopen sessies hebben gaten
+
+**P1 · bevestigd · V02**
+
+- Bij nul gebruikers laat [requireAuth][auth] alle API-acties door. De eerste registratie is wel transactioneel beschermd, maar de installatie heeft vóór registratie geen beperkte setupmodus.
+- [Importeren van provider-tokens][auth-routes] vereist geen adminrol. Ook globale provider-/scrobble-instellingen en scans hebben geen consistente beheerrolcontrole.
+- [App.tsx][app-auth] controleert aanmelding via statistieken. Die controle loopt via een publieke healthroute. Ook de 401-afhandeling gebruikt de aanwezigheid van een opgeslagen token als reden om geen login te tonen.
+- JWT's leven 30 dagen; een volledige gebruikerssessie met afmelden/intrekken/wachtwoordherstel ontbreekt. Verwijderde gebruikers worden bij nieuwe API-authenticatie wél gecontroleerd.
+
+**Gevolg:** onduidelijke eerste installatie, gewone gebruikers kunnen globale integraties wijzigen, en een verlopen sessie kan leiden tot een ogenschijnlijk geopende app met falende acties.
+
+**Aanpak:** expliciete setupstatus, beschermde setup, centrale admincontrole, een echte authstatuscontrole en afmelden/herstellen/intrekken. Bestaande actieve sockets moeten dezelfde sessiebeslissing volgen.
+
+### B03 — Dezelfde track kan de wachtrij laten teruglopen
+
+**P1 · gereproduceerd · V03**
+
+[PlaybackService.play()][queue-service] zoekt de positie op via het eerste overeenkomende track-ID. Daardoor springt de tweede A in A → B → A → C terug naar positie 0 en wordt C niet normaal bereikt.
+
+**Aanpak:** geef elke wachtrijpositie een eigen stabiel queueItemId. Gebruik dat voor actuele positie, verplaatsen, verwijderen, hervatten en events. Een track-ID identificeert het muziekstuk; het identificeert niet één voorkomen in een wachtrij.
+
+### B04 — Lege wachtrijen, reconnects en meerdere clients lopen uiteen
+
+**P1 · bevestigd · V03**
+
+[clearQueue()][queue-client] leegt alleen de clientstatus. Het synchronisatie-effect stopt juist als de wachtrij leeg is, zodat een externe speler de oude serverwachtrij kan behouden. Browserwachtrijen worden in deze flow niet volledig naar de server gesynchroniseerd.
+
+De server broadcast trackwijzigingen globaal. [useSocket()][socket-client] verwerkt geen volledige queue/state-snapshot bij reconnect. Het trackwijzigingseffect kan vervolgens in een andere browser opnieuw playback starten, omdat zone-/sessiecontext ontbreekt.
+
+**Aanpak:** één gezaghebbende wachtrij per afspeelsessie, expliciete clear/stop-opdrachten, revisienummers, context in events en snapshot-herstel. Tot echte zones bestaan mag een tweede apparaat de actieve sessie niet onbedoeld overnemen. Zie ook [Socket.IO-server][socket-server].
+
+### B05 — Servergestuurde playback is nog beperkt tot lokale nummers
+
+**P1 · bevestigd · V04**
+
+[server-player.ts][server-player] slaat niet-lokale track-ID's expliciet over en rekent dan op een actieve client. Eigenaar en actief apparaat staan alleen in geheugen. Bij een mislukte dispatch wordt vooral gelogd; de wachtrijstatus kan al naar het volgende nummer zijn doorgeschoven.
+
+Daarnaast schrijft de [device-monitor][device-monitor] updates van bewaakte apparaten naar één playbackservice. Zonder selectie op actieve sessie kan de status van een ander apparaat die status overschrijven. De polling heeft geen expliciete bescherming tegen overlappende langzame verzoeken.
+
+**Gevolg:** Qobuz of gemengde wachtrijen kunnen stilvallen als de tablet slaapt; na serverherstart is een opgeslagen wachtrij nog geen herstelde actieve afspeelsessie.
+
+**Aanpak:** één serverpad voor bronresolutie en dispatch, afgebakende sessies, foutstatus en retrybeleid, herstel na reconnect/herstart en begrensde polling. Spotify Connect blijft een aparte playbackstrategie; het is geen generieke audiostream.
+
+### B06 — Luistergeschiedenis en scrobbles zijn niet betrouwbaar genoeg
+
+**P1 · deels gereproduceerd, verder codebewijs · V05**
+
+De [lokale startflow][track-playback] registreert een play direct, met een lege artistId, voordat bewezen is dat voldoende audio is afgespeeld. De [historyroute][history] geeft daarbij geen playedAt mee. De aanvullende databasecontrole bevestigde NULL als resultaat.
+
+De serverplayer scrobbelt eveneens bij verzending van een nieuwe track. De [scrobbler][scrobbler] toetst zelf niet hoeveel daadwerkelijk is geluisterd. Externe bronnen hebben nog geen gelijkwaardige duurzame historyroute. Dezelfde ontbrekende createdAt-default speelt bij andere Drizzle-inserts.
+
+**Gevolg:** “recent”, topartiesten en aanbevelingen kunnen onvolledig of misleidend worden; snel overgeslagen of mislukte nummers kunnen meetellen.
+
+**Aanpak:** luistersessie met starttijd, werkelijk afgespeelde tijd, trackmetadata en éénmalige verwerking. Voor Last.fm geldt een trackduur van meer dan 30 seconden en luisteren gedurende minimaal de helft of vier minuten, wat het eerst wordt bereikt. Zie [Last.fm Scrobbling 2.0](https://www.last.fm/api/scrobbling).
+
+### B07 — Verplaatsen van muziek kan gebruikersgegevens verwijderen
+
+**P1 · bevestigd · V06**
+
+De [scanner][scanner] herkent een bestaand nummer primair op bestandspad. Een verplaatsing wordt daardoor een nieuw nummer plus verwijdering van het oude. Orphan cleanup verwijdert ook playlistverwijzingen, history en trackfavorieten.
+
+De bescherming tegen onbereikbare roots is al aanwezig en moet behouden blijven. Het aanvullende probleem is het onderscheid tussen “verplaatst”, “tijdelijk niet beschikbaar” en “bewust definitief verwijderd”.
+
+**Aanpak:** stabiele bibliotheekidentiteit, apart bronpad/bestandskenmerk, ontbrekende items eerst markeren en een herstelflow. Gebruik automatische koppeling alleen als een match voldoende zeker is; zelfde titel/artiest is geen bewijs.
+
+### B08 — Zoekresultaten kunnen verschillende versies samenvoegen
+
+**P2 · bevestigd · V07**
+
+[Providerdeduplicatie][registry] groepeert tracks op artiest + titel en albums op artiest + titel, zonder editie, duur of versie. De normalisatie verwijdert tekens buiten a-z/0-9, waardoor verschillende niet-Latijnse namen dezelfde lege sleutel kunnen krijgen. availableOn bewaart bronnamen, geen complete alternatieve itemverwijzingen.
+
+[Lokale zoekopdrachten][local-search] gebruiken LIKE, terwijl facetfilters en expliciete editie-/bronkeuze beperkt zijn.
+
+**Aanpak:** Unicode-veilige vergelijking, behoud van bron-ID's en versies, gerangschikt zoeken en filters. Meet eerst of FTS5 nodig is; voeg het alleen toe met een representatieve benchmark.
+
+### B09 — Een provider-capabilitymodel ontbreekt
+
+**P2 · bevestigd · V04/V07**
+
+De gedeelde providerinterface kent voornamelijk beschikbaarheid en een stream-URL. De client bepaalt de route vaak via een ID-prefix. Volledig afspelen, preview, catalogus, apparaatgeschiktheid, tijdelijke URL's en vereiste accounts zijn daardoor verspreid over meerdere bestanden.
+
+De [Spotify-code][spotify] heeft de zoeklimiet al naar maximaal 10 aangepast, maar haalt playlistitems nog via /playlists/{id}/tracks op. Spotify documenteert voor Development Mode een wijziging naar /items. Dit is een **compatibiliteitsrisico dat per appmodus live moet worden bevestigd**, geen in deze sessie gereproduceerde accountfout. Zie [Spotify-wijzigingen van februari 2026](https://developer.spotify.com/documentation/web-api/references/changes/february-2026).
+
+**Aanpak:** expliciete mogelijkheden en foutredenen per bron/output, centrale timeouts/retries en actuele contracttests.
+
+### B10 — Meerdere accounts delen hun muziekomgeving
+
+**P2; P1 vóór aanbieden als privéprofielen · bevestigd · V09**
+
+[Playlists, favorieten, geschiedenis en scrobbleconfiguratie][schema] hebben geen userId. Provider-tokens zijn globaal per provider opgeslagen. De app ondersteunt dus rollen/accounts, maar nog geen persoonlijke muziekomgevingen.
+
+**Aanpak:** een gedeelde muziekbibliotheek met persoonlijke favorieten, playlists, luistergegevens en scrobbleaccounts. Laat bestaande globale provideraccounts aanvankelijk expliciet door de admin beheren; persoonlijke Qobuz/Spotify-accounts vragen apart ontwerp en acceptatie.
+
+### B11 — Multi-room is nog geen onafhankelijke playback per kamer
+
+**P2 · bevestigd · V10**
+
+Er is één singleton playback_state en één globale queue_items-verzameling. Sonos-groepsmetadata is aanwezig, maar de [apparaatinterface][device-interface] heeft geen eigen zone-/groepsmodel en geen algemene seek-opdracht.
+
+**Aanpak:** aparte wachtrij en sessie per zone, met duidelijke rechten en apparaatmogelijkheden. Bouw native groepering en overdracht tussen kamers als vervolgstap; gelijktijdig afspelen op twee speakers bewijst geen synchronisatie.
+
+### B12 — Gapless is nog niet functioneel afgemaakt
+
+**P2 · bevestigd · V11**
+
+[preloadNext()][audio] bestaat maar wordt niet in de normale playbackflow aangeroepen; de niet-crossfade-tak vervangt de src van het huidige audio-element. Alleen preload aansluiten volstaat niet: de voorbereide audio moet ook werkelijk voor de overgang worden gebruikt.
+
+De [set-next-route][device-routes] en DLNA-ondersteuning bestaan, maar de normale serverqueue stuurt deze voorbereiding nog niet aan. De [manager][device-manager] kan zonder capability ook stilzwijgend terugkeren.
+
+**Aanpak:** betrouwbare voorbereiding en overname, apparaatmogelijkheden expliciet tonen, en overgangen meten. Onderscheid “crossfade”, “naadloze overgang” en “gapless geverifieerd”. Toon geen bit-perfect-status uitsluitend op basis van FLAC of de bronresolutie.
+
+### B13 — De service worker heeft geen gevulde offline shell
+
+**P2 · bevestigd · V08**
+
+De [service worker][sw] schrijft covers naar de cache. Andere verzoeken vallen bij netwerkproblemen terug op caches.match, maar HTML/JS/CSS worden niet in die shellcache opgeslagen. Een verse installatie heeft dus geen bruikbare shellfallback.
+
+De covercache heeft geen expliciete omvang-/ouderdomslimiet. Oude appcaches worden via een brede naamfilter verwijderd.
+
+**Aanpak:** versievaste shellcache, begrensde artworkcache, beheer van alleen eigen caches, bruikbare offlinepagina en een gecontroleerde updateflow. Offline navigatie is iets anders dan offline muziekdownloads.
+
+### B14 — Operationele signalen zijn te optimistisch
+
+**P2 · bevestigd · V01/V06**
+
+De [healthroute][health] antwoordt ook bij degraded met HTTP 200. De Docker-healthcheck gebruikt curl -f en herkent die toestand daardoor niet als fout. lastScanAt is afgeleid van MAX(created_at) van tracks, geen werkelijk scanresultaat.
+
+Migraties zijn verdeeld over [Drizzle-migraties en runtime ALTER TABLE-aanvullingen][database]. Daardoor zijn een test op oude databases en een gecontroleerde herstelprocedure belangrijk.
+
+**Aanpak:** minimale publieke liveness, readiness met passende statuscode, beschermde uitgebreide diagnostiek, scan_run-registratie, versieerbare migraties en bewezen herstel van database plus noodzakelijke configuratie.
+
+## 5. Onderzoek naar verbeterde en nieuwe functies
+
+De vergelijking hieronder is gericht op bruikbare productideeën, geen claim dat AudioServer volledige gelijkwaardigheid met deze producten moet bereiken.
+
+| Product/bron | Relevante observatie uit primaire documentatie | Vertaling naar AudioServer |
+| --- | --- | --- |
+| [Music Assistant — spelersinstellingen](https://www.music-assistant.io/settings/individual-player/) | Mogelijkheden en uitvoerinstellingen verschillen per speler; doorlopende queuestream kan overgangen helpen, met beperkingen voor metadata. | Capabilitymodel, zichtbare audiokeuzes en een apart haalbaarheidsonderzoek naar continue streaming. |
+| [Music Assistant — groepen](https://www.music-assistant.io/faq/groups/) | Groepstypen hebben verschillende wachtrij- en synchronisatie-eigenschappen. | Eerst afzonderlijke zones; vervolgens alleen aantoonbaar ondersteunde groepen. |
+| [Navidrome — overzicht](https://navidrome.org/docs/overview/) | Persoonlijke playlists/favorieten, collectiebeheer, transcoding en een ecosysteem van Subsonic-clients. | Profielen hebben directe waarde; OpenSubsonic kan later mobiele clients ontsluiten. |
+| [Roon — Signal Path](https://help.roonlabs.com/portal/en/kb/articles/signal-path) | Bron, verwerking en uitvoer worden zichtbaar gemaakt; de uitvoer wordt niet automatisch als lossless beschouwd. | Breid kwaliteitslabels uit tot een begrijpelijk audiopad met bekende én onbekende stappen. |
+| [Spotify — quota modes](https://developer.spotify.com/documentation/web-api/concepts/quota-modes) | Development Mode vereist Premium voor de appeigenaar, maximaal vijf toegelaten gebruikers en kent quota. | Maak accountvoorwaarden en 403/429-herstel zichtbaar; beloof geen onbeperkte publieke Spotify-integratie. |
+| [Spotify — Web Playback SDK](https://developer.spotify.com/documentation/web-playback-sdk) | Browserplayback is een aparte SDK-route; iOS kent beperkingen rond starten na overdracht. | Behoud de bestaande SDK-strategie en toets echte browsers; geen generieke proxy als vervanging. |
+
+### Functiekeuzes
+
+| Functie | Bestaand, verbeteren of nieuw? | Gebruikerswaarde | Inspanning/risico | Advies |
+| --- | --- | --- | --- | --- |
+| Betrouwbaar doorspelen met gesloten tablet | Verbeteren | Zeer hoog; kernfunctie van een NAS-muziekserver | Hoog; bron- en apparaatgedrag | V03–V04, noodzakelijk. |
+| Hervatten en gedeelde bediening zonder wachtrijverlies | Verbeteren | Zeer hoog | Middel/hoog | V03, noodzakelijk. |
+| Bibliotheekcontrole met ontbrekende/verplaatste bestanden | Nieuw op bestaande scanner | Hoog; behoud playlists en favorieten | Middel/hoog | V06. |
+| Zoeken op bron, editie, genre en kwaliteit | Verbeteren | Hoog bij grotere collecties | Middel | V07. |
+| Providerstatus met “waarom kan dit niet spelen?” | Verbeteren | Hoog; minder uitproberen | Middel | V04 en V07. |
+| Installatiewizard en bruikbare offline shell | Verbeteren/nieuw | Hoog voor telefoon/tablet en beheer | Middel | V02 en V08. |
+| Persoonlijke profielen | Bestaande rollen uitbreiden | Hoog bij gedeeld gebruik | Hoog; datamigratie | V09, kiezen als meerdere mensen de app gebruiken. |
+| Eigen wachtrij per kamer | Nieuw op bestaande apparaten | Hoog bij echt multi-roomgebruik | Hoog | V10. |
+| Audiopad en aantoonbaar betere trackovergangen | Verbeteren/nieuw | Hoog bij albumgericht luisteren | Hoog; hardwareafhankelijk | V11. |
+| Gemengde lokale/Qobuz-playlists en lokale ontdekmixen | Bestaande functies uitbreiden | Hoog zodra bron-ID's en geschiedenis betrouwbaar zijn | Middel/hoog | V12. |
+| Sleeptimer / stoppen na dit album | Nieuw | Praktisch en relatief klein | Laag/middel | Optionele backlog E01. |
+| OpenSubsonic voor bestaande mobiele apps | Nieuw | Potentieel hoog buitenshuis | Hoog; API-compatibiliteit en auth | Eerst beperkte proef E02. |
+| Cast/AirPlay/Snapcast/Home Assistant | Nieuw | Afhankelijk van aanwezige apparatuur | Hoog | Alleen na concrete apparaatbehoefte; E03. |
+| Volledige Tidal-playback | Herziening productrichting | Onzeker naast Qobuz | Hoog; externe afhankelijkheden | Voorlopig niet plannen; alleen na ondersteunde proof of concept. |
+| AI-DJ, uitgebreide DSP, podcasts en offline providerdownloads | Nieuw | Nog onvoldoende onderbouwd | Hoog; extra scope en bronbeperkingen | Uitstellen. |
+
+**Productkeuze:** lokaal + Qobuz blijven de kern. Spotify behoudt zijn eigen ondersteunde afspeelroute. Gedeelde catalogus, persoonlijke voorkeuren en zonewachtrijen worden afzonderlijke begrippen.
+
+## 6. Sprintindeling en capaciteit
+
+**Planningsaanname:** één ontwikkelaar, sprints van twee weken, ongeveer acht netto ontwikkel-/testdagen per sprint. Twee dagen blijven beschikbaar voor overleg, review, onvoorziene fouten en acceptatie. De ramingen hieronder zijn eerste indicaties, met circa 40% onzekerheid; hardwarewerk kan hoger uitvallen.
+
+**V01–V08 vormen de aanbevolen basisroute: circa 16 kalenderweken.** Elke sprint levert afzonderlijk bruikbaar resultaat. **V09–V12 zijn uitbreidingssprints: maximaal acht extra kalenderweken als de behoefte bevestigd wordt.** Dit is geen toezegging dat alle uitbreidingen in 24 weken zonder tegenvallers klaar zijn.
+
+De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verklein een verticaal bruikbare scope of voeg een vervolgsprint toe. Schrap geen gegevensbehoud of acceptatie om een datum te halen.
+
+| Sprint | Resultaat | Afhankelijk van | Status |
+| --- | --- | --- | --- |
+| V01 | Herhaalbare, beter beveiligde releasebasis | Geen | Gepland |
+| V02 | Betrouwbare setup, aanmelding en beheerrechten | V01 | Gepland |
+| V03 | Correcte wachtrij en herstel tussen clients | V01–V02 | Gepland |
+| V04 | Zelfstandige lokale/Qobuz-playback op server | V03 | Gepland |
+| V05 | Betrouwbare luistergegevens en tijdstempels | V03–V04 | Gepland |
+| V06 | Bibliotheekwijzigingen zonder verlies van relaties | V01, V05 | Gepland |
+| V07 | Betere zoekresultaten, edities en bronkeuze | V04, V06 | Gepland |
+| V08 | Mobiele afronding, onboarding en offline shell | V02–V07 | Gepland |
+| V09 | Persoonlijke muziekomgevingen | V02, V05–V06 | Optioneel vervolg |
+| V10 | Onafhankelijke wachtrij per zone | V03–V04, V09 | Optioneel vervolg |
+| V11 | Audio-inzicht en geverifieerde trackovergangen | V04; V10 als zones worden gebouwd | Optioneel vervolg |
+| V12 | Gemengde playlists en betere ontdekfuncties | V05, V07; V09 bij profielen | Optioneel vervolg |
+
+### V01 — Releasebasis en direct herstelbare risico's
+
+**Doel:** elke verandering reproduceerbaar testen en veilig kunnen terugdraaien.  
+**Bevindingen:** B01, B14.
+
+- [ ] **V01.1 · 1,5 dag:** CI op schone checkout: npm ci, lint, typecheck, tests en build; test de gekozen productieversie van Node. Voeg een startup-/shutdownproef toe die geen echte providers of apparaten benadert.
+- [ ] **V01.2 · 3 dagen:** dependencybevindingen opnieuw vastleggen, gebruikte aanvalspaden beoordelen en reparaties in kleine groepen uitvoeren. Begin met parser-, database- en transportketens; test major-upgrades apart.
+- [ ] **V01.3 · 1,5 dag:** schone productie-image bouwen/starten, readiness van liveness scheiden en de containercontrole daarop laten aansluiten.
+- [ ] **V01.4 · 2 dagen:** herstelprocedure met consistente SQLite-back-up, configuratie/sleutelbeheer en restore op een lege testinstallatie. Documentatie en huidige status corrigeren.
+
+**Acceptatie:**
+
+- Alle bestaande controles slagen ook buiten de huidige node_modules-map.
+- Iedere resterende high/critical-melding heeft een onderbouwde beoordeling, eigenaar en einddatum; geen aantoonbaar bereikbare high/critical-route blijft ongemitigeerd bij release.
+- Een onbruikbare database leidt tot niet-ready/HTTP 503; liveness blijft een afzonderlijke controle.
+- Een back-up is daadwerkelijk teruggezet; bibliotheek, playlists en accounts zijn gecontroleerd.
+- Update en rollback bevatten een expliciete controle op databasecompatibiliteit. Alleen de oude image terugzetten geldt niet automatisch als geldige rollback.
+
+### V02 — Setup, sessies en beheerrechten
+
+**Doel:** een nieuwe en bestaande gebruiker krijgt een voorspelbare, afgeschermde toegang.  
+**Bevinding:** B02.
+
+- [ ] **V02.1 · 2 dagen:** setupstatus en eenmalige installatiecode via een lokaal beheerkanaal; alleen setup, statische bestanden en minimale health publiek bij nul gebruikers.
+- [ ] **V02.2 · 2 dagen:** centrale admincontrole voor globale providerinstellingen, tokenimport, scanbeheer en andere systeemmutaties; expliciete rechtenmatrix met admin/gebruiker.
+- [ ] **V02.3 · 2,5 dag:** authcontrole via sessiestatus, verlopen token correct afhandelen, afmelden, sessies intrekken en een beheerde herstelroute voor wachtwoorden. Ook socketauth en streamtokens toetsen.
+- [ ] **V02.4 · 1,5 dag:** invoervalidatie op de betrokken routes aanvullen; token-URL's uit logs verwijderen; CSP eerst in rapportagemodus toetsen tegen de eigen SPA en Spotify SDK.
+
+**Acceptatie:**
+
+- Zonder setupcode kunnen twee gelijktijdige bezoekers geen beheer over een nieuwe installatie verkrijgen.
+- Een gewone gebruiker kan geen globale providerverbinding wijzigen; API-tests bewijzen 403.
+- Ongeldige/verlopen tokens tonen aanmelding, ook als localStorage nog een waarde bevat.
+- Afmelden of intrekken beëindigt de eigen sessie en bijbehorende sockettoegang volgens het vastgelegde beleid.
+- Setup met lege bibliotheek, bestaande gebruiker en provideruitval is als browserflow getest.
+
+### V03 — Wachtrij als één consistente afspeelsessie
+
+**Doel:** dezelfde afspeelsessie blijft correct na bewerken, verversen en opnieuw verbinden.  
+**Bevindingen:** B03, B04; eerste begrenzing van B05/B11.
+
+- [ ] **V03.1 · 2 dagen:** queueItemId en persistente actieve positie invoeren; herhaalde tracks, verwijderen en verplaatsen op positie-identiteit laten werken.
+- [ ] **V03.2 · 2 dagen:** expliciete queue-opdrachten met revisie en opdracht-ID. Clear stopt toekomstige items; “stop” stopt het actuele nummer volgens een apart contract.
+- [ ] **V03.3 · 2 dagen:** server-snapshot bij laden/reconnect, queue/state-events verwerken en events aan de juiste sessie binden. Voorkom automatisch starten in andere browsers.
+- [ ] **V03.4 · 2 dagen:** regressies voor twee clients, verouderde bewerkingen en netwerkherstel. Maak de service onafhankelijk van importvolgorde via geïnjecteerde events/dependencies.
+
+**Acceptatie:**
+
+- A → B → A → C speelt elke wachtrijpositie exact volgens die volgorde; herstart herstelt de tweede A als tweede voorkomen.
+- Een leeggemaakte wachtrij blijft leeg op de server en een tweede client; het actuele nummer mag alleen doorlopen als dat het gekozen clear-contract is.
+- Een retry van dezelfde opdracht maakt geen dubbele items.
+- Een verouderde queuebewerking wordt herkenbaar geweigerd of opnieuw toegepast op de nieuwe snapshot.
+- Tot V10 is er maximaal één expliciet actieve serverzone; status van een ander bewaakt apparaat verandert die sessie niet.
+
+### V04 — De NAS stuurt lokale muziek en Qobuz zelfstandig aan
+
+**Doel:** muziek blijft doorspelen wanneer alle bedienende clients slapen.  
+**Bevindingen:** B05, B09.
+
+- [ ] **V04.1 · 2 dagen:** gedeeld playbackcontract voor bron, provider-item-ID, tijdelijke URL en capabilities; gebruik één resolver voor lokale bestanden en Qobuz.
+- [ ] **V04.2 · 2 dagen:** serverdispatch met verse URL per track, consistente metadata en duidelijke loading/playing/error-status na apparaatbevestiging.
+- [ ] **V04.3 · 2 dagen:** sessie-eigenaar opslaan, herstart/reconnect reconciliëren met apparaatstatus, timeouts en begrensde retries. Polling mag niet overlappen; langdurige uitval vereist een herstelpad.
+- [ ] **V04.4 · 2 dagen:** Spotify-contractcontrole inclusief playlistitems/403/429, browser- en providerfouten zichtbaar maken; geautomatiseerde plus echte apparaatacceptatie.
+
+**Acceptatie:**
+
+- Een lokale en een gemengde lokaal/Qobuz-wachtrij spelen minimaal 30 minuten en drie overgangen door terwijl alle clients zijn gesloten.
+- Een verlopen Qobuz-URL wordt opnieuw opgelost; ontbrekende rechten stoppen of slaan over volgens een expliciet, zichtbaar beleid.
+- Bij apparaatuitval wordt geen fictieve “playing”-status vastgehouden en geen nummer onbeperkt opnieuw geprobeerd.
+- Een serverherstart herstelt de queue en herkent de uitvoerstatus; autoplay gebeurt alleen volgens vooraf gekozen herstelinstelling.
+- Spotify blijft via SDK/Connect werken; Tidal verschijnt niet als volledige playbackbron.
+- Als een apparaat directe Qobuz-HTTPS-URLs weigert, krijgt het die capability niet. Een providerproxy/transcoder wordt dan een afzonderlijke proef met beperkte scope.
+
+### V05 — Tijdstempels, geschiedenis en scrobbling herstellen
+
+**Doel:** “geluisterd” heeft één betrouwbare betekenis.  
+**Bevinding:** B06.
+
+- [ ] **V05.1 · 2 dagen:** tijdstempelstrategie in schema en writes corrigeren; migratie voor bestaande NULL-waarden met onderscheid tussen bekende en onbekende historische tijden.
+- [ ] **V05.2 · 2 dagen:** luistersessies met echte track-/artiestinformatie en metadata-snapshot; externe nummers ondersteunen zonder verplichte verwijzing naar een lokaal bestand.
+- [ ] **V05.3 · 2 dagen:** werkelijk afgespeelde tijd en unieke scrobbleverwerking; pauze, seek, skip, retry en twee controllers correct behandelen.
+- [ ] **V05.4 · 2 dagen:** geschiedenis/statistieken op de nieuwe gegevens aansluiten; regressies en Last.fm/ListenBrainz-acceptatie uitvoeren.
+
+**Acceptatie:**
+
+- Nieuwe relevante records krijgen een correcte UTC-tijd; onbekende oude tijden worden niet als verzonnen luistermomenten ingevuld.
+- Een mislukte play of onmiddellijke skip telt niet als gekwalificeerde luisterbeurt.
+- Pauzetijd en vooruitzoeken tellen niet mee als werkelijk geluisterde tijd.
+- Eén luistersessie leidt per scrobbledienst maximaal tot één inzending, ook na retries/reconnect.
+- Lokale tracks en Qobuz krijgen geschiedenis met correcte artiest; Spotify-scrobbling is alleen actief met betrouwbare voortgang en beleid tegen dubbele inzending via Spotify zelf.
+
+### V06 — Bibliotheekbehoud en inzicht in scans
+
+**Doel:** muziekbestanden kunnen veranderen zonder stil verlies van gebruikersgegevens.  
+**Bevindingen:** B07, B14.
+
+- [ ] **V06.1 · 2 dagen:** bronlocatie en trackidentiteit scheiden; mtime/bestandsgrootte expliciet opslaan. Scanversie of force-rescan toevoegen voor nieuwe metadataregels.
+- [ ] **V06.2 · 2,5 dag:** verplaatsingen veilig herkennen en ontbrekende items markeren; herstel/koppelactie voor twijfelgevallen. History en playlists behouden als een bestand verdwijnt.
+- [ ] **V06.3 · 1,5 dag:** scan_runs met start/einde, roots, fouten en tellingen opslaan; UI toont ontbrekende roots en laatst geslaagde scan. Watcherconfiguratie ook via Compose doorgeven.
+- [ ] **V06.4 · 2 dagen:** echte migratie van een oudere databasestructuur, UNC-/NAS-foutscenario's en terugzetten van back-up testen.
+
+**Acceptatie:**
+
+- Verplaatsen/hernoemen van een aantoonbaar identiek bestand behoudt favorieten, playlistposities en geschiedenis.
+- Twijfelachtige matches worden niet automatisch samengevoegd.
+- Onbereikbare root of submap veroorzaakt geen verlies van bestaande items.
+- Een echt verwijderd bestand blijft herkenbaar als niet beschikbaar totdat een expliciete opschoonactie volgt.
+- Een volledig geslaagde scan zonder nieuwe bestanden actualiseert de scandatum.
+- Beschadigde metadata blokkeert de scan niet blijvend; annuleren of herstarten heeft een gedocumenteerd gedrag.
+
+### V07 — Zoeken, albumversies en bronkeuze
+
+**Doel:** de gebruiker vindt het gewenste nummer en weet welke versie kan afspelen.  
+**Bevindingen:** B08, B09.
+
+- [ ] **V07.1 · 2 dagen:** bronverwijzingen en editiegegevens bewaren; Unicode-veilige deduplicatie zonder verlies van live-/studio-/remasterversies.
+- [ ] **V07.2 · 2 dagen:** filters op bron, genre en audioformaat/kwaliteit; zoekresultaten met expliciete speelbaarheid en bronkeuze.
+- [ ] **V07.3 · 2 dagen:** lokale zoekbenchmark, rangschikking en geschikte indexen; FTS5 alleen invoeren als de gemeten winst dit rechtvaardigt.
+- [ ] **V07.4 · 2 dagen:** provider-timeouts, gedeeltelijke resultaten en lege/foutstatussen; tests op edities, niet-Latijnse namen en trage bronnen.
+
+**Acceptatie:**
+
+- Studio- en liveversies blijven afzonderlijk bereikbaar; verschillende niet-Latijnse titels verdwijnen niet door een gelijke lege sleutel.
+- Alternatieve bronkeuze gebruikt het juiste provider-item-ID en behoudt de gekozen versie.
+- Een defecte provider blokkeert lokale resultaten niet; de UI noemt de onbereikbare bron.
+- Streefwaarde: lokale zoekrespons p95 onder 300 ms bij 50.000 tracks, gemeten op vastgelegde NAS-hardware en dataset.
+- De bestaande paginering/lazy loading blijft werken; virtualisatie alleen toevoegen bij aangetoonde weergaveproblemen.
+
+### V08 — Mobiele bediening en betrouwbare webapp
+
+**Doel:** de app is dagelijks bruikbaar op telefoon/tablet en herstelt begrijpelijk van netwerk- en updateproblemen.  
+**Bevindingen:** B02, B13; afronding basisroute.
+
+- [ ] **V08.1 · 2 dagen:** versievaste shellcache, offlinepagina en veilige updateflow; cache alleen eigen resources en begrens artworkopslag.
+- [ ] **V08.2 · 2 dagen:** begeleide eerste ervaring: bibliotheekstatus, bronverbinding en gekozen uitvoer met korte fout-/herstelmeldingen.
+- [ ] **V08.3 · 2 dagen:** visuele en toegankelijkheidstest van zoeken → album → wachtrij → uitvoer → instellingen; labels, focus, contrast en touchbediening herstellen waar nodig.
+- [ ] **V08.4 · 2 dagen:** browseracceptatie op Android/Chrome en iOS/Safari, achtergrond/voorgrond, tokenvernieuwing en twee opeenvolgende releases; beknopte beheerdiagnostiek toevoegen.
+
+**Acceptatie:**
+
+- Na één succesvol bezoek blijft bij verbroken netwerk een bruikbare app-shell of uitleg beschikbaar, zonder onbehandelde service-workerfout.
+- Een nieuwe release veroorzaakt geen witte pagina door oude HTML/nieuwe assets.
+- Offline status belooft geen offline audiocache; lopende NAS-playback wordt bij reconnect correct weergegeven.
+- Aanmelding, playback en wachtrij zijn met toetsenbord en schermlezerlabels te bedienen; essentiële mobiele knoppen hebben voldoende aanraakruimte.
+- Een geweigerde browser-playpromise/autoplay leidt tot een herhaalactie, niet tot een vals “speelt”-signaal.
+- Diagnostische export bevat versie en fout-/scanstatus, maar geen tokens, wachtwoorden of onnodige persoonlijke paden.
+
+### V09 — Persoonlijke profielen
+
+**Doel:** meerdere gebruikers hebben een eigen muziekomgeving boven dezelfde collectie.  
+**Keuzemoment:** uitvoeren als de app door meerdere mensen wordt gebruikt.  
+**Bevinding:** B10.
+
+- [ ] **V09.1 · 2 dagen:** userId/eigendom aan persoonlijke gegevens toevoegen; bestaande gedeelde data gecontroleerd als huishoudcollectie behouden of aan een gekozen eigenaar koppelen.
+- [ ] **V09.2 · 2 dagen:** toegang tot playlists, favorieten, history, stats en slimme playlists consequent per gebruiker afhandelen; expliciet delen ondersteunen of voorlopig uitsluiten.
+- [ ] **V09.3 · 2 dagen:** persoonlijke scrobbleconfiguratie en bijbehorende cache-/retry-isolatie. Globale muziekproviders blijven zichtbaar als beheerde huishoudverbinding.
+- [ ] **V09.4 · 2 dagen:** accounts wisselen, data-overdracht bij verwijderen en privacyregressies op API, UI en sockets testen.
+
+**Acceptatie:**
+
+- Gebruiker A kan persoonlijke gegevens van B niet lezen of wijzigen via een geraden ID.
+- Luistergegevens en scrobbles blijven gescheiden, ook bij mislukte inzendingen en opnieuw verbinden.
+- Migratie verliest geen bestaande playlists/favorieten; eigenaar en eventuele gedeelde status zijn zichtbaar.
+- Browsercache en sessiewissel tonen geen persoonlijke gegevens uit een vorige aanmelding.
+- Persoonlijke Spotify/Qobuz-accounts zijn geen verborgen onderdeel van deze sprint; daarvoor volgt apart ontwerp indien gewenst.
+
+### V10 — Afzonderlijke wachtrij per zone
+
+**Doel:** verschillende kamers kunnen onafhankelijk worden bediend.  
+**Keuzemoment:** minimaal twee daadwerkelijk gebruikte uitvoerapparaten beschikbaar.  
+**Bevinding:** B11.
+
+- [ ] **V10.1 · 2,5 dag:** zones en afspeelsessies modelleren; singleton playbackstate/queue omzetten naar per-zone opslag.
+- [ ] **V10.2 · 2 dagen:** dispatch, monitor, events en toegang aan de juiste zone koppelen; één apparaat kan niet onbedoeld twee actieve zones bezetten.
+- [ ] **V10.3 · 1,5 dag:** zonekiezer met eigen wachtrij/status/volume en herkenbare gedeelde bediening.
+- [ ] **V10.4 · 2 dagen:** gelijktijdig luisteren, tweede controller, offline apparaat en herstart testen op twee outputs.
+
+**Acceptatie:**
+
+- Twee kamers spelen verschillende wachtrijen; pause/next/volume in kamer A verandert B niet.
+- Een client bedient de gekozen zone en krijgt na reconnect de juiste snapshot.
+- Een apparaatfout blijft binnen de eigen zone.
+- Bestaande Sonos-topologie blijft correct zichtbaar; dit levert nog geen nieuw groepsprotocol of gegarandeerd gesynchroniseerde gemengde DLNA-groep.
+- Native groeperen en “verplaats muziek naar andere kamer” blijven een aparte vervolgtaak E04.
+
+### V11 — Trackovergangen en audiopad
+
+**Doel:** hoorbare kwaliteit verbeteren en beperkingen eerlijk tonen.  
+**Bevinding:** B12.
+
+- [ ] **V11.1 · 1,5 dag:** capabilities per output: ondersteunde formaten, seek, next-URI, ReplayGain, gapless en bekende limieten.
+- [ ] **V11.2 · 2,5 dag:** browservoorbereiding en daadwerkelijke overname van het volgende element/buffer; crossfadefouten en promises correct afhandelen.
+- [ ] **V11.3 · 2 dagen:** servergestuurde next-URI voor ondersteunde apparaten; unsupported/failed teruggeven als expliciete status.
+- [ ] **V11.4 · 2 dagen:** audiopad tonen en testovergangen opnemen/meten op de gekozen referentieoutputs.
+
+**Acceptatie:**
+
+- Referentietracks met aaneengesloten audio gaan twintigmaal achtereen over zonder herstart, dubbele dispatch of overslaan.
+- Gebruik “gapless geverifieerd” uitsluitend voor bron/outputcombinaties waarvan de opgenomen grens geen toegevoegde pauze of ontbrekende audio laat zien.
+- Bij overige combinaties wordt de gemeten overgangsduur vastgelegd en de beperking benoemd.
+- Het audiopad toont bronformaat, eventuele verwerking/conversie, uitvoerroute en onbekende stappen. Bron-FLAC is geen bewijs voor bit-perfect-uitvoer.
+- Volledige continue serverstreaming/transcoding is geen stilzwijgende scope-uitbreiding: eerst een proef met één codec/apparaat en NAS-CPU-meting; daarna apart plannen.
+
+### V12 — Gemengde playlists en bruikbaarder ontdekken
+
+**Doel:** meer muziek vinden en bewaren vanuit de bestaande lokale/Qobuz-ervaring.  
+**Keuzemoment:** basis betrouwbaar, gebruiker wil daadwerkelijk meer ontdekfuncties.
+
+- [ ] **V12.1 · 2,5 dag:** playlistitems met stabiele bronreferentie en metadata-snapshot; lokale en Qobuz-nummers in dezelfde playlist, inclusief tijdelijk niet-beschikbare items.
+- [ ] **V12.2 · 2 dagen:** bestaande ListenBrainz-aanbevelingen uitbreiden met direct afspeelbare matches en “waarom deze aanbeveling?”; lokale mix mogelijk zonder externe accountverbinding.
+- [ ] **V12.3 · 1,5 dag:** shuffle zonder herhaling binnen één ronde; keuze voor minder recent gehoorde tracks en uitsluiten van onbeschikbare bronnen.
+- [ ] **V12.4 · 2 dagen:** opslaan/afspelen van een ontdekmix, bronuitval en profielscheiding testen; effect met de gebruiker beoordelen.
+
+**Acceptatie:**
+
+- Een gemengde lokaal/Qobuz-playlist blijft na herstart identiek en vraagt tijdelijke stream-URLs pas bij playback op.
+- Een aanbeveling zonder zekere match start geen toevallig gelijknamig nummer.
+- Een shuffle-ronde herhaalt geen wachtrijpositie zolang repeat uit staat.
+- De basis van aanbevelingen is zichtbaar en kan worden uitgezet.
+- Bestaande M3U-import/export blijft werken voor ondersteunde lokale verwijzingen; externe items krijgen een expliciete exportbeperking.
+
+## 7. Optionele backlog na de gekozen sprints
+
+| ID | Voorstel | Voorwaarde en beperkte eerste stap | Eerste indicatie |
+| --- | --- | --- | --- |
+| E01 | Sleeptimer / stoppen na album | Na V04; server voert timer uit, ook bij gesloten client. UI kan timer annuleren; test per zone als V10 bestaat. | 1–3 dagen |
+| E02 | OpenSubsonic | Na betrouwbare auth/profielen; eerst authenticatie, browse, zoek en lokale stream naar één bestaande mobiele client. Beslis daarna over volledige compatibiliteit. | Proef 3–5 dagen; productisering apart |
+| E03 | Extra apparaatprotocol of Home Assistant | Inventariseer concrete thuisapparatuur. Kies één integratie, één referentieapparaat en een terugvalroute. | Proef 2–5 dagen; productisering apart |
+| E04 | Sonos-groeperen en muziekoverdracht | Na V10/V11; voeg seek en native groepshandelingen alleen toe waar ondersteund. Geen cross-protocol-syncbelofte. | 1–2 vervolgsprints |
+| E05 | Klassieke muziek en metadata-editor | Composer/conductor bestaan al; werk/deel, meerdere uitvoerenden en herstelbare metadata-overrides toevoegen als de collectie dat vraagt. Eerst alleen wijzigingen in de database. | 1–2 vervolgsprints |
+| E06 | Transcoding / mobiele bandbreedteprofielen | Na V11; één lokaal codecprofiel, limiet op gelijktijdige conversies en NAS-belasting meten. Externe diensten alleen via toegestane mogelijkheden. | Proef 3–5 dagen; productisering apart |
+| E07 | Muziek offline meenemen | Kies eerst tussen eigen PWA-downloads en bestaande mobiele clients via E02. Begin uitsluitend met lokale bestanden, quota en expliciete verwijdering. | Apart ontwerp |
+
+## 8. Richting voor de technische uitwerking
+
+Deze keuzes voorkomen dat nieuwe functies dezelfde problemen terugbrengen:
+
+- **PlaybackSession:** queue, huidige queueItemId, revisie, eigenaar, output en transportstatus horen bij één sessie. Vanaf V10 hangt die aan een zone. Tijdens de eerste migratie kan één bestaande huishoudzone de huidige data behouden.
+- **TrackReference:** bron + bron-ID + versiegegevens, met optionele koppeling aan een lokaal bibliotheekitem. Tijdelijke stream-URL's zijn geen blijvende trackidentiteit.
+- **PlaybackResolver:** kiest op het moment van afspelen de ondersteunde route. Maak onderscheid tussen een directe audiostream en een externe speler zoals Spotify Connect.
+- **ListeningSession:** starttijd, werkelijk beluisterde duur en een unieke verwerkingssleutel. Het resultaat voedt geschiedenis, statistieken en scrobblequeue.
+- **LibrarySource / ScanRun:** bronpad en scanresultaat staan los van trackidentiteit en persoonlijke gegevens.
+- **Grenzen tussen modules:** apparaat-I/O, bronresolutie, queuebeheer en events via duidelijke afhankelijkheden verbinden. De huidige circulaire importketen is een concreet argument voor deze scheiding.
+- **Frontend:** behoud de bestaande progress-store en lazy geladen pagina's. Splits AudioContext en SettingsPage alleen langs deze verantwoordelijkheden; hun huidige omvang van respectievelijk circa 815 en 951 regels is een onderhoudssignaal, geen zelfstandig reden voor een herschrijving.
+- **Opslag:** bestaande SQLite/Drizzle behouden. Nieuwe migraties versieerbaar en transactioneel waar mogelijk; bij grotere wijzigingen eerst een kopie van een oude database migreren en controleren.
+- **Uitrol:** wijzigingen aan queue-/socketcontracten moeten oude clients herkennen of een expliciete verversing vragen. Laat geen oude browser nieuwe persistente data stilzwijgend overschrijven.
+
+## 9. Acceptatie, meetpunten en beslismomenten
+
+### Vast testmateriaal
+
+Leg in V01 een kleine versieerbare testcollectie met eigen/rechtenvrije of gegenereerde audio vast: MP3, FLAC, gemengde sample rates, album met herhaalde track, multi-disc, compilatie, ReplayGain, Unicode-metadata, ontbrekende cover en beschadigde metadata. Voeg fixtures voor een oude database, provider-timeouts en mislukte apparaatopdrachten toe.
+
+Voor hardwareacceptatie: leg NAS-model, geheugen, Node/imageversie, gebruikte speler/firmware, netwerkroute en bronkwaliteit vast. Plan de beschikbaarheid van hardware/accounts vóór V04 en V11; credentials horen niet in testlogs of fixtures.
+
+### Meetpunten
+
+Dit zijn **voorgestelde doelen**, geen al behaalde resultaten.
+
+| Onderwerp | Streefwaarde of controle | Vanaf |
+| --- | --- | --- |
+| Wachtrij | Geen overslaan/dubbel starten in scenario's met herhaling, twee clients en retries | V03 |
+| Clientreconnect | Binnen 3 seconden na verbinding weer de juiste snapshot op hetzelfde LAN | V03 |
+| Zelfstandig doorspelen | Minimaal 30 minuten gemengd lokaal/Qobuz zonder actieve clients; vóór stabiele release een sessie van 2 uur | V04 |
+| Luistergegevens | Geen dubbele scrobbles; geen NULL-tijd voor nieuwe relevante records | V05 |
+| Bibliotheekwijziging | Geen verlies van favorieten/history/playlistposities in verplaatsingsscenario's | V06 |
+| Zoeken | p95 onder 300 ms lokaal op 50.000 tracks, of afwijking met gemeten bottleneck en vervolgactie | V07 |
+| Mobiele webapp | Eerste bruikbare weergave streefwaarde onder 2,5 seconden op vastgelegd toestel/netwerk | V08 |
+| Zones | Geen status- of opdrachtlekkage tussen twee gelijktijdige kamers | V10 |
+| Audio-overgangen | Meting per bron/output; label alleen wat werkelijk is aangetoond | V11 |
+| Herstel | Restore uitvoerbaar via runbook; tijd meten op representatieve database | V01 en elke datamigratie |
+
+### Definitie van afgerond
+
+Een sprint is pas afgerond wanneer:
+
+- De beschreven gebruikersuitkomst en alle acceptatiecriteria aantoonbaar zijn gehaald.
+- Relevante regressietests en de bestaande kwaliteitscontroles slagen.
+- Gewijzigde API-/socketcontracten, migraties en instellingen zijn gedocumenteerd.
+- Bij opslagwijzigingen een migratie én herstel op testdata zijn uitgevoerd.
+- Hardwarecriteria daadwerkelijk op hardware zijn getest; anders blijft de sprint **wacht op acceptatie**, niet “DONE”.
+- Resterende afwijkingen een eigenaar, impact en volgende actie hebben.
+
+### Beslismomenten
+
+- **Na V02:** veilige en herhaalbare basis; door naar playback.
+- **Na V04:** gebruikstest “tablet dicht, album blijft spelen”. Zonder dit resultaat geen grotere audio-uitbreiding.
+- **Na V06:** gegevensbehoud en luistercijfers betrouwbaar; daarna verbeteren van zoeken/aanbevelingen.
+- **Na V08:** bruikbare basisrelease. Kies expliciet welke van V09–V12 de meeste waarde hebben.
+- **Na V11:** bepaal op basis van metingen of extra transcoding/flow-mode de NAS-belasting en complexiteit waard is.
+
+## 10. Eerste uitvoeringsopdracht
+
+**Start met V01.** Leg de huidige 234 geslaagde tests vast als uitgangspunt, herstel de ontbrekende geautomatiseerde releasecontrole, beoordeel de 19 actuele dependencybevindingen en bewijs een schone installatie plus restore. Gebruik daarna dit document per sprint als werkopdracht en werk status, meetresultaten en resterende afwijkingen in dit bestand bij.
+
+De functionele broncode is tijdens deze analyse niet aangepast. Er zijn geen live afspeelapparaten aangestuurd en geen provideraccounts gewijzigd.
+
+## Bronverwijzingen naar de onderzochte code
+
+De links hieronder verwijzen naar deze lokale checkout. Regelnummers horen bij commit cd3f094; controleer bij uitvoering of de implementatie inmiddels is gewijzigd.
+
+[project-readme]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/README.md:1>
+[oude-sprints]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/SPRINTS.md:1>
+[oude-audit]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/SPRINT_AUDIT.md:1>
+[oude-next]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/NEXT_STEPS.md:1>
+[oude-security]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/SECURITY_AUDIT.md:1>
+[schema]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/db/schema.ts:83>
+[database]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/db/index.ts:34>
+[auth]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/middleware/auth.ts:88>
+[auth-routes]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/routes/auth.ts:225>
+[app-auth]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/client/src/App.tsx:38>
+[queue-service]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/services/playback.ts:180>
+[queue-client]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/client/src/context/AudioContext.tsx:275>
+[server-player]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/services/server-player.ts:38>
+[device-monitor]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/services/device-monitor.ts:174>
+[socket-server]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/socketio.ts:21>
+[socket-client]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/client/src/hooks/useSocket.ts:64>
+[playback-router]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/routes/playback.ts:50>
+[track-playback]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/client/src/hooks/useTrackPlayback.ts:410>
+[history]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/routes/history.ts:12>
+[scrobbler]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/services/scrobbler.ts:348>
+[scanner]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/services/scanner.ts:318>
+[scanner-start]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/services/scanner.ts:78>
+[watcher]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/services/watcher.ts:20>
+[registry]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/providers/registry.ts:29>
+[local-search]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/providers/local.ts:88>
+[spotify]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/providers/spotify.ts:530>
+[provider-routes]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/routes/providers.ts:259>
+[qobuz]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/providers/qobuz.ts:1>
+[playlists]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/routes/playlists.ts:1>
+[audio]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/client/src/hooks/useAudio.ts:238>
+[device-interface]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/shared/src/device.ts:25>
+[device-manager]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/devices/manager.ts:109>
+[sonos]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/devices/sonos.ts:114>
+[sw]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/client/public/sw.js:19>
+[health]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/routes/health.ts:16>
+[entry]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/index.ts:41>
+[docker]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/Dockerfile:1>
+[compose]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/docker-compose.yml:1>
+[test-app]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/__tests__/helpers/testApp.ts:29>
+[settings]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/client/src/pages/SettingsPage.tsx:1>
+[discover]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/client/src/pages/DiscoverPage.tsx:81>
+[tokens]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/services/tokenstore.ts:22>
+[api-client]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/client/src/api/client.ts:87>
+[device-routes]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/routes/devices.ts:37>
+[listenbrainz]: <C:/Users/DannydeLacombe/.claude/projects/AudioServer/server/src/services/listenbrainz.ts:1>
+

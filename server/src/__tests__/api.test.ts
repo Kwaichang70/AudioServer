@@ -33,14 +33,31 @@ afterAll(() => {
 });
 
 describe('Health API', () => {
-  it('returns a status, uptime, and timestamp', async () => {
-    const res = await fetch(`${baseUrl}/api/health`);
+  // This test setup deliberately does NOT initialise the DB, so the health
+  // endpoints must report the process as alive but not usable.
+  it('liveness answers 200 without touching the database', async () => {
+    const res = await fetch(`${baseUrl}/api/health/live`);
     const data = await res.json();
     expect(res.status).toBe(200);
-    // This test setup doesn't initialise the DB, so /api/health will report
-    // status 'degraded' (db: down). Both are valid responses — we just want
-    // to know the endpoint answered correctly.
-    expect(['ok', 'degraded']).toContain(data.status);
+    expect(data.status).toBe('ok');
+    expect(data.uptime).toBeGreaterThan(0);
+  });
+
+  it('readiness answers 503 while the database is unusable', async () => {
+    const res = await fetch(`${baseUrl}/api/health/ready`);
+    const data = await res.json();
+    expect(res.status).toBe(503);
+    expect(data.status).toBe('not_ready');
+    expect(data.db.status).toBe('down');
+    expect(data.db.error).toMatch(/not initialized/);
+  });
+
+  it('full health reports degraded with a 503 status code', async () => {
+    const res = await fetch(`${baseUrl}/api/health`);
+    const data = await res.json();
+    expect(res.status).toBe(503);
+    expect(data.status).toBe('degraded');
+    expect(data.db).toMatchObject({ status: 'down', schemaVersion: null });
     expect(data.uptime).toBeGreaterThan(0);
     expect(data.timestamp).toBeTruthy();
     expect(data.port).toBeGreaterThan(0);

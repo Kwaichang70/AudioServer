@@ -7,6 +7,9 @@
     "build": "tsc",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:backup": "node --import tsx/esm src/scripts/db-backup.ts",
+    "db:verify": "node --import tsx/esm src/scripts/db-verify.ts",
+    "db:restore": "node --import tsx/esm src/scripts/db-restore.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "start": "node dist/index.js"

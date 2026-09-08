@@ -112,6 +112,25 @@ export const openApiSpec = {
         },
       },
     },
+    '/health/live': {
+      get: {
+        tags: ['Health'],
+        summary: 'Liveness probe (process is running; no database access)',
+        security: [],
+        responses: { 200: ok('status "ok" and uptime') },
+      },
+    },
+    '/health/ready': {
+      get: {
+        tags: ['Health'],
+        summary: 'Readiness probe (database open and migrated)',
+        security: [],
+        responses: {
+          200: ok('status "ready", db schema version'),
+          503: ok('status "not_ready" with the database error'),
+        },
+      },
+    },
     '/auth/register': {
       post: {
         tags: ['Auth'],

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getRawDb } from '../db/index.js';
+import { getRawDb, getSchemaVersion, SCHEMA_VERSION } from '../db/index.js';
 import { providers } from '../providers/registry.js';
 import { getLibrespotState } from '../services/librespot.js';
 import { config } from '../config.js';
@@ -13,12 +13,58 @@ healthRouter.get('/live', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
+/**
+ * Readiness probe: can this process actually serve requests right now?
+ * Answers 503 while the database is not open, not migrated, or unreadable, so
+ * a container orchestrator (Docker HEALTHCHECK, compose, reverse proxy) can
+ * tell "process alive" from "safe to route traffic to". Cheap on purpose: one
+ * catalog read, no library statistics.
+ */
+healthRouter.get('/ready', (_req, res) => {
+  const check = checkDatabase();
+  if (check.status === 'ok') {
+    res.json({
+      status: 'ready',
+      uptime: process.uptime(),
+      db: {
+        status: 'ok',
+        schemaVersion: check.schemaVersion,
+        expectedSchemaVersion: SCHEMA_VERSION,
+      },
+    });
+    return;
+  }
+  res.status(503).json({
+    status: 'not_ready',
+    uptime: process.uptime(),
+    db: { status: 'down', error: check.error, expectedSchemaVersion: SCHEMA_VERSION },
+  });
+});
+
+type DbCheck = { status: 'ok'; schemaVersion: number } | { status: 'down'; error: string };
+
+function checkDatabase(): DbCheck {
+  try {
+    const db = getRawDb();
+    // `users` is created by the first migration; if it is missing the DB is
+    // open but not migrated, which is just as unusable as a closed one.
+    const table = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'users'")
+      .get() as { name: string } | undefined;
+    if (!table) return { status: 'down', error: 'database is not migrated (users table missing)' };
+    return { status: 'ok', schemaVersion: getSchemaVersion() };
+  } catch (err) {
+    return { status: 'down', error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 healthRouter.get('/', (_req, res) => {
   const memUsage = process.memoryUsage();
 
   // DB health — separate from stats so callers can tell "DB is up but library
   // is empty" from "DB is unreachable".
   let dbStatus: 'ok' | 'down' = 'ok';
+  let dbError: string | undefined;
   let dbStats: { artists: number; albums: number; tracks: number } = {
     artists: 0,
     albums: 0,
@@ -65,8 +111,9 @@ healthRouter.get('/', (_req, res) => {
       .all();
 
     libraryStats = { totalDuration, formats, sampleRates, bitDepths, genres };
-  } catch {
+  } catch (err) {
     dbStatus = 'down';
+    dbError = err instanceof Error ? err.message : String(err);
   }
 
   // Provider status — include "configured" + "available" + "authenticated" so a
@@ -90,14 +137,22 @@ healthRouter.get('/', (_req, res) => {
 
   const status = dbStatus === 'ok' ? 'ok' : 'degraded';
 
-  res.json({
+  // Degraded means the database is unusable: nothing behind this endpoint can
+  // work, so say so with the status code as well as the body (curl -f, uptime
+  // monitors and the Docker HEALTHCHECK only look at the code).
+  res.status(status === 'ok' ? 200 : 503).json({
     status,
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
     lanAddress: getLanAddress(),
     port: config.port,
     environment: process.env.NODE_ENV || 'development',
-    db: { status: dbStatus },
+    db: {
+      status: dbStatus,
+      ...(dbError ? { error: dbError } : {}),
+      schemaVersion: dbStatus === 'ok' ? getSchemaVersion() : null,
+      expectedSchemaVersion: SCHEMA_VERSION,
+    },
     library: { ...dbStats, lastScanAt },
     libraryStats,
     providers: providerStatus,

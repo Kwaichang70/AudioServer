@@ -8,8 +8,43 @@ import { existsSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
+/**
+ * Schema version this build writes into `PRAGMA user_version` once all
+ * migrations (Drizzle files + the lightweight ALTER TABLE backfills below)
+ * have run. Bump it whenever a migration is added.
+ *
+ * It exists for rollback safety: an older build refuses to open a database
+ * that a newer build has already migrated, instead of running against tables
+ * it does not understand. Databases from before this check carry version 0,
+ * which every build accepts and upgrades.
+ */
+export const SCHEMA_VERSION = 1;
+
+export class DatabaseVersionError extends Error {
+  constructor(
+    readonly found: number,
+    readonly supported: number,
+  ) {
+    super(
+      `Database schema version ${found} is newer than this build supports (${supported}). ` +
+        'Start the build that created it, or restore a backup taken before the upgrade ' +
+        '(see docs/backup-restore.md).',
+    );
+    this.name = 'DatabaseVersionError';
+  }
+}
+
 let db: ReturnType<typeof drizzle> | undefined;
 let rawDb: InstanceType<typeof Database> | undefined;
+
+export function getSchemaVersion(): number {
+  return readUserVersion(getRawDb());
+}
+
+export function readUserVersion(sqlite: InstanceType<typeof Database>): number {
+  const v = sqlite.pragma('user_version', { simple: true });
+  return typeof v === 'number' ? v : 0;
+}
 
 export function getDb() {
   if (!db) throw new Error('Database not initialized');
@@ -35,8 +70,13 @@ export async function initDatabase(overridePath?: string) {
   const dbPath = overridePath ?? config.databasePath;
   mkdirSync(dirname(dbPath), { recursive: true });
 
-  rawDb = new Database(dbPath);
-  const sqlite = rawDb;
+  const sqlite = new Database(dbPath);
+  const found = readUserVersion(sqlite);
+  if (found > SCHEMA_VERSION) {
+    sqlite.close();
+    throw new DatabaseVersionError(found, SCHEMA_VERSION);
+  }
+  rawDb = sqlite;
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('foreign_keys = ON');
 
@@ -61,7 +101,12 @@ export async function initDatabase(overridePath?: string) {
   runMigration(sqlite, 'albums', 'sample_rate', 'INTEGER');
   runMigration(sqlite, 'albums', 'bit_depth', 'INTEGER');
 
-  logger.info(`Database initialized at ${dbPath}`);
+  if (found !== SCHEMA_VERSION) {
+    sqlite.pragma(`user_version = ${SCHEMA_VERSION}`);
+    logger.info(`Database schema version ${found} -> ${SCHEMA_VERSION}`);
+  }
+
+  logger.info(`Database initialized at ${dbPath} (schema v${SCHEMA_VERSION})`);
 }
 
 function runMigration(
