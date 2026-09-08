@@ -157,7 +157,21 @@ sudo /usr/local/bin/docker-compose -f docker-compose.yml up -d --build
 Health check:
 
 ```bash
-curl -s http://localhost:3001/api/health
+curl -s http://localhost:3001/api/health/live    # process alive (no DB access)
+curl -s http://localhost:3001/api/health/ready   # 200 when the DB is open + migrated, else 503
+curl -s http://localhost:3001/api/health         # full diagnostics; 503 when degraded
+```
+
+The Docker `HEALTHCHECK` uses `/api/health/ready`, so `docker ps` shows
+`(healthy)` only once the database is usable.
+
+Backup, restore, update and rollback (including the schema-version check that
+makes a rollback safe) are in [docs/backup-restore.md](docs/backup-restore.md):
+
+```bash
+npm run db:backup --workspace=server -- /data/backups/before-update.db
+npm run db:verify --workspace=server -- /data/backups/before-update.db
+npm run db:restore --workspace=server -- /data/backups/before-update.db --yes   # server stopped
 ```
 
 Docker notes:
@@ -227,8 +241,12 @@ Scanner finds no music:
 
 - [docs/architecture.md](docs/architecture.md) — system + request-lifecycle diagrams, module ownership, key design decisions.
 - [docs/providers.md](docs/providers.md) — per-provider OAuth + scrobbling setup (Tidal, Spotify, Last.fm, ListenBrainz, Qobuz).
+- [docs/backup-restore.md](docs/backup-restore.md) — database backup, restore, update and rollback runbook.
+- [SECURITY_AUDIT.md](SECURITY_AUDIT.md) — dependency audit with the assessment of every remaining finding.
 - [CHANGELOG.md](CHANGELOG.md) — sprint-by-sprint history.
 
 ## Sprint Status
 
-See [SPRINT_AUDIT.md](SPRINT_AUDIT.md) for the current sprint audit and remaining work.
+The current plan is [VERBETERPLAN_SPRINTS.md](VERBETERPLAN_SPRINTS.md) (sprints V01–V12, status per task inside the document). [SPRINT_AUDIT.md](SPRINT_AUDIT.md) is the audit of the earlier sprint series 8–20.
+
+Every push runs the CI workflow (`.github/workflows/ci.yml`): clean install, lint, typecheck, tests and build on Node 22 and 24, then the production image is built, started, probed for readiness and stopped gracefully.

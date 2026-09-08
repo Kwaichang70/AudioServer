@@ -4,6 +4,47 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## V01 — Release basis (verbeterplan sprint 1)
+
+First sprint of [VERBETERPLAN_SPRINTS.md](VERBETERPLAN_SPRINTS.md): make every
+change reproducible to test and safe to roll back before touching playback.
+
+**Release gate**
+
+- `.github/workflows/ci.yml`: clean `npm ci`, lint, typecheck, server + client
+  tests and build on Node 22 (production) and Node 24; then the production
+  image is built, started, probed on `/api/health/ready`, checked against its
+  own `HEALTHCHECK` and stopped gracefully.
+- `startup-smoke.test.ts` boots the real `server/src/index.ts` with a temp DB,
+  no providers and no devices, and asserts a clean SIGTERM exit.
+
+**Readiness vs. liveness**
+
+- New `GET /api/health/ready`: 200 with the schema version when the DB is open
+  and migrated, 503 otherwise. `GET /api/health` now answers 503 when
+  degraded. Docker `HEALTHCHECK` uses the readiness probe.
+
+**Backup, restore, rollback**
+
+- `npm run db:backup|db:verify|db:restore --workspace=server`: consistent
+  online SQLite snapshot (single file, no WAL side files), read-only verify
+  (integrity, schema version, row counts), restore with dry run, safety copy
+  and an in-use guard.
+- `PRAGMA user_version` carries the schema version; an older build refuses a
+  database migrated by a newer one, which is the compatibility check the
+  rollback runbook relies on.
+- `docs/backup-restore.md`: what to back up (DB + `.env`, because
+  `JWT_SECRET` also encrypts provider tokens), scheduled backups, update and
+  rollback procedure, restore on an empty installation.
+
+**Dependencies** ([SECURITY_AUDIT.md](SECURITY_AUDIT.md))
+
+- Production audit 19 → 2 packages: transport/parser chains via lockfile
+  refresh, `qs` override, music-metadata 10 → 11 (ASF infinite loop),
+  drizzle-orm 0.38 → 0.45.2, express 4.22.2, tsx 4.23. The remaining
+  `node-ssdp → ip` finding is assessed as unreachable, with owner and review
+  date.
+
 ## Sprint 6 — ListenBrainz, beyond scrobbling
 
 AudioServer now _consumes_ ListenBrainz data, not just feeds it. Three slices,

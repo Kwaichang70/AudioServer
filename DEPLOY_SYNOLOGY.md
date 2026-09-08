@@ -96,6 +96,7 @@ sudo /usr/local/bin/docker-compose -f /volume1/docker/AudioServer/docker-compose
 Health:
 
 ```bash
+curl -s http://localhost:3001/api/health/ready
 curl -s http://localhost:3001/api/health
 ```
 
@@ -138,6 +139,14 @@ Check:
 
 ## 6. Rollback
 
+Before any update, take a backup (this is also step 1 of the update flow in
+[docs/backup-restore.md](docs/backup-restore.md)):
+
+```bash
+docker exec audioserver-audioserver-1 npm run db:backup --workspace=server -- /data/backups/before-update.db
+docker exec audioserver-audioserver-1 npm run db:verify --workspace=server -- /data/backups/before-update.db
+```
+
 On the NAS:
 
 ```bash
@@ -149,4 +158,12 @@ Then restore the previous source copy or re-extract the previous deployment arch
 
 ```bash
 sudo /usr/local/bin/docker-compose -f /volume1/docker/AudioServer/docker-compose.yml up -d --build
+until curl -fsS http://localhost:3001/api/health/ready; do sleep 2; done
 ```
+
+If the new release migrated the database, the old image refuses to start
+("Database schema version N is newer than this build supports"). That is the
+compatibility check doing its job: restore the pre-update backup with
+`db:restore ... --yes` as described in
+[docs/backup-restore.md](docs/backup-restore.md#rollback-procedure), then start
+again. Only when `/api/health/ready` answers 200 is the rollback complete.
