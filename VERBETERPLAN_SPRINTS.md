@@ -281,7 +281,7 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 - [x] **V01.2 · 3 dagen:** dependencybevindingen opnieuw vastleggen, gebruikte aanvalspaden beoordelen en reparaties in kleine groepen uitvoeren. Begin met parser-, database- en transportketens; test major-upgrades apart.
       _Gedaan:_ productie-audit van 19 naar 2 pakketten (beide dezelfde `node-ssdp → ip`-keten, beoordeeld als onbereikbaar met eigenaar en herbeoordelingsdatum). music-metadata 10→11 en drizzle-orm 0.38→0.45 apart getest; details in `SECURITY_AUDIT.md`.
 - [x] **V01.3 · 1,5 dag:** schone productie-image bouwen/starten, readiness van liveness scheiden en de containercontrole daarop laten aansluiten.
-      _Gedaan:_ `GET /api/health/ready` (503 zolang de database niet open/gemigreerd is), `/api/health` antwoordt 503 bij degraded, Docker `HEALTHCHECK` gebruikt readiness. Image-bouw en -start draaien in de CI-job `docker`; in de ontwikkelomgeving van deze sprint was geen Docker-daemon beschikbaar, dus de eerste echte imagecontrole is de CI-run op deze branch.
+      _Gedaan:_ `GET /api/health/ready` (503 zolang de database niet open/gemigreerd is), `/api/health` antwoordt 503 bij degraded, Docker `HEALTHCHECK` gebruikt readiness. Image-bouw en -start draaien in de CI-job `docker`; in de ontwikkelomgeving van deze sprint was geen Docker-daemon beschikbaar, de eerste imagecontrole is de groene CI-run 50 op deze branch (zie §11).
 - [x] **V01.4 · 2 dagen:** herstelprocedure met consistente SQLite-back-up, configuratie/sleutelbeheer en restore op een lege testinstallatie. Documentatie en huidige status corrigeren.
       _Gedaan:_ `db:backup` (SQLite online backup, één zelfstandig bestand), `db:verify`, `db:restore` (dry-run, veiligheidskopie, weigert bij open database), schemaversie in `PRAGMA user_version` met startup-weigering bij een nieuwere database, runbook `docs/backup-restore.md` (back-up, update, rollback, herstel op lege installatie, `.env`/`JWT_SECRET`), test die een back-up op een lege installatie terugzet en accounts, bibliotheek, playlist en geschiedenis terugleest.
 
@@ -591,7 +591,9 @@ Uitgevoerd op branch `claude/verbeterplan-sprints-uitvoering-tdav7i`, omgeving L
 | Back-up/restore          | geen procedure                            | scripts + runbook + geautomatiseerde restore-test                                 |
 | Browserslist             | circa zes maanden oud                     | bijgewerkt                                                                        |
 
-**Wacht op acceptatie (NAS):** eerste groene CI-run van de `docker`-job; restore van een back-up van de echte database op de NAS met tijdmeting; volledige bibliotheekscan met music-metadata 11 zonder verlies van tracks; Sonos/DLNA-discovery en Qobuz-playback na de dependency-upgrades. Pas daarna is V01 “DONE” volgens §9.
+**Eerste CI-run op deze branch (run 50, 8 sep 2026):** groen. Verify Node 22 in 1 min 12 s, Node 24 in 1 min 53 s; productie-image gebouwd en gestart in 5 min 15 s, `/api/health/ready` na 3 s, Docker HEALTHCHECK `healthy` na 4 s, `docker stop` eindigt met exitcode 0 en “Shutdown complete” in het log.
+
+**Wacht op acceptatie (NAS):** restore van een back-up van de echte database op de NAS met tijdmeting; volledige bibliotheekscan met music-metadata 11 zonder verlies van tracks; Sonos/DLNA-discovery en Qobuz-playback na de dependency-upgrades. Pas daarna is V01 “DONE” volgens §9.
 
 **Beslismoment na V02** blijft staan; V02 kan starten.
 
