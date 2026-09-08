@@ -9,9 +9,12 @@ export interface PlaybackTrack {
   albumId?: string;
   duration?: number;
   source?: string;
+  metadata?: Record<string, unknown>;
 }
 
+/** One occurrence in the queue. `itemId` is the stable identity (V03.1). */
 export interface PlaybackQueueEntry {
+  itemId: string;
   trackId: string;
   trackTitle: string;
   artistName: string;
@@ -19,7 +22,52 @@ export interface PlaybackQueueEntry {
   albumId?: string;
   duration?: number;
   source?: string;
+  metadata?: Record<string, unknown>;
   position: number;
+}
+
+/** Who caused a change: a browser tab (clientId) in a login session, or the server itself. */
+export interface PlaybackOrigin {
+  clientId: string | null;
+  sessionId: string | null;
+  server?: boolean;
+}
+
+export interface PlaybackSnapshot {
+  revision: number;
+  queue: PlaybackQueueEntry[];
+  currentItemId: string | null;
+  queueIndex: number;
+  state: NowPlaying;
+  shuffle: boolean;
+  repeat: 'off' | 'all' | 'one';
+  controller: { clientId: string | null; deviceId: string };
+}
+
+export interface PlaybackStateEvent extends NowPlaying {
+  revision: number;
+  currentItemId: string | null;
+  origin: PlaybackOrigin;
+}
+
+export interface PlaybackQueueEvent {
+  revision: number;
+  queue: PlaybackQueueEntry[];
+  currentItemId: string | null;
+  queueIndex: number;
+  shuffle: boolean;
+  repeat: 'off' | 'all' | 'one';
+  origin: PlaybackOrigin;
+}
+
+export interface PlaybackTrackChangedEvent {
+  track: PlaybackTrack;
+  itemId: string | null;
+  revision: number;
+  deviceId: string;
+  /** The tab that owns the session; it is the one that plays provider tracks the server cannot stream. */
+  controllerClientId: string | null;
+  origin: PlaybackOrigin;
 }
 
 export interface DevicePlaybackUpdate {
@@ -31,9 +79,11 @@ export interface DevicePlaybackUpdate {
 }
 
 export interface ServerToClientEvents {
-  'playback:state': (state: NowPlaying) => void;
-  'playback:queue': (queue: PlaybackQueueEntry[]) => void;
-  'playback:track-changed': (track: PlaybackTrack) => void;
+  /** Full session state; sent to every socket right after it connects (and on request). */
+  'playback:snapshot': (snapshot: PlaybackSnapshot) => void;
+  'playback:state': (state: PlaybackStateEvent) => void;
+  'playback:queue': (queue: PlaybackQueueEvent) => void;
+  'playback:track-changed': (event: PlaybackTrackChangedEvent) => void;
   'device:playback-update': (update: DevicePlaybackUpdate) => void;
   'device:discovered': (device: { id: string; name: string; type: string }) => void;
   'device:lost': (device: { id: string; name: string }) => void;
@@ -45,4 +95,6 @@ export interface ServerToClientEvents {
 export interface ClientToServerEvents {
   'device:subscribe': (deviceId: string) => void;
   'device:unsubscribe': (deviceId: string) => void;
+  /** Ask for a fresh snapshot (after a reconnect the server sends one anyway). */
+  'playback:sync': () => void;
 }

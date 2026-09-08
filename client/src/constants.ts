@@ -8,6 +8,8 @@ export const STORAGE_KEYS = {
   replayGainMode: 'audioserver_replaygain_mode',
   replayGainPreamp: 'audioserver_replaygain_preamp',
   theme: 'audioserver_theme',
+  /** Per-tab id (sessionStorage) that identifies this client to the playback session. */
+  clientId: 'audioserver_client_id',
 } as const;
 
 export const DEFAULT_LIBRARY_PAGE_SIZE = 60;

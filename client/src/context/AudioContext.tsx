@@ -13,7 +13,8 @@ import { useMediaSession } from '../hooks/useMediaSession.js';
 import { useSocket } from '../hooks/useSocket.js';
 import { useSpotifyWebPlayback } from '../hooks/useSpotifyWebPlayback.js';
 import { useTrackPlayback } from '../hooks/useTrackPlayback.js';
-import { api } from '../api/client.js';
+import { api, ApiError, getClientId, newCommandId } from '../api/client.js';
+import type { PlaybackQueueEntry, PlaybackSnapshot } from '../api/types.js';
 import { useToast } from '../components/Toast.js';
 import { setProgress } from './ProgressStore.js';
 import { DEVICE_POLL_INTERVAL, STORAGE_KEYS } from '../constants.js';
@@ -66,6 +67,45 @@ interface AudioContextValue {
 
 const AudioCtx = createContext<AudioContextValue | null>(null);
 
+// External local renderers (DLNA/Sonos, not the browser and not a Spotify
+// Connect target). For these the SERVER streams local tracks itself
+// (server/src/services/server-player.ts); this client only mirrors.
+const isExternalLocalDevice = (deviceId: string) =>
+  deviceId !== 'browser' && !deviceId.startsWith('spotify-connect:');
+const isLocalTrack = (trackId: string) => !trackId.includes(':');
+
+/** Server queue entry → the TrackInfo the player hooks work with. */
+function entryToTrack(entry: PlaybackQueueEntry): TrackInfo {
+  return {
+    ...(entry.metadata as Partial<TrackInfo> | undefined),
+    id: entry.trackId,
+    itemId: entry.itemId,
+    title: entry.trackTitle,
+    artistName: entry.artistName,
+    albumTitle: entry.albumTitle,
+    albumId: entry.albumId,
+    duration: entry.duration,
+    source: entry.source,
+  };
+}
+
+/** Client TrackInfo → the payload the server queue keeps (extras travel as metadata). */
+function trackToPayload(track: TrackInfo) {
+  const {
+    id,
+    itemId: _itemId,
+    title,
+    artistName,
+    albumTitle,
+    albumId,
+    duration,
+    source,
+    ...metadata
+  } = track;
+  void _itemId;
+  return { id, title, artistName, albumTitle, albumId, duration, source, metadata };
+}
+
 export function AudioProvider({ children }: { children: ReactNode }) {
   const audio = useAudio();
   const socket = useSocket();
@@ -79,8 +119,12 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const spotifyWebSetVolumeRef = useRef(spotifyWeb.setVolume);
   spotifyWebSetVolumeRef.current = spotifyWeb.setVolume;
   const [currentTrack, setCurrentTrack] = useState<TrackInfo | null>(null);
+  // The queue is a MIRROR of the server's household session (V03): every
+  // edit goes to the server, the response/socket snapshot is applied back.
   const [queue, setQueue] = useState<TrackInfo[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
+  const revisionRef = useRef(0);
+  const clientId = useMemo(() => getClientId(), []);
   const [selectedDeviceId, setSelectedDeviceIdState] = useState(
     () => localStorage.getItem(STORAGE_KEYS.selectedDevice) || 'browser',
   );
@@ -153,12 +197,6 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   queueRef.current = queue;
   const toastRef = useRef(toast);
   toastRef.current = toast;
-
-  // External local renderers (DLNA/Sonos, not the browser and not a Spotify
-  // Connect target). For these the SERVER owns queue advancement — see the
-  // queue-sync effect below and server/src/services/server-player.ts.
-  const isExternalLocalDevice = (deviceId: string) =>
-    deviceId !== 'browser' && !deviceId.startsWith('spotify-connect:');
 
   // Surface Web Playback SDK init failures (most commonly "Premium required")
   // so browser-Spotify doesn't fail silently.
@@ -264,77 +302,132 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     getQueue: () => queueRef.current,
   });
 
-  const playTrack = useCallback(
-    (track: TrackInfo) => {
-      // Always seed a queue so shuffle/repeat/next/prev have something to act on.
-      setQueue([track]);
-      setQueueIndex(0);
+  // ─── Server session mirror ─────────────────────────────────────
+
+  const applySnapshot = useCallback((snapshot: PlaybackSnapshot, mirrorTrack = false) => {
+    if (snapshot.revision < revisionRef.current) return; // older than what we have
+    revisionRef.current = snapshot.revision;
+    setQueue(snapshot.queue.map(entryToTrack));
+    setQueueIndex(snapshot.queueIndex);
+    setShuffle(snapshot.shuffle);
+    setRepeat(snapshot.repeat);
+    // A device that plays on its own (DLNA/Sonos/Connect) is worth showing
+    // even if this tab did not start it; the browser output is per tab.
+    if (mirrorTrack && snapshot.state.track && snapshot.state.deviceId !== 'browser') {
+      const entry = snapshot.queue.find((e) => e.itemId === snapshot.currentItemId);
+      const track = entry ? entryToTrack(entry) : (snapshot.state.track as TrackInfo);
+      setCurrentTrack((prev) => (prev?.id === track.id ? prev : track));
+    }
+  }, []);
+  const applySnapshotRef = useRef(applySnapshot);
+  applySnapshotRef.current = applySnapshot;
+
+  // Initial load + every socket (re)connect: full snapshot.
+  useEffect(() => {
+    api
+      .getPlaybackSession()
+      .then((res) => applySnapshotRef.current(res.data, true))
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (socket.snapshot) applySnapshotRef.current(socket.snapshot, true);
+  }, [socket.snapshot]);
+
+  // Queue edits made anywhere (this tab, another tab, the server).
+  useEffect(() => {
+    const ev = socket.queueEvent;
+    if (!ev || ev.revision < revisionRef.current) return;
+    revisionRef.current = ev.revision;
+    setQueue(ev.queue.map(entryToTrack));
+    setQueueIndex(ev.queueIndex);
+    setShuffle(ev.shuffle);
+    setRepeat(ev.repeat);
+  }, [socket.queueEvent]);
+
+  /**
+   * A command failed: on a stale revision the server sent the fresh snapshot,
+   * apply it and tell the user; otherwise re-sync from the server.
+   */
+  const recoverFromCommandError = useCallback((err: unknown, what: string) => {
+    const apiErr =
+      err instanceof ApiError || (err as ApiError | null)?.name === 'ApiError'
+        ? (err as ApiError)
+        : null;
+    if (apiErr?.isStaleRevision && apiErr.data) {
+      applySnapshotRef.current(apiErr.data as PlaybackSnapshot);
+      toastRef.current('Queue changed on another device; showing the latest', 'info');
+      return;
+    }
+    if (apiErr?.statusCode === 404 && apiErr.data) {
+      applySnapshotRef.current(apiErr.data as PlaybackSnapshot);
+      toastRef.current(`${what}: that item is no longer in the queue`, 'info');
+      return;
+    }
+    api
+      .getPlaybackSession()
+      .then((res) => applySnapshotRef.current(res.data))
+      .catch(() => {});
+  }, []);
+
+  /**
+   * After a play-type command the snapshot names the current item. Local
+   * tracks on a server-managed device were already streamed by the server;
+   * everything else (browser, Spotify Connect, provider tracks) this tab
+   * starts itself.
+   */
+  const startFromSnapshot = useCallback(
+    (snapshot: PlaybackSnapshot, fallback?: TrackInfo) => {
+      const entry = snapshot.queue.find((e) => e.itemId === snapshot.currentItemId);
+      const track = entry
+        ? { ...(fallback?.id === entry.trackId ? fallback : {}), ...entryToTrack(entry) }
+        : fallback;
+      if (!track) return;
+      const deviceId = selectedDeviceRef.current;
+      if (isExternalLocalDevice(deviceId) && isLocalTrack(track.id)) {
+        setCurrentTrack(track);
+        setIsLoading(false);
+        api.recordPlay(track.id, track.albumId || '', '').catch(() => {});
+        return;
+      }
       startTrack(track);
     },
     [startTrack],
   );
 
-  // Mirror server-side queue advances. For external local devices the server
-  // has ALREADY streamed the track to the device (server-player), so only the
-  // UI updates here; re-dispatching would restart the track. Provider tracks
-  // (spotify:/qobuz:) can't be served from the NAS disk — the server skips
-  // them and this awake client routes them through its provider path instead.
-  // Ref-equality guard: `queue` is a dependency, so without it a queue edit
-  // would re-run this effect with the same event and re-trigger playback.
-  const handledTrackChangeRef = useRef<object | null>(null);
-  useEffect(() => {
-    if (!socket.trackChanged || socket.trackChanged === handledTrackChangeRef.current) return;
-    handledTrackChangeRef.current = socket.trackChanged;
-
-    const nextTrack = socket.trackChanged;
-    const nextIndex = queue.findIndex((track) => track.id === nextTrack.id);
-    if (nextIndex >= 0) setQueueIndex(nextIndex);
-
-    const serverManaged =
-      isExternalLocalDevice(selectedDeviceRef.current) && !nextTrack.id.includes(':');
-    if (serverManaged) {
-      setCurrentTrack((prev) => (prev?.id === nextTrack.id ? prev : { ...nextTrack }));
-      setIsLoading(false);
-      return;
-    }
-    startTrack(nextTrack);
-  }, [socket.trackChanged, queue, startTrack]);
-
-  // Hand the queue to the server whenever an external local device is in
-  // charge. From that moment the NAS advances the album itself (device-monitor
-  // detects track end → next track is streamed server-side), so playback
-  // continues when this tablet goes to sleep. Keyed to avoid re-posting the
-  // identical state; queueIndex changes re-sync so the server stays aligned
-  // after manual next/previous too.
-  const queueSyncKeyRef = useRef('');
-  useEffect(() => {
-    if (!isExternalLocalDevice(selectedDeviceId) || queue.length === 0) return;
-    const key = [
-      selectedDeviceId,
-      queueIndex,
-      shuffle,
-      repeat,
-      queue.map((t) => t.id).join(','),
-    ].join('§');
-    if (queueSyncKeyRef.current === key) return;
-    queueSyncKeyRef.current = key;
-    api
-      .setServerQueue(queue, Math.max(0, queueIndex), selectedDeviceId, shuffle, repeat)
-      .catch(() => {
-        // Allow a retry on the next state change
-        queueSyncKeyRef.current = '';
-      });
-  }, [queue, queueIndex, shuffle, repeat, selectedDeviceId]);
-
-  const playAlbum = useCallback(
-    (tracks: TrackInfo[]) => {
+  /** Replace the household queue with `tracks` and start `startIndex`. */
+  const playTracks = useCallback(
+    (tracks: TrackInfo[], startIndex: number) => {
       if (tracks.length === 0) return;
+      const deviceId = selectedDeviceRef.current;
+      // Optimistic local mirror so the UI reacts before the round trip.
       setQueue(tracks);
-      setQueueIndex(0);
-      startTrack(tracks[0]);
+      setQueueIndex(startIndex);
+      setCurrentTrack(tracks[startIndex]);
+      setIsLoading(true);
+      api
+        .setServerQueue(tracks.map(trackToPayload), startIndex, deviceId, shuffle, repeat, {
+          commandId: newCommandId(),
+        })
+        .then((res) => {
+          applySnapshotRef.current(res.data);
+          startFromSnapshot(res.data, tracks[startIndex]);
+        })
+        .catch((err) => {
+          // Server unreachable: still play locally so the user is not stuck,
+          // the queue will re-sync on the next snapshot.
+          toastRef.current(
+            `Could not hand the queue to the server (${err instanceof Error ? err.message : err})`,
+            'error',
+          );
+          startTrack(tracks[startIndex]);
+        });
     },
-    [startTrack],
+    [shuffle, repeat, startFromSnapshot, startTrack],
   );
+
+  const playTrack = useCallback((track: TrackInfo) => playTracks([track], 0), [playTracks]);
+
+  const playAlbum = useCallback((tracks: TrackInfo[]) => playTracks(tracks, 0), [playTracks]);
 
   // Play a specific position in the EXISTING queue (QueuePage taps). playTrack
   // would replace the whole queue with just that track.
@@ -343,80 +436,153 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       const track = queueRef.current[index];
       if (!track) return;
       setQueueIndex(index);
-      startTrack(track);
+      if (!track.itemId) {
+        startTrack(track);
+        return;
+      }
+      setIsLoading(true);
+      api
+        .playQueueItem(track.itemId, selectedDeviceRef.current)
+        .then((res) => {
+          applySnapshotRef.current(res.data);
+          startFromSnapshot(res.data, track);
+        })
+        .catch((err) => {
+          setIsLoading(false);
+          recoverFromCommandError(err, 'Play');
+        });
     },
-    [startTrack],
+    [startTrack, startFromSnapshot, recoverFromCommandError],
   );
 
-  const addToQueue = useCallback((track: TrackInfo) => {
-    setQueue((q) => [...q, track]);
-  }, []);
+  const addToQueue = useCallback(
+    (track: TrackInfo) => {
+      setQueue((q) => [...q, track]);
+      api
+        .addToQueue(trackToPayload(track), { commandId: newCommandId() })
+        .then((res) => applySnapshotRef.current(res.data))
+        .catch((err) => recoverFromCommandError(err, 'Add to queue'));
+    },
+    [recoverFromCommandError],
+  );
 
   const clearQueue = useCallback(() => {
     setQueue([]);
     setQueueIndex(-1);
-  }, []);
+    api
+      .clearQueue({ commandId: newCommandId() })
+      .then((res) => applySnapshotRef.current(res.data))
+      .catch((err) => recoverFromCommandError(err, 'Clear queue'));
+  }, [recoverFromCommandError]);
 
-  const removeFromQueue = useCallback((index: number) => {
-    setQueue((q) => {
-      const newQueue = [...q];
-      newQueue.splice(index, 1);
-      return newQueue;
-    });
-    setQueueIndex((curr) => {
-      if (index < curr) return curr - 1;
-      // The removed track can keep playing until it ends. Point just before
-      // its former successor so playNext() advances to that successor instead
-      // of skipping it in the shortened queue.
-      if (index === curr) return curr - 1;
-      return curr;
-    });
-  }, []);
+  const removeFromQueue = useCallback(
+    (index: number) => {
+      const item = queueRef.current[index];
+      if (!item) return;
+      const expectedRevision = revisionRef.current;
+      setQueue((q) => {
+        const newQueue = [...q];
+        newQueue.splice(index, 1);
+        return newQueue;
+      });
+      setQueueIndex((curr) => {
+        if (index < curr) return curr - 1;
+        // The removed track can keep playing until it ends. Point just before
+        // its former successor so the next advance lands on that successor.
+        if (index === curr) return curr - 1;
+        return curr;
+      });
+      if (!item.itemId) return;
+      api
+        .removeFromQueue(item.itemId, { expectedRevision, commandId: newCommandId() })
+        .then((res) => applySnapshotRef.current(res.data))
+        .catch((err) => recoverFromCommandError(err, 'Remove'));
+    },
+    [recoverFromCommandError],
+  );
 
-  const moveInQueue = useCallback((from: number, to: number) => {
-    setQueue((q) => {
-      const newQueue = [...q];
-      const [item] = newQueue.splice(from, 1);
-      newQueue.splice(to, 0, item);
-      return newQueue;
-    });
-    setQueueIndex((curr) => {
-      if (curr === from) return to;
-      if (from < curr && to >= curr) return curr - 1;
-      if (from > curr && to <= curr) return curr + 1;
-      return curr;
-    });
-  }, []);
+  const moveInQueue = useCallback(
+    (from: number, to: number) => {
+      const item = queueRef.current[from];
+      if (!item || from === to) return;
+      const expectedRevision = revisionRef.current;
+      setQueue((q) => {
+        const newQueue = [...q];
+        const [moved] = newQueue.splice(from, 1);
+        newQueue.splice(to, 0, moved);
+        return newQueue;
+      });
+      setQueueIndex((curr) => {
+        if (curr === from) return to;
+        if (from < curr && to >= curr) return curr - 1;
+        if (from > curr && to <= curr) return curr + 1;
+        return curr;
+      });
+      if (!item.itemId) return;
+      api
+        .moveInQueue(item.itemId, to, { expectedRevision, commandId: newCommandId() })
+        .then((res) => applySnapshotRef.current(res.data))
+        .catch((err) => recoverFromCommandError(err, 'Move'));
+    },
+    [recoverFromCommandError],
+  );
 
+  // "Next" is decided by the server (shuffle/repeat live there), so every
+  // tab and the NAS agree on what comes after this track.
   const playNext = useCallback(() => {
-    if (queue.length === 0) return;
+    if (queueRef.current.length === 0 && repeat !== 'one') return;
+    api
+      .playbackNext({ commandId: newCommandId() })
+      .then((res) => {
+        applySnapshotRef.current(res.data);
+        if (res.data.state.state === 'stopped' || !res.data.state.track) {
+          // End of queue: nothing more to play on this tab.
+          return;
+        }
+        startFromSnapshot(res.data);
+      })
+      .catch((err) => recoverFromCommandError(err, 'Next'));
+  }, [repeat, startFromSnapshot, recoverFromCommandError]);
 
-    if (repeat === 'one') {
-      // Repeat current track
-      if (queue[queueIndex]) startTrack(queue[queueIndex]);
+  // Track changes announced by the server (V03.3). Own commands were already
+  // handled through their response; a change from another tab is mirrored
+  // only (no audio starts here); a server-side advance on a device this tab
+  // controls needs this tab only for provider tracks the NAS cannot stream.
+  const handledTrackChangeRef = useRef<object | null>(null);
+  useEffect(() => {
+    const ev = socket.trackChanged;
+    if (!ev || ev === handledTrackChangeRef.current) return;
+    handledTrackChangeRef.current = ev;
+    if (ev.revision > revisionRef.current) revisionRef.current = ev.revision;
+
+    const idx = queueRef.current.findIndex((t) => t.itemId === ev.itemId);
+    if (idx >= 0) setQueueIndex(idx);
+    const track: TrackInfo = {
+      ...(ev.track.metadata as Partial<TrackInfo> | undefined),
+      ...ev.track,
+      itemId: ev.itemId ?? undefined,
+    };
+
+    if (ev.origin.clientId === clientId) return; // our own command, already handled
+
+    const mine = ev.deviceId === selectedDeviceRef.current;
+    if (ev.origin.server && mine && isExternalLocalDevice(ev.deviceId)) {
+      if (isLocalTrack(track.id)) {
+        // The NAS already streamed it to the speaker: mirror only.
+        setCurrentTrack((prev) => (prev?.id === track.id ? prev : track));
+        setIsLoading(false);
+      } else if (ev.controllerClientId === clientId) {
+        // Provider track the NAS cannot serve; the controlling tab plays it.
+        startTrack(track);
+      }
       return;
     }
-
-    let nextIndex: number;
-    if (shuffle) {
-      // Random next track (avoid repeating current)
-      nextIndex = Math.floor(Math.random() * queue.length);
-      if (nextIndex === queueIndex && queue.length > 1) {
-        nextIndex = (nextIndex + 1) % queue.length;
-      }
-    } else {
-      nextIndex = queueIndex + 1;
+    // Another tab drives the session: show what plays on a shared device,
+    // never start audio for someone else's browser tab.
+    if (ev.deviceId !== 'browser') {
+      setCurrentTrack((prev) => (prev?.id === track.id ? prev : track));
     }
-
-    if (nextIndex < queue.length) {
-      setQueueIndex(nextIndex);
-      startTrack(queue[nextIndex]);
-    } else if (repeat === 'all') {
-      // Loop back to start
-      setQueueIndex(0);
-      startTrack(queue[0]);
-    }
-  }, [queue, queueIndex, startTrack, shuffle, repeat]);
+  }, [socket.trackChanged, clientId, startTrack]);
 
   // Mirror playNext in a ref so the Spotify-SDK state effect can call the
   // latest version without re-subscribing on every queue change.
@@ -591,17 +757,19 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   }, [selectedDeviceId, currentTrack]);
 
   const playPrevious = useCallback(() => {
-    if (queue.length === 0) return;
+    if (queueRef.current.length === 0) return;
     if (audio.getCurrentTime() > 3) {
       audio.seek(0);
       return;
     }
-    const prevIndex = queueIndex - 1;
-    if (prevIndex >= 0) {
-      setQueueIndex(prevIndex);
-      startTrack(queue[prevIndex]);
-    }
-  }, [queue, queueIndex, startTrack, audio]);
+    api
+      .playbackPrevious({ commandId: newCommandId() })
+      .then((res) => {
+        applySnapshotRef.current(res.data);
+        startFromSnapshot(res.data);
+      })
+      .catch((err) => recoverFromCommandError(err, 'Previous'));
+  }, [audio, startFromSnapshot, recoverFromCommandError]);
 
   const devicePause = useCallback(() => {
     setIsLoading(true);
@@ -695,10 +863,16 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     setIsLoading(false);
   }, [audio, cancelPendingPlayback]);
 
-  const toggleShuffle = useCallback(() => setShuffle((s) => !s), []);
+  const toggleShuffle = useCallback(() => {
+    const next = !shuffle;
+    setShuffle(next);
+    api.setShuffle(next).catch(() => {});
+  }, [shuffle]);
   const toggleRepeat = useCallback(() => {
-    setRepeat((r) => (r === 'off' ? 'all' : r === 'all' ? 'one' : 'off'));
-  }, []);
+    const next = repeat === 'off' ? 'all' : repeat === 'all' ? 'one' : 'off';
+    setRepeat(next);
+    api.setRepeat(next).catch(() => {});
+  }, [repeat]);
 
   // Keep the audio element subscribed to the latest queue handler. Registering
   // this during render is a side effect and can leak stale handlers under

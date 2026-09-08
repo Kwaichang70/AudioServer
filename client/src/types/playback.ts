@@ -1,5 +1,7 @@
 export interface TrackInfo {
   id: string;
+  /** Identity of this occurrence in the server queue (V03). Absent for tracks not (yet) queued. */
+  itemId?: string;
   title: string;
   artistName: string;
   albumTitle: string;

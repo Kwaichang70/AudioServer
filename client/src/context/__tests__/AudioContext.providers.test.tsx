@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TrackInfo } from '../AudioContext.js';
+import { createFakePlaybackServer } from '../../test/fakePlaybackServer.js';
 
 const mocks = vi.hoisted(() => {
   const audio = {
@@ -30,7 +31,6 @@ const mocks = vi.hoisted(() => {
     getAlbumCoverUrl: vi.fn((id: string) => `/api/library/albums/${id}/cover`),
     play: vi.fn(),
     recordPlay: vi.fn(),
-    setServerQueue: vi.fn(() => Promise.resolve({})),
     stop: vi.fn(() => Promise.resolve({})),
   };
   return {
@@ -40,15 +40,49 @@ const mocks = vi.hoisted(() => {
     socket: {
       connected: true,
       deviceUpdate: null,
+      snapshot: null,
+      queueEvent: null,
+      stateEvent: null,
+      trackChanged: null,
       subscribeDevice: vi.fn(),
       unsubscribeDevice: vi.fn(),
+      requestSync: vi.fn(),
     },
   };
 });
 
+// The queue itself lives on the (fake) server; the provider-specific api
+// functions above are what these tests observe.
+const fakeServer = createFakePlaybackServer();
+class FakeApiError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number,
+    public code?: string,
+    public requestId?: string,
+    public data?: unknown,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+  get isStaleRevision() {
+    return this.statusCode === 409 && this.code === 'StaleRevision';
+  }
+}
+
 vi.mock('../../hooks/useAudio.js', () => ({ useAudio: () => mocks.audio }));
 vi.mock('../../hooks/useSocket.js', () => ({ useSocket: () => mocks.socket }));
-vi.mock('../../api/client.js', () => ({ api: mocks.api }));
+vi.mock('../../api/client.js', () => ({
+  api: new Proxy(mocks.api, {
+    get(target, prop: string) {
+      if (prop in target) return target[prop as keyof typeof target];
+      return fakeServer.api[prop as keyof typeof fakeServer.api];
+    },
+  }),
+  ApiError: FakeApiError,
+  getClientId: () => 'me',
+  newCommandId: () => `cmd-${Math.random()}`,
+}));
 vi.mock('../../components/Toast.js', () => ({ useToast: () => ({ toast: mocks.toast }) }));
 
 const { AudioProvider, useAudioContext } = await import('../AudioContext.js');

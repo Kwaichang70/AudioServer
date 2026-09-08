@@ -2,7 +2,7 @@
 
 **Datum:** 7 september 2026  
 **Onderzochte versie:** commit cd3f094, lokale werkmap AudioServer  
-**Status:** analyse afgerond; V01 en V02 uitgevoerd op 8 september 2026 (zie §11), V03–V12 nog te plannen.  
+**Status:** analyse afgerond; V01–V03 uitgevoerd op 8 september 2026 (zie §11), V04–V12 nog te plannen.  
 **Doel:** een betrouwbare muziekserver voor de NAS, met een voorspelbare bediening op telefoon/tablet en goede ondersteuning voor lokale muziek en externe bronnen.
 
 ## 1. Advies en afbakening
@@ -260,7 +260,7 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 | ------ | -------------------------------------------------- | --------------------------------- | -------------------------------------------------------- |
 | V01    | Herhaalbare, beter beveiligde releasebasis         | Geen                              | Uitgevoerd in code (8 sep 2026); wacht op NAS-acceptatie |
 | V02    | Betrouwbare setup, aanmelding en beheerrechten     | V01                               | Uitgevoerd in code (8 sep 2026); wacht op NAS-acceptatie |
-| V03    | Correcte wachtrij en herstel tussen clients        | V01–V02                           | Gepland                                                  |
+| V03    | Correcte wachtrij en herstel tussen clients        | V01–V02                           | Uitgevoerd in code (8 sep 2026); wacht op NAS-acceptatie |
 | V04    | Zelfstandige lokale/Qobuz-playback op server       | V03                               | Gepland                                                  |
 | V05    | Betrouwbare luistergegevens en tijdstempels        | V03–V04                           | Gepland                                                  |
 | V06    | Bibliotheekwijzigingen zonder verlies van relaties | V01, V05                          | Gepland                                                  |
@@ -322,18 +322,22 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 **Doel:** dezelfde afspeelsessie blijft correct na bewerken, verversen en opnieuw verbinden.  
 **Bevindingen:** B03, B04; eerste begrenzing van B05/B11.
 
-- [ ] **V03.1 · 2 dagen:** queueItemId en persistente actieve positie invoeren; herhaalde tracks, verwijderen en verplaatsen op positie-identiteit laten werken.
-- [ ] **V03.2 · 2 dagen:** expliciete queue-opdrachten met revisie en opdracht-ID. Clear stopt toekomstige items; “stop” stopt het actuele nummer volgens een apart contract.
-- [ ] **V03.3 · 2 dagen:** server-snapshot bij laden/reconnect, queue/state-events verwerken en events aan de juiste sessie binden. Voorkom automatisch starten in andere browsers.
-- [ ] **V03.4 · 2 dagen:** regressies voor twee clients, verouderde bewerkingen en netwerkherstel. Maak de service onafhankelijk van importvolgorde via geïnjecteerde events/dependencies.
+- [x] **V03.1 · 2 dagen:** queueItemId en persistente actieve positie invoeren; herhaalde tracks, verwijderen en verplaatsen op positie-identiteit laten werken.
+      _Gedaan:_ migratie `0002_queue_identity` (schemaversie 3): `queue_items.item_id` + `metadata`, `playback_state.queue_item_id` + `revision`. `PlaybackService` werkt op item-identiteit (`playItem`, `removeItem`, `moveItem`, `previous`); `play(track)` valt alleen nog terug op het eerste voorkomen als er geen item-id of actueel item is. Oude wachtrijen krijgen bij het laden stabiele id’s. Client-metadata (ReplayGain, formaat) reist mee in `metadata` zodat een volgend nummer uit de serverwachtrij compleet is.
+- [x] **V03.2 · 2 dagen:** expliciete queue-opdrachten met revisie en opdracht-ID. Clear stopt toekomstige items; “stop” stopt het actuele nummer volgens een apart contract.
+      _Gedaan:_ `GET /playback/session` (snapshot) en commando’s `queue/set|add|remove|move|clear|play`, `next`, `previous`; elk antwoord is de volledige snapshot met `revision`. `expectedRevision` → `409 StaleRevision` + verse snapshot; `commandId` → idempotent (retry geeft hetzelfde resultaat, één keer toegepast). Mutaties vereisen `X-Client-Id`; een verouderde pagina krijgt `426` met “herlaad de app” in plaats van stil overschrijven. Contract vastgelegd in `docs/architecture.md` en OpenAPI: clear laat het actuele nummer uitspelen, stop stopt direct en bewaart de wachtrij.
+- [x] **V03.3 · 2 dagen:** server-snapshot bij laden/reconnect, queue/state-events verwerken en events aan de juiste sessie binden. Voorkom automatisch starten in andere browsers.
+      _Gedaan:_ elke socket krijgt `playback:snapshot` bij (re)connect en op `playback:sync`; `playback:queue|state|track-changed` dragen `revision` en `origin` (client-id + sessie of `server`) plus `controllerClientId`. Client (`AudioContext`): de wachtrij is een spiegel van de server met optimistische updates; oudere revisies worden genegeerd; eigen commando’s worden via hun antwoord afgehandeld; wijzigingen uit een andere tab worden alleen getoond; een servergestuurde advance start in deze tab alleen een providertrack als deze tab de controller is. De apparaatmonitor schrijft alleen nog status van het actieve apparaat naar de sessie.
+- [x] **V03.4 · 2 dagen:** regressies voor twee clients, verouderde bewerkingen en netwerkherstel. Maak de service onafhankelijk van importvolgorde via geïnjecteerde events/dependencies.
+      _Gedaan:_ servertests voor twee tabs (stale edit uit tab B, origin op events), retry met dezelfde `commandId`, snapshot bij connect en `playback:sync`, apparaatmonitor op niet-actief apparaat, herstart met herhaalde track; clienttests voor spiegelen zonder audio, oudere revisies, servergestuurde advance en herstel na 409. `playback.ts` importeert Socket.IO niet meer (event-sink via `setEventSink`), bewezen in `playback-imports.test.ts`. Browsercontrole op de productiebuild: twee tabs, wachtrij gezet in tab A, tab B toont dezelfde items en volgt verwijderen en leegmaken live (zie §11).
 
 **Acceptatie:**
 
-- A → B → A → C speelt elke wachtrijpositie exact volgens die volgorde; herstart herstelt de tweede A als tweede voorkomen.
-- Een leeggemaakte wachtrij blijft leeg op de server en een tweede client; het actuele nummer mag alleen doorlopen als dat het gekozen clear-contract is.
-- Een retry van dezelfde opdracht maakt geen dubbele items.
-- Een verouderde queuebewerking wordt herkenbaar geweigerd of opnieuw toegepast op de nieuwe snapshot.
-- Tot V10 is er maximaal één expliciet actieve serverzone; status van een ander bewaakt apparaat verandert die sessie niet.
+- A → B → A → C speelt elke wachtrijpositie exact volgens die volgorde; herstart herstelt de tweede A als tweede voorkomen. _Gehaald: `playback.test.ts` “A → B → A → C plays every position in order” inclusief herstart via `initialize()`._
+- Een leeggemaakte wachtrij blijft leeg op de server en een tweede client; het actuele nummer mag alleen doorlopen als dat het gekozen clear-contract is. _Gehaald: clear-test op de server (wachtrij leeg, actueel nummer speelt door, daarna idle) en de tweetabs-browsercontrole._
+- Een retry van dezelfde opdracht maakt geen dubbele items. _Gehaald: `commandId`-tests in service en route._
+- Een verouderde queuebewerking wordt herkenbaar geweigerd of opnieuw toegepast op de nieuwe snapshot. _Gehaald: 409 `StaleRevision` met snapshot; de client past de snapshot toe en meldt “Queue changed on another device”._
+- Tot V10 is er maximaal één expliciet actieve serverzone; status van een ander bewaakt apparaat verandert die sessie niet. _Gehaald: `setState` negeert een ander apparaat dan het actieve; apparaatmonitor-test “feeds the UI for a non-active device but never touches the session”._
 
 ### V04 — De NAS stuurt lokale muziek en Qobuz zelfstandig aan
 
@@ -621,6 +625,30 @@ Zelfde branch en omgeving als V01.
 **Wacht op acceptatie (NAS):** setup op een verse container met de code uit `docker logs`; CSP-rapporten bekijken tijdens Spotify Web Playback en OAuth-callbacks voordat de policy afdwingend wordt; Sonos/DLNA-weergave met het `system`-streamtoken.
 
 **Beslismoment na V02:** basis is veilig en herhaalbaar; V03 (wachtrij als één afspeelsessie) kan starten.
+
+### V03 — 8 september 2026
+
+Zelfde branch en omgeving als V01/V02.
+
+| Controle                     | Na V02                                              | Na V03                                                                            |
+| ---------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Servertests                  | 194 tests, 27 bestanden                             | 212 tests, 28 bestanden                                                           |
+| Clienttests                  | 89 tests, 18 bestanden                              | 94 tests, 18 bestanden                                                            |
+| Lint / typecheck / build     | groen                                               | groen                                                                             |
+| A → B → A → C                | index springt terug naar 0                          | vier posities, herstart herstelt de tweede A                                      |
+| Wachtrij-eigenaar            | client-lokaal (browser) of server (extern apparaat) | altijd de server; clients spiegelen met revisie                                   |
+| Verouderde bewerking         | stil toegepast op oude weergave                     | 409 + verse snapshot, client past toe en meldt                                    |
+| Retry                        | dubbel item                                         | `commandId`: één keer toegepast                                                   |
+| Oude pagina zonder client-id | overschrijft wachtrij                               | 426, vraagt herladen                                                              |
+| Reconnect                    | geen snapshot                                       | `playback:snapshot` bij connect en `playback:sync`                                |
+| Andere tab                   | startte audio mee                                   | spiegelt alleen                                                                   |
+| Schemaversie                 | 2                                                   | 3 (`queue_items.item_id`, `metadata`; `playback_state.queue_item_id`, `revision`) |
+
+**Gedragswijzigingen voor de gebruiker:** shuffle/repeat gelden nu voor de hele huishoudsessie (server), niet per tab; een tweede tab of telefoon toont dezelfde wachtrij en volgt wijzigingen live, maar speelt niet vanzelf mee; na de update de app één keer herladen (oude pagina krijgt de melding).
+
+**Wacht op acceptatie (NAS):** album op Sonos/DLNA starten vanaf tablet, tablet dicht, tweede apparaat opent de wachtrij en verwijdert een nummer; Qobuz-track in gemengde wachtrij op extern apparaat (controller-tab speelt); scenario met twee tabs op dezelfde browser-output.
+
+**Beslismoment na V04** blijft; V04 (NAS speelt lokaal én Qobuz zelfstandig) kan starten.
 
 ## Bronverwijzingen naar de onderzochte code
 

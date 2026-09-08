@@ -94,7 +94,10 @@ describe('Playback queue', () => {
   });
 
   it('rejects queue/add without a track (zod validation)', async () => {
-    const res = await request(app).post('/api/playback/queue/add').send({});
+    const res = await request(app)
+      .post('/api/playback/queue/add')
+      .set('X-Client-Id', 'contract-test')
+      .send({});
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('ValidationError');
   });
@@ -102,22 +105,27 @@ describe('Playback queue', () => {
   it('rejects queue/remove with a non-integer index', async () => {
     const res = await request(app)
       .post('/api/playback/queue/remove')
+      .set('X-Client-Id', 'contract-test')
       .send({ index: 'not-a-number' });
     expect(res.status).toBe(400);
   });
 
   it('rejects queue/remove with negative index', async () => {
-    const res = await request(app).post('/api/playback/queue/remove').send({ index: -1 });
+    const res = await request(app)
+      .post('/api/playback/queue/remove')
+      .set('X-Client-Id', 'contract-test')
+      .send({ index: -1 });
     expect(res.status).toBe(400);
   });
 
   it('accepts a valid track shape', async () => {
     const res = await request(app)
       .post('/api/playback/queue/add')
+      .set('X-Client-Id', 'contract-test')
       .send({
         track: { id: 'test-1', title: 'Hello', artistName: 'Artist', albumTitle: 'Album' },
       });
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(Array.isArray(res.body.data.queue)).toBe(true);
   });
 });

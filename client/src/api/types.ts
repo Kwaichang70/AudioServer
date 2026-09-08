@@ -136,6 +136,7 @@ export interface AuthResult {
 }
 
 export interface PlaybackQueueEntry {
+  itemId: string;
   trackId: string;
   trackTitle: string;
   artistName: string;
@@ -143,11 +144,70 @@ export interface PlaybackQueueEntry {
   albumId?: string;
   duration?: number;
   source?: string;
+  metadata?: Record<string, unknown>;
   position: number;
+}
+
+export interface PlaybackOrigin {
+  clientId: string | null;
+  sessionId: string | null;
+  server?: boolean;
+}
+
+/** Authoritative session state returned by every queue command and pushed on connect. */
+export interface PlaybackSnapshot {
+  revision: number;
+  queue: PlaybackQueueEntry[];
+  currentItemId: string | null;
+  queueIndex: number;
+  state: NowPlaying;
+  shuffle: boolean;
+  repeat: 'off' | 'all' | 'one';
+  controller: { clientId: string | null; deviceId: string };
+}
+
+export interface PlaybackQueueEvent {
+  revision: number;
+  queue: PlaybackQueueEntry[];
+  currentItemId: string | null;
+  queueIndex: number;
+  shuffle: boolean;
+  repeat: 'off' | 'all' | 'one';
+  origin: PlaybackOrigin;
+}
+
+export interface PlaybackStateEvent extends NowPlaying {
+  revision: number;
+  currentItemId: string | null;
+  origin: PlaybackOrigin;
+}
+
+export interface PlaybackTrackChangedEvent {
+  track: {
+    id: string;
+    title: string;
+    artistName: string;
+    albumTitle: string;
+    albumId?: string;
+    duration?: number;
+    source?: string;
+    metadata?: Record<string, unknown>;
+  };
+  itemId: string | null;
+  revision: number;
+  deviceId: string;
+  controllerClientId: string | null;
+  origin: PlaybackOrigin;
+}
+
+export interface QueueCommandOptions {
+  commandId?: string;
+  expectedRevision?: number;
 }
 
 export type PlaybackStateResponse = ApiResponse<NowPlaying>;
 export type PlaybackQueueResponse = ApiResponse<PlaybackQueueEntry[]>;
+export type PlaybackSnapshotResponse = ApiResponse<PlaybackSnapshot>;
 
 export interface RecentAlbum {
   album_id: string;

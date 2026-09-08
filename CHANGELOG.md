@@ -4,6 +4,42 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## V03 — One playback session (verbeterplan sprint 3)
+
+The queue now lives on the server for every output, including the browser;
+tabs and phones mirror it. Reload the app once after this release (an old
+page is told to).
+
+**Item identity** (`docs/architecture.md`, "One playback session")
+
+- Every queue position has a stable `itemId`; current position, remove,
+  move, play-this-one, restart recovery and events use it. A → B → A → C
+  plays four positions; a restart restores the second A as the second A.
+  Migration `0002_queue_identity` (schema version 3) adds
+  `queue_items.item_id`/`metadata` and `playback_state.queue_item_id`/
+  `revision`; existing queues get ids on first load.
+
+**Commands with revision and command id**
+
+- `GET /api/playback/session` snapshot; `queue/set|add|remove|move|clear|play`,
+  `next`, `previous` all answer with the snapshot. `expectedRevision` turns a
+  stale edit into `409 StaleRevision` + fresh snapshot; `commandId` makes a
+  retry apply once. Mutations require `X-Client-Id`; a page without it gets
+  `426` and a "reload" message. Clear keeps the current track playing and
+  drops the rest; stop stops now and keeps the queue.
+
+**Snapshots and origin-bound events**
+
+- `playback:snapshot` on socket connect and on `playback:sync`; queue/state/
+  track-changed events carry `revision`, `origin` (tab + session or server)
+  and `controllerClientId`. The client mirrors other tabs without starting
+  audio, applies its own command responses, and only plays a server-side
+  advance itself when it is the controlling tab and the track is a provider
+  track the NAS cannot stream. Shuffle/repeat are session-wide now.
+- The device monitor writes transport state only for the session's active
+  device. `services/playback.ts` no longer imports Socket.IO (event sink is
+  injected), so it loads in any import order.
+
 ## V02 — Setup, sessions and admin rights (verbeterplan sprint 2)
 
 Everyone signs in again once after this release: tokens are now bound to

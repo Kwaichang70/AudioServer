@@ -113,7 +113,7 @@ describe('Playback API', () => {
     };
     const res = await fetch(`${baseUrl}/api/playback/play`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Client-Id': 'api-test' },
       body: JSON.stringify({ track }),
     });
     const { data } = await res.json();
@@ -123,7 +123,10 @@ describe('Playback API', () => {
   });
 
   it('can pause', async () => {
-    const res = await fetch(`${baseUrl}/api/playback/pause`, { method: 'POST' });
+    const res = await fetch(`${baseUrl}/api/playback/pause`, {
+      method: 'POST',
+      headers: { 'X-Client-Id': 'api-test' },
+    });
     const { data } = await res.json();
     expect(data.state).toBe('paused');
   });
@@ -131,7 +134,7 @@ describe('Playback API', () => {
   it('can set volume', async () => {
     const res = await fetch(`${baseUrl}/api/playback/volume`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Client-Id': 'api-test' },
       body: JSON.stringify({ volume: 75 }),
     });
     const { data } = await res.json();
@@ -148,17 +151,29 @@ describe('Playback API', () => {
     const track = { id: 'q-1', title: 'Queued', artistName: 'A', albumTitle: 'B' };
     const res = await fetch(`${baseUrl}/api/playback/queue/add`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Client-Id': 'api-test' },
       body: JSON.stringify({ track }),
     });
     const { data } = await res.json();
-    expect(data.length).toBe(1);
-    expect(data[0].trackId).toBe('q-1');
+    expect(data.queue.length).toBe(1);
+    expect(data.queue[0].trackId).toBe('q-1');
+    expect(data.queue[0].itemId).toBeTruthy();
+    expect(data.revision).toBeGreaterThan(0);
   });
 
   it('can clear queue', async () => {
-    const res = await fetch(`${baseUrl}/api/playback/queue/clear`, { method: 'POST' });
+    const res = await fetch(`${baseUrl}/api/playback/queue/clear`, {
+      method: 'POST',
+      headers: { 'X-Client-Id': 'api-test' },
+    });
     const { data } = await res.json();
-    expect(data.length).toBe(0);
+    expect(data.queue.length).toBe(0);
+  });
+
+  it('refuses queue mutations from a page without a client id (426)', async () => {
+    const res = await fetch(`${baseUrl}/api/playback/queue/clear`, { method: 'POST' });
+    expect(res.status).toBe(426);
+    const body = await res.json();
+    expect(body.error).toBe('UpgradeRequired');
   });
 });

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TrackInfo } from '../AudioContext.js';
+import { createFakePlaybackServer } from '../../test/fakePlaybackServer.js';
 
 const mocks = vi.hoisted(() => {
   let endedHandler: (() => void) | null = null;
@@ -43,9 +44,13 @@ const mocks = vi.hoisted(() => {
     socket: {
       connected: true,
       deviceUpdate: null,
-      trackChanged: null,
+      snapshot: null as unknown,
+      queueEvent: null as unknown,
+      stateEvent: null,
+      trackChanged: null as unknown,
       subscribeDevice: vi.fn(),
       unsubscribeDevice: vi.fn(),
+      requestSync: vi.fn(),
     },
     spotifyWeb: {
       deviceId: 'spotify-web-device',
@@ -64,13 +69,42 @@ const mocks = vi.hoisted(() => {
   };
 });
 
+// The queue is server-authoritative (V03): a fresh in-memory fake server per
+// test answers every queue command with a snapshot, like the real one.
+let fakeServer = createFakePlaybackServer();
+class FakeApiError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number,
+    public code?: string,
+    public requestId?: string,
+    public data?: unknown,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+  get isStaleRevision() {
+    return this.statusCode === 409 && this.code === 'StaleRevision';
+  }
+}
+
 vi.mock('../../hooks/useAudio.js', () => ({ useAudio: () => mocks.audio }));
 vi.mock('../../hooks/useSocket.js', () => ({ useSocket: () => mocks.socket }));
 vi.mock('../../hooks/useSpotifyWebPlayback.js', () => ({
   useSpotifyWebPlayback: () => mocks.spotifyWeb,
 }));
-vi.mock('../../api/client.js', () => ({ api: mocks.api }));
 vi.mock('../../components/Toast.js', () => ({ useToast: () => ({ toast: mocks.toast }) }));
+vi.mock('../../api/client.js', () => ({
+  api: new Proxy(mocks.api, {
+    get(target, prop: string) {
+      if (prop in target) return target[prop as keyof typeof target];
+      return fakeServer.api[prop as keyof typeof fakeServer.api];
+    },
+  }),
+  ApiError: FakeApiError,
+  getClientId: () => 'me',
+  newCommandId: () => `cmd-${Math.random()}`,
+}));
 
 const { AudioProvider, useAudioContext } = await import('../AudioContext.js');
 
@@ -125,6 +159,10 @@ function renderHarness() {
 describe('AudioProvider queue controls', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    fakeServer = createFakePlaybackServer();
+    mocks.socket.snapshot = null;
+    mocks.socket.queueEvent = null;
+    mocks.socket.trackChanged = null;
     localStorage.clear();
     mocks.audio.isPlaying = false;
     mocks.audio.volume = 0.7;
@@ -213,25 +251,41 @@ describe('AudioProvider queue controls', () => {
     await waitFor(() =>
       expect(mocks.audio.play).toHaveBeenCalledWith('/api/library/tracks/track-1/stream'),
     );
+    // The server's item id came back with the snapshot.
+    expect(fakeServer.queue[0].itemId).toBeTruthy();
+    expect(mocks.api.play).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'track-1', itemId: fakeServer.queue[0].itemId }),
+      'browser',
+      fakeServer.queue[0].itemId,
+    );
   });
 
   it('adds, removes, moves, and clears queue items', async () => {
     renderHarness();
 
     fireEvent.click(screen.getByText('Play Album'));
+    await waitFor(() => expect(fakeServer.queue).toHaveLength(3));
     fireEvent.click(screen.getByText('Add'));
 
     expect(screen.getByTestId('queue')).toHaveTextContent('First|Second|Third|Fourth');
+    await waitFor(() => expect(fakeServer.queue).toHaveLength(4));
 
     fireEvent.click(screen.getByText('Remove Second'));
     expect(screen.getByTestId('queue')).toHaveTextContent('First|Third|Fourth');
+    await waitFor(() =>
+      expect(fakeServer.queue.map((q) => q.trackTitle)).toEqual(['First', 'Third', 'Fourth']),
+    );
 
     fireEvent.click(screen.getByText('Move Third First'));
     expect(screen.getByTestId('queue')).toHaveTextContent('Fourth|First|Third');
+    await waitFor(() =>
+      expect(fakeServer.queue.map((q) => q.trackTitle)).toEqual(['Fourth', 'First', 'Third']),
+    );
 
     fireEvent.click(screen.getByText('Clear'));
     expect(screen.getByTestId('queue')).toHaveTextContent('');
     expect(screen.getByTestId('queue-index')).toHaveTextContent('-1');
+    await waitFor(() => expect(fakeServer.queue).toHaveLength(0));
   });
 
   it('advances through queue tracks and loops in repeat-all mode', async () => {
@@ -251,6 +305,7 @@ describe('AudioProvider queue controls', () => {
     expect(screen.getByTestId('repeat')).toHaveTextContent('all');
 
     fireEvent.click(screen.getByText('Next'));
+    await waitFor(() => expect(screen.getByTestId('queue-index')).toHaveTextContent('2'));
     fireEvent.click(screen.getByText('Next'));
 
     await waitFor(() =>
@@ -283,9 +338,9 @@ describe('AudioProvider queue controls', () => {
     renderHarness();
 
     fireEvent.click(screen.getByText('Play Album'));
+    await waitFor(() => expect(mocks.audio.play).toHaveBeenCalled());
     fireEvent.click(screen.getByText('Shuffle'));
     expect(screen.getByTestId('shuffle')).toHaveTextContent('true');
-    await waitFor(() => expect(mocks.audio.play).toHaveBeenCalled());
     mocks.audio.play.mockClear();
 
     fireEvent.click(screen.getByText('Next'));
@@ -328,12 +383,14 @@ describe('AudioProvider queue controls', () => {
     renderHarness();
 
     fireEvent.click(screen.getByText('Play Album'));
+    await waitFor(() => expect(fakeServer.queue).toHaveLength(3));
     fireEvent.click(screen.getByText('Next'));
     await waitFor(() => expect(screen.getByTestId('queue-index')).toHaveTextContent('1'));
 
     fireEvent.click(screen.getByText('Remove Second'));
     expect(screen.getByTestId('queue')).toHaveTextContent('First|Third');
     expect(screen.getByTestId('queue-index')).toHaveTextContent('0');
+    await waitFor(() => expect(fakeServer.queue).toHaveLength(2));
     mocks.audio.play.mockClear();
 
     mocks.getEndedHandler()?.();
@@ -347,9 +404,11 @@ describe('AudioProvider queue controls', () => {
     renderHarness();
 
     fireEvent.click(screen.getByText('Play Album'));
+    await waitFor(() => expect(fakeServer.queue).toHaveLength(3));
     fireEvent.click(screen.getByText('Remove First'));
     expect(screen.getByTestId('queue')).toHaveTextContent('Second|Third');
     expect(screen.getByTestId('queue-index')).toHaveTextContent('-1');
+    await waitFor(() => expect(fakeServer.queue).toHaveLength(2));
     mocks.audio.play.mockClear();
 
     mocks.getEndedHandler()?.();
@@ -366,5 +425,152 @@ describe('AudioProvider queue controls', () => {
     view.unmount();
 
     expect(mocks.audio.setOnEnded).toHaveBeenLastCalledWith(null);
+  });
+});
+
+describe('AudioProvider session mirroring (V03)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fakeServer = createFakePlaybackServer();
+    mocks.socket.snapshot = null;
+    mocks.socket.queueEvent = null;
+    mocks.socket.trackChanged = null;
+    localStorage.clear();
+    mocks.audio.isPlaying = false;
+    mocks.api.getHealth.mockResolvedValue({});
+  });
+
+  const entry = (id: string, title: string, itemId: string, position: number) => ({
+    itemId,
+    trackId: id,
+    trackTitle: title,
+    artistName: 'Someone',
+    albumTitle: 'Album',
+    position,
+  });
+
+  it('adopts the server snapshot on load (queue, index, shuffle/repeat) without starting audio', async () => {
+    await fakeServer.api.setServerQueue(
+      [tracks[0], tracks[1]].map((t) => ({ ...t })),
+      1,
+      'living-room',
+      true,
+      'all',
+    );
+    renderHarness();
+    await waitFor(() => expect(screen.getByTestId('queue')).toHaveTextContent('First|Second'));
+    expect(screen.getByTestId('queue-index')).toHaveTextContent('1');
+    expect(screen.getByTestId('shuffle')).toHaveTextContent('true');
+    expect(screen.getByTestId('repeat')).toHaveTextContent('all');
+    // A track playing on a shared device is shown, but this tab plays nothing.
+    expect(screen.getByTestId('current')).toHaveTextContent('Second');
+    expect(mocks.audio.play).not.toHaveBeenCalled();
+  });
+
+  it('mirrors a queue event from another tab and ignores older revisions', async () => {
+    const view = renderHarness();
+    await waitFor(() => expect(screen.getByTestId('queue')).toHaveTextContent(''));
+
+    mocks.socket.queueEvent = {
+      revision: 5,
+      queue: [entry('a', 'Alpha', 'i-a', 0), entry('b', 'Beta', 'i-b', 1)],
+      currentItemId: 'i-a',
+      queueIndex: 0,
+      shuffle: false,
+      repeat: 'off',
+      origin: { clientId: 'other-tab', sessionId: null },
+    };
+    view.rerender(
+      <AudioProvider>
+        <Harness />
+      </AudioProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('queue')).toHaveTextContent('Alpha|Beta'));
+
+    mocks.socket.queueEvent = {
+      revision: 3,
+      queue: [entry('z', 'Stale', 'i-z', 0)],
+      currentItemId: null,
+      queueIndex: -1,
+      shuffle: true,
+      repeat: 'one',
+      origin: { clientId: 'other-tab', sessionId: null },
+    };
+    view.rerender(
+      <AudioProvider>
+        <Harness />
+      </AudioProvider>,
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByTestId('queue')).toHaveTextContent('Alpha|Beta');
+    expect(screen.getByTestId('shuffle')).toHaveTextContent('false');
+  });
+
+  it('never starts audio for a track change another browser tab caused', async () => {
+    const view = renderHarness();
+    await waitFor(() => expect(mocks.socket.subscribeDevice).toBeDefined());
+    mocks.socket.trackChanged = {
+      track: { id: 'track-9', title: 'Elsewhere', artistName: 'X', albumTitle: 'Y' },
+      itemId: 'i-9',
+      revision: 9,
+      deviceId: 'browser',
+      controllerClientId: 'other-tab',
+      origin: { clientId: 'other-tab', sessionId: null },
+    };
+    view.rerender(
+      <AudioProvider>
+        <Harness />
+      </AudioProvider>,
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mocks.audio.play).not.toHaveBeenCalled();
+    expect(mocks.api.play).not.toHaveBeenCalled();
+    expect(screen.getByTestId('current')).toHaveTextContent('none');
+  });
+
+  it('shows (but does not start) a server-side advance on a shared device', async () => {
+    const view = renderHarness();
+    fireEvent.click(screen.getByText('External Device'));
+    mocks.socket.trackChanged = {
+      track: { id: 'track-2', title: 'Second', artistName: 'X', albumTitle: 'Y' },
+      itemId: 'i-2',
+      revision: 12,
+      deviceId: 'device-1',
+      controllerClientId: 'me',
+      origin: { clientId: null, sessionId: null, server: true },
+    };
+    view.rerender(
+      <AudioProvider>
+        <Harness />
+      </AudioProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('current')).toHaveTextContent('Second'));
+    expect(mocks.audio.play).not.toHaveBeenCalled();
+    expect(mocks.api.play).not.toHaveBeenCalled();
+  });
+
+  it('re-applies a stale edit on the fresh snapshot the server sends back', async () => {
+    renderHarness();
+    fireEvent.click(screen.getByText('Play Album'));
+    await waitFor(() => expect(fakeServer.queue).toHaveLength(3));
+    const original = fakeServer.api.removeFromQueue;
+    let calls = 0;
+    fakeServer.api.removeFromQueue = ((itemId: string) => {
+      calls++;
+      if (calls === 1) {
+        // Another device appended a track first: refuse with the fresh snapshot.
+        fakeServer.api.addToQueue({ ...tracks[0], id: 'track-4', title: 'Fourth' });
+        return Promise.reject(
+          new FakeApiError('Queue changed', 409, 'StaleRevision', undefined, fakeServer.snapshot()),
+        );
+      }
+      return original(itemId);
+    }) as typeof original;
+
+    fireEvent.click(screen.getByText('Remove Second'));
+    await waitFor(() =>
+      expect(screen.getByTestId('queue')).toHaveTextContent('First|Second|Third|Fourth'),
+    );
+    expect(mocks.toast).toHaveBeenCalledWith(expect.stringMatching(/another device/), 'info');
   });
 });

@@ -102,7 +102,7 @@ describe('useTrackPlayback', () => {
     expect(options.audio.play).toHaveBeenCalledWith('/api/library/tracks/local-1/stream');
     expect(options.pauseSpotifyWeb).toHaveBeenCalledOnce();
     expect(options.audio.pause).not.toHaveBeenCalled();
-    expect(mocks.api.play).toHaveBeenCalledWith(localTrack, 'browser');
+    expect(mocks.api.play).toHaveBeenCalledWith(localTrack, 'browser', undefined);
     expect(mocks.api.recordPlay).toHaveBeenCalledWith('local-1', 'album-1', '');
   });
 

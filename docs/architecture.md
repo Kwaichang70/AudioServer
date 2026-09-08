@@ -124,6 +124,36 @@ authenticated providers in parallel and merges results with a priority order
 play/pause/seek to the controller for the selected device, or to the browser
 audio element directly.
 
+**One playback session (V03).** `services/playback.ts` owns the household
+queue; every client mirrors it. The contract, enforced by
+`routes/playback.ts` and asserted in `__tests__/playback.test.ts`:
+
+- A queue ITEM (`itemId`) is one occurrence of a track. Position, remove,
+  move, "play this one", restart recovery and every event use item ids, so
+  A → B → A → C plays four positions instead of jumping back to the first A.
+- Every mutation bumps a `revision` (persisted in `playback_state`). Commands
+  answer with the full snapshot (`GET /api/playback/session` gives the same);
+  `expectedRevision` on remove/move turns an edit against an outdated view
+  into `409 StaleRevision` + the fresh snapshot; `commandId` makes retries
+  idempotent (same id → same result, applied once).
+- Mutations require the `X-Client-Id` header (a per-tab id from the SPA).
+  A page without it is from before this protocol and gets `426` ("reload")
+  instead of silently overwriting the queue.
+- Events (`playback:snapshot` on connect and on `playback:sync`,
+  `playback:queue`, `playback:state`, `playback:track-changed`) carry the
+  revision and the `origin` (client id + session, or `server`). A tab acts on
+  the responses of its own commands, mirrors everything from other tabs
+  without starting audio, and starts a track from a server-side advance only
+  when it is the controlling tab and the NAS cannot stream that track itself
+  (provider tracks).
+- `/queue/clear` drops the upcoming items and lets the current track finish;
+  `/stop` stops now and keeps the queue.
+- The device monitor only writes transport state for the session's active
+  device; other monitored speakers only feed the UI.
+- `playback.ts` imports neither Socket.IO nor device code: the server is
+  injected as an event sink (`setEventSink`) and device dispatch via hooks,
+  so the module loads in any import order (`__tests__/playback-imports.test.ts`).
+
 **Auth surface.** Three hooks: `attachUser` (always-on, never fails —
 resolves the Bearer token to a revocable session row and populates
 `req.userId` / `req.sessionId` / `req.userRole`), `requireAuth` (gates every

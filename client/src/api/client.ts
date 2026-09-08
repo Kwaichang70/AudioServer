@@ -23,7 +23,9 @@ import type {
   OkResponse,
   PaginatedResponse,
   PlaybackQueueResponse,
+  PlaybackSnapshotResponse,
   PlaybackStateResponse,
+  QueueCommandOptions,
   PlaylistImportMeta,
   ProviderAuthResult,
   ProviderSearchResponse,
@@ -57,9 +59,15 @@ export class ApiError extends Error {
     public statusCode: number,
     public code?: string,
     public requestId?: string,
+    /** Structured payload some errors carry (e.g. the fresh snapshot on a 409 StaleRevision). */
+    public data?: unknown,
   ) {
     super(message);
     this.name = 'ApiError';
+  }
+
+  get isStaleRevision(): boolean {
+    return this.statusCode === 409 && this.code === 'StaleRevision';
   }
 
   get isUnauthorized(): boolean {
@@ -86,9 +94,46 @@ export function onApiError(listener: ErrorListener): () => void {
   return () => errorListeners.delete(listener);
 }
 
+// ─── Client identity ─────────────────────────────────────────────
+// One id per browser tab (sessionStorage). Sent with every request and the
+// socket handshake so the server can tell which tab issued a queue command:
+// other tabs then mirror the change without starting audio of their own, and
+// a page from before this protocol (no id) is asked to reload instead of
+// overwriting the household queue.
+let clientId: string | null = null;
+export function getClientId(): string {
+  if (clientId) return clientId;
+  try {
+    const stored = sessionStorage.getItem(STORAGE_KEYS.clientId);
+    if (stored) return (clientId = stored);
+  } catch {
+    // sessionStorage unavailable (private mode): fall through to a memory id
+  }
+  clientId =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    sessionStorage.setItem(STORAGE_KEYS.clientId, clientId);
+  } catch {
+    // ignore
+  }
+  return clientId;
+}
+
+/** Unique id for a queue command so a retry after a lost response is applied once. */
+export function newCommandId(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem(STORAGE_KEYS.authToken);
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Client-Id': getClientId(),
+  };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const res = await fetch(`${API_BASE}${path}`, {
@@ -100,12 +145,14 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
       error?: string;
       message?: string;
       requestId?: string;
+      data?: unknown;
     } | null;
     const err = new ApiError(
       body?.message || body?.error || res.statusText || `API error ${res.status}`,
       res.status,
       body?.error,
       body?.requestId,
+      body?.data,
     );
     for (const l of errorListeners) {
       try {
@@ -299,37 +346,82 @@ export const api = {
   revokeUserSessions: (id: string): Promise<ApiResponse<{ revoked: number }>> =>
     fetchApi(`/auth/users/${id}/revoke-sessions`, { method: 'POST' }),
 
-  // ─── Playback ──────────────────────────────────────────────
+  // ─── Playback (server-authoritative session, V03) ──────────
   getNowPlaying: (): Promise<PlaybackStateResponse> => fetchApi('/playback/now-playing'),
   getQueue: (): Promise<PlaybackQueueResponse> => fetchApi('/playback/queue'),
-  addToQueue: (track: Partial<Track> | object): Promise<PlaybackQueueResponse> =>
-    fetchApi('/playback/queue/add', { method: 'POST', body: JSON.stringify({ track }) }),
-  // Hand the whole queue to the server. For external local devices the server
-  // then drives playback itself (auto-advance from the NAS), so the album
-  // keeps playing when this client sleeps.
+  getPlaybackSession: (): Promise<PlaybackSnapshotResponse> => fetchApi('/playback/session'),
+  addToQueue: (
+    track: Partial<Track> | object,
+    options: QueueCommandOptions = {},
+  ): Promise<PlaybackSnapshotResponse> =>
+    fetchApi('/playback/queue/add', {
+      method: 'POST',
+      body: JSON.stringify({ track, ...options }),
+    }),
+  // Replace the household queue and make startIndex current. For external
+  // local devices the server then drives playback itself (auto-advance from
+  // the NAS), so the album keeps playing when this client sleeps.
   setServerQueue: (
     tracks: object[],
     startIndex: number,
     deviceId: string,
     shuffle: boolean,
     repeat: 'off' | 'all' | 'one',
-  ): Promise<OkResponse> =>
+    options: QueueCommandOptions & { play?: boolean } = {},
+  ): Promise<PlaybackSnapshotResponse> =>
     fetchApi('/playback/queue/set', {
       method: 'POST',
-      body: JSON.stringify({ tracks, startIndex, deviceId, shuffle, repeat }),
+      body: JSON.stringify({ tracks, startIndex, deviceId, shuffle, repeat, ...options }),
     }),
-  clearQueue: (): Promise<PlaybackQueueResponse> =>
-    fetchApi('/playback/queue/clear', { method: 'POST' }),
-  removeFromQueue: (index: number): Promise<PlaybackQueueResponse> =>
-    fetchApi('/playback/queue/remove', { method: 'POST', body: JSON.stringify({ index }) }),
-  moveInQueue: (from: number, to: number): Promise<PlaybackQueueResponse> =>
-    fetchApi('/playback/queue/move', { method: 'POST', body: JSON.stringify({ from, to }) }),
-  play: (track: Partial<Track> | object, deviceId?: string): Promise<PlaybackStateResponse> =>
-    fetchApi('/playback/play', { method: 'POST', body: JSON.stringify({ track, deviceId }) }),
+  clearQueue: (options: QueueCommandOptions = {}): Promise<PlaybackSnapshotResponse> =>
+    fetchApi('/playback/queue/clear', { method: 'POST', body: JSON.stringify(options) }),
+  removeFromQueue: (
+    itemId: string,
+    options: QueueCommandOptions = {},
+  ): Promise<PlaybackSnapshotResponse> =>
+    fetchApi('/playback/queue/remove', {
+      method: 'POST',
+      body: JSON.stringify({ itemId, ...options }),
+    }),
+  moveInQueue: (
+    itemId: string,
+    to: number,
+    options: QueueCommandOptions = {},
+  ): Promise<PlaybackSnapshotResponse> =>
+    fetchApi('/playback/queue/move', {
+      method: 'POST',
+      body: JSON.stringify({ itemId, to, ...options }),
+    }),
+  playQueueItem: (
+    itemId: string,
+    deviceId?: string,
+    options: QueueCommandOptions = {},
+  ): Promise<PlaybackSnapshotResponse> =>
+    fetchApi('/playback/queue/play', {
+      method: 'POST',
+      body: JSON.stringify({ itemId, deviceId, ...options }),
+    }),
+  playbackNext: (options: QueueCommandOptions = {}): Promise<PlaybackSnapshotResponse> =>
+    fetchApi('/playback/next', { method: 'POST', body: JSON.stringify(options) }),
+  playbackPrevious: (options: QueueCommandOptions = {}): Promise<PlaybackSnapshotResponse> =>
+    fetchApi('/playback/previous', { method: 'POST', body: JSON.stringify(options) }),
+  play: (
+    track: Partial<Track> | object,
+    deviceId?: string,
+    itemId?: string,
+  ): Promise<PlaybackStateResponse> =>
+    fetchApi('/playback/play', {
+      method: 'POST',
+      body: JSON.stringify({ track, deviceId, itemId }),
+    }),
   pause: (): Promise<PlaybackStateResponse> => fetchApi('/playback/pause', { method: 'POST' }),
   stop: (): Promise<PlaybackStateResponse> => fetchApi('/playback/stop', { method: 'POST' }),
   setVolume: (volume: number): Promise<PlaybackStateResponse> =>
     fetchApi('/playback/volume', { method: 'POST', body: JSON.stringify({ volume }) }),
+  setShuffle: (shuffle: boolean): Promise<PlaybackStateResponse> =>
+    fetchApi('/playback/shuffle', { method: 'POST', body: JSON.stringify({ shuffle }) }),
+  setRepeat: (repeat: 'off' | 'all' | 'one'): Promise<PlaybackStateResponse> =>
+    fetchApi('/playback/repeat', { method: 'POST', body: JSON.stringify({ repeat }) }),
 
   // ─── History & Favorites ───────────────────────────────────
   recordPlay: (trackId: string, albumId: string, artistId: string): Promise<OkResponse> =>

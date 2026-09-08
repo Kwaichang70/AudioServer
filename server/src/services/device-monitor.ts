@@ -18,6 +18,8 @@ interface PlaybackStateSync {
     state?: 'playing' | 'paused' | 'stopped';
     position?: number;
   }): void;
+  /** The device the household session is bound to; other monitored devices only feed the UI. */
+  getActiveDeviceId?(): string;
 }
 
 interface DeviceMonitorDependencies {
@@ -196,6 +198,12 @@ export class DeviceMonitor {
   }
 
   private syncPlaybackState(update: DevicePlaybackUpdate, last?: DevicePlaybackUpdate): void {
+    // Session binding (V03.3): a second speaker that someone merely opened in
+    // the device picker is monitored for its own status, but it must not
+    // pause/advance the household session that plays on another device.
+    const active = this.deps.playback.getActiveDeviceId?.();
+    if (active !== undefined && active !== update.deviceId) return;
+
     const lastAtEnd = !!last && isAtEnd(last);
     const updateAtEnd = isAtEnd(update);
     const ended =

@@ -2,6 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { SOCKET_RECONNECT_ATTEMPTS, SOCKET_RECONNECT_DELAY, STORAGE_KEYS } from '../constants.js';
 import { SESSION_LOST_EVENT } from '../context/AuthContext.js';
+import { getClientId } from '../api/client.js';
+import type {
+  PlaybackQueueEvent,
+  PlaybackSnapshot,
+  PlaybackStateEvent,
+  PlaybackTrackChangedEvent,
+} from '../api/types.js';
 
 interface DevicePlaybackUpdate {
   deviceId: string;
@@ -9,16 +16,6 @@ interface DevicePlaybackUpdate {
   position: number;
   duration: number;
   volume: number;
-}
-
-interface PlaybackTrack {
-  id: string;
-  title: string;
-  artistName: string;
-  albumTitle: string;
-  albumId?: string;
-  duration?: number;
-  source?: string;
 }
 
 export interface LibraryScanProgress {
@@ -38,8 +35,11 @@ export interface LibraryScanProgress {
 }
 
 interface ServerToClientEvents {
+  'playback:snapshot': (snapshot: PlaybackSnapshot) => void;
+  'playback:queue': (event: PlaybackQueueEvent) => void;
+  'playback:state': (event: PlaybackStateEvent) => void;
+  'playback:track-changed': (event: PlaybackTrackChangedEvent) => void;
   'device:playback-update': (update: DevicePlaybackUpdate) => void;
-  'playback:track-changed': (track: PlaybackTrack) => void;
   'library:scan-progress': (progress: LibraryScanProgress) => void;
   'session:revoked': () => void;
 }
@@ -47,29 +47,38 @@ interface ServerToClientEvents {
 interface ClientToServerEvents {
   'device:subscribe': (deviceId: string) => void;
   'device:unsubscribe': (deviceId: string) => void;
+  'playback:sync': () => void;
 }
 
 interface UseSocketReturn {
   connected: boolean;
   deviceUpdate: DevicePlaybackUpdate | null;
-  trackChanged: PlaybackTrack | null;
+  /** Full session state, delivered on every (re)connect and on requestSync(). */
+  snapshot: PlaybackSnapshot | null;
+  queueEvent: PlaybackQueueEvent | null;
+  stateEvent: PlaybackStateEvent | null;
+  trackChanged: PlaybackTrackChangedEvent | null;
   scanProgress: LibraryScanProgress | null;
   subscribeDevice: (deviceId: string) => void;
   unsubscribeDevice: (deviceId: string) => void;
+  requestSync: () => void;
 }
 
 export function useSocket(): UseSocketReturn {
   const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
   const [connected, setConnected] = useState(false);
   const [deviceUpdate, setDeviceUpdate] = useState<DevicePlaybackUpdate | null>(null);
-  const [trackChanged, setTrackChanged] = useState<PlaybackTrack | null>(null);
+  const [snapshot, setSnapshot] = useState<PlaybackSnapshot | null>(null);
+  const [queueEvent, setQueueEvent] = useState<PlaybackQueueEvent | null>(null);
+  const [stateEvent, setStateEvent] = useState<PlaybackStateEvent | null>(null);
+  const [trackChanged, setTrackChanged] = useState<PlaybackTrackChangedEvent | null>(null);
   const [scanProgress, setScanProgress] = useState<LibraryScanProgress | null>(null);
   const subscribedDeviceRef = useRef<string | null>(null);
 
   useEffect(() => {
     const token = localStorage.getItem(STORAGE_KEYS.authToken);
     const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io({
-      auth: { token },
+      auth: { token, clientId: getClientId() },
       reconnection: true,
       reconnectionDelay: SOCKET_RECONNECT_DELAY,
       reconnectionAttempts: SOCKET_RECONNECT_ATTEMPTS,
@@ -97,6 +106,9 @@ export function useSocket(): UseSocketReturn {
     });
 
     socket.on('device:playback-update', setDeviceUpdate);
+    socket.on('playback:snapshot', setSnapshot);
+    socket.on('playback:queue', setQueueEvent);
+    socket.on('playback:state', setStateEvent);
     socket.on('playback:track-changed', setTrackChanged);
     socket.on('library:scan-progress', setScanProgress);
 
@@ -123,15 +135,34 @@ export function useSocket(): UseSocketReturn {
     }
   }, []);
 
+  const requestSync = useCallback(() => {
+    socketRef.current?.emit('playback:sync');
+  }, []);
+
   return useMemo(
     () => ({
       connected,
       deviceUpdate,
+      snapshot,
+      queueEvent,
+      stateEvent,
       trackChanged,
       scanProgress,
       subscribeDevice,
       unsubscribeDevice,
+      requestSync,
     }),
-    [connected, deviceUpdate, trackChanged, scanProgress, subscribeDevice, unsubscribeDevice],
+    [
+      connected,
+      deviceUpdate,
+      snapshot,
+      queueEvent,
+      stateEvent,
+      trackChanged,
+      scanProgress,
+      subscribeDevice,
+      unsubscribeDevice,
+      requestSync,
+    ],
   );
 }

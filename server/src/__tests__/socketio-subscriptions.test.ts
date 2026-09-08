@@ -9,6 +9,8 @@ import { initSocketIO } from '../socketio.js';
 import { deviceMonitor } from '../services/device-monitor.js';
 import { getRawDb, initDatabase } from '../db/index.js';
 import { createSession, revokeSession } from '../services/sessions.js';
+import { playbackService } from '../services/playback.js';
+import type { PlaybackSnapshot } from '../types/socket-events.js';
 
 describe('Socket.IO device subscriptions', () => {
   let tmp: string;
@@ -80,6 +82,39 @@ describe('Socket.IO device subscriptions', () => {
 
     await notified;
     expect(await disconnected).toBe('io server disconnect');
+    socket.disconnect();
+  });
+
+  it('sends the playback snapshot on connect and again on playback:sync (reconnect recovery)', async () => {
+    playbackService.initialize();
+    playbackService.setQueue(
+      [
+        { id: 'x1', title: 'One', artistName: 'A', albumTitle: 'B' },
+        { id: 'x2', title: 'Two', artistName: 'A', albumTitle: 'B' },
+      ],
+      1,
+      { clientId: 'tab-z', sessionId: null },
+      'browser',
+    );
+    const socket = connect(createSession('user-1').token);
+    const first = await new Promise<PlaybackSnapshot>((resolve, reject) => {
+      socket.once('playback:snapshot', resolve);
+      socket.once('connect_error', reject);
+    });
+    expect(first.queue.map((i) => i.trackId)).toEqual(['x1', 'x2']);
+    expect(first.queueIndex).toBe(1);
+    expect(first.controller.clientId).toBe('tab-z');
+    expect(first.revision).toBe(playbackService.getRevision());
+
+    // Something changes while this client was "away"; asking for a sync
+    // yields the newer revision.
+    playbackService.addToQueue({ id: 'x3', title: 'Three', artistName: 'A', albumTitle: 'B' });
+    const second = await new Promise<PlaybackSnapshot>((resolve) => {
+      socket.once('playback:snapshot', resolve);
+      socket.emit('playback:sync');
+    });
+    expect(second.queue).toHaveLength(3);
+    expect(second.revision).toBeGreaterThan(first.revision);
     socket.disconnect();
   });
 

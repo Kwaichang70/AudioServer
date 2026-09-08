@@ -311,7 +311,7 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
           </div>
           <SortableList
             items={queue.map(
-              (t, i): SortableQueueTrack => ({ ...t, id: `q-${i}-${t.id}`, _index: i }),
+              (t, i): SortableQueueTrack => ({ ...t, id: t.itemId ?? `q-${i}-${t.id}`, _index: i }),
             )}
             onReorder={(from, to) => moveInQueue(from, to)}
             renderItem={(item) => {

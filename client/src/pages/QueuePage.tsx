@@ -61,7 +61,9 @@ export default function QueuePage() {
       </div>
 
       <SortableList
-        items={queue.map((t, i): QueueRow => ({ ...t, id: `q-${i}-${t.id}`, _index: i }))}
+        items={queue.map(
+          (t, i): QueueRow => ({ ...t, id: t.itemId ?? `q-${i}-${t.id}`, _index: i }),
+        )}
         onReorder={(from, to) => moveInQueue(from, to)}
         renderItem={(item) => {
           const idx = item._index;

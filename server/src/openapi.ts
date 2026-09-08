@@ -32,6 +32,7 @@ export const openApiSpec = {
     { name: 'Playlists' },
     { name: 'Providers' },
     { name: 'Devices' },
+    { name: 'Playback' },
   ],
   components: {
     securitySchemes: {
@@ -330,6 +331,92 @@ export const openApiSpec = {
         tags: ['Auth'],
         summary: 'Mint a short-lived stream token for media URLs',
         responses: { 200: ok('{ token }') },
+      },
+    },
+    '/playback/session': {
+      get: {
+        tags: ['Playback'],
+        summary:
+          'Full playback session snapshot (queue with item ids, revision, state, controller)',
+        responses: { 200: ok('PlaybackSnapshot') },
+      },
+    },
+    '/playback/queue/set': {
+      post: {
+        tags: ['Playback'],
+        summary:
+          'Replace the household queue and start an item. Needs X-Client-Id; commandId makes it idempotent.',
+        parameters: [
+          { name: 'X-Client-Id', in: 'header', required: true, schema: { type: 'string' } },
+        ],
+        responses: {
+          200: ok('PlaybackSnapshot'),
+          426: ok('page is outdated: reload'),
+        },
+      },
+    },
+    '/playback/queue/remove': {
+      post: {
+        tags: ['Playback'],
+        summary:
+          'Remove one occurrence by itemId (expectedRevision → 409 StaleRevision with snapshot)',
+        parameters: [
+          { name: 'X-Client-Id', in: 'header', required: true, schema: { type: 'string' } },
+        ],
+        responses: {
+          200: ok('PlaybackSnapshot'),
+          409: ok('StaleRevision: { revision, data: PlaybackSnapshot }'),
+        },
+      },
+    },
+    '/playback/queue/move': {
+      post: {
+        tags: ['Playback'],
+        summary: 'Move one occurrence by itemId to an index (expectedRevision → 409)',
+        parameters: [
+          { name: 'X-Client-Id', in: 'header', required: true, schema: { type: 'string' } },
+        ],
+        responses: { 200: ok('PlaybackSnapshot'), 409: ok('StaleRevision') },
+      },
+    },
+    '/playback/queue/play': {
+      post: {
+        tags: ['Playback'],
+        summary: 'Make one occurrence current and start it',
+        parameters: [
+          { name: 'X-Client-Id', in: 'header', required: true, schema: { type: 'string' } },
+        ],
+        responses: { 200: ok('PlaybackSnapshot'), 404: ok('item gone; snapshot in data') },
+      },
+    },
+    '/playback/queue/clear': {
+      post: {
+        tags: ['Playback'],
+        summary: 'Drop upcoming items; the current track finishes (compare /playback/stop)',
+        parameters: [
+          { name: 'X-Client-Id', in: 'header', required: true, schema: { type: 'string' } },
+        ],
+        responses: { 200: ok('PlaybackSnapshot') },
+      },
+    },
+    '/playback/next': {
+      post: {
+        tags: ['Playback'],
+        summary: 'Advance the session (server applies shuffle/repeat)',
+        parameters: [
+          { name: 'X-Client-Id', in: 'header', required: true, schema: { type: 'string' } },
+        ],
+        responses: { 200: ok('PlaybackSnapshot') },
+      },
+    },
+    '/playback/previous': {
+      post: {
+        tags: ['Playback'],
+        summary: 'Step back one occurrence',
+        parameters: [
+          { name: 'X-Client-Id', in: 'header', required: true, schema: { type: 'string' } },
+        ],
+        responses: { 200: ok('PlaybackSnapshot') },
       },
     },
     '/library/albums': {

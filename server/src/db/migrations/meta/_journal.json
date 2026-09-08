@@ -15,6 +15,13 @@
       "when": 1788853466386,
       "tag": "0001_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788866765585,
+      "tag": "0002_queue_identity",
+      "breakpoints": true
     }
   ]
 }

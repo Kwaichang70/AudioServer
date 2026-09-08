@@ -5,11 +5,13 @@ import { logger } from './logger.js';
 import { getPrincipalFromToken } from './middleware/auth.js';
 import { onSessionsRevoked } from './services/sessions.js';
 import { deviceMonitor } from './services/device-monitor.js';
+import { playbackService } from './services/playback.js';
 import type { ServerToClientEvents, ClientToServerEvents } from './types/socket-events.js';
 
 interface SocketData {
   userId: string;
   sessionId: string;
+  clientId: string | null;
 }
 
 let io: SocketServer<ClientToServerEvents, ServerToClientEvents, Record<never, never>, SocketData>;
@@ -41,6 +43,9 @@ export function initSocketIO(httpServer: HttpServer) {
       if (!principal) return next(new Error('Authentication failed'));
       socket.data.userId = principal.userId;
       socket.data.sessionId = principal.sessionId;
+      const clientId = socket.handshake.auth?.clientId;
+      socket.data.clientId =
+        typeof clientId === 'string' && clientId ? clientId.slice(0, 128) : null;
       next();
     } catch {
       next(new Error('Authentication failed'));
@@ -51,9 +56,20 @@ export function initSocketIO(httpServer: HttpServer) {
   // signed-out browser would keep receiving queue/state events.
   onSessionsRevoked((sessionIds) => disconnectSessions(sessionIds));
 
+  // The playback service must not import this module (import-order
+  // independence, V03.4); hand it the server as an event sink instead.
+  playbackService.setEventSink(io);
+
   io.on('connection', (socket) => {
     logger.info(`Client connected: ${socket.id}`);
     const deviceSubscriptions = new Set<string>();
+
+    // Snapshot recovery (V03.3): a (re)connecting client gets the whole
+    // session state at once instead of piecing it together from later events.
+    socket.emit('playback:snapshot', playbackService.getSnapshot());
+    socket.on('playback:sync', () => {
+      socket.emit('playback:snapshot', playbackService.getSnapshot());
+    });
 
     // Device monitoring subscriptions
     socket.on('device:subscribe', (deviceId: string) => {

@@ -10,7 +10,7 @@ function makeStatus(
   return { state, position, duration, volume: 40 };
 }
 
-function makeMonitor(statuses: Array<DevicePlaybackStatus | Error>) {
+function makeMonitor(statuses: Array<DevicePlaybackStatus | Error>, activeDeviceId?: string) {
   const emit = vi.fn();
   const setState = vi.fn();
   const getPlaybackState = vi.fn(async () => {
@@ -24,7 +24,10 @@ function makeMonitor(statuses: Array<DevicePlaybackStatus | Error>) {
     getDevices: vi.fn(async (): Promise<OutputDevice[]> => []),
     getPlaybackState,
     getIO: () => ({ emit }),
-    playback: { setState },
+    playback: {
+      setState,
+      ...(activeDeviceId ? { getActiveDeviceId: () => activeDeviceId } : {}),
+    },
     logger: { info: vi.fn(), debug: vi.fn() },
   });
 
@@ -34,6 +37,29 @@ function makeMonitor(statuses: Array<DevicePlaybackStatus | Error>) {
 describe('DeviceMonitor realtime sync', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('feeds the UI for a non-active device but never touches the session (V03.3)', async () => {
+    const { monitor, emit, setState } = makeMonitor(
+      [makeStatus('playing', 12), makeStatus('stopped', 119)],
+      'living-room',
+    );
+
+    await monitor.pollDeviceOnce('kitchen');
+    await monitor.pollDeviceOnce('kitchen');
+
+    expect(emit).toHaveBeenCalledTimes(2);
+    expect(setState).not.toHaveBeenCalled();
+  });
+
+  it('still syncs the active device', async () => {
+    const { monitor, setState } = makeMonitor([makeStatus('playing', 12)], 'living-room');
+    await monitor.pollDeviceOnce('living-room');
+    expect(setState).toHaveBeenCalledWith({
+      deviceId: 'living-room',
+      state: 'playing',
+      position: 12,
+    });
   });
 
   it('emits device updates and mirrors playing state into PlaybackService', async () => {

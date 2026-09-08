@@ -146,6 +146,10 @@ export const playbackState = sqliteTable('playback_state', {
   id: integer('id').primaryKey().default(1), // singleton row
   deviceId: text('device_id').default('browser'),
   trackId: text('track_id'),
+  /** Which queue OCCURRENCE is current (V03.1); track_id alone is ambiguous when a track repeats. */
+  queueItemId: text('queue_item_id'),
+  /** Monotonic counter, bumped on every queue/transport mutation; clients use it to detect stale edits. */
+  revision: integer('revision').default(0),
   state: text('state').default('stopped'), // playing, paused, stopped
   position: real('position').default(0),
   volume: integer('volume').default(50),
@@ -158,6 +162,8 @@ export const queueItems = sqliteTable(
   'queue_items',
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
+    /** Stable identity of this queue position (V03.1); survives reorders and restarts. */
+    itemId: text('item_id'),
     trackId: text('track_id').notNull(),
     trackTitle: text('track_title').notNull(),
     artistName: text('artist_name').notNull(),
@@ -165,6 +171,8 @@ export const queueItems = sqliteTable(
     albumId: text('album_id'),
     duration: real('duration'),
     source: text('source').default('local'),
+    /** JSON with the extra track fields a client needs to play it (ReplayGain, format). */
+    metadata: text('metadata'),
     position: integer('position').notNull(),
     addedAt: integer('added_at', { mode: 'timestamp' }),
   },

@@ -442,7 +442,7 @@ function playLocalTrack(context: PlaybackContext): void {
       });
   }
 
-  api.play(track, deviceId).catch(() => {});
+  api.play(track, deviceId, track.itemId).catch(() => {});
   api.recordPlay(track.id, track.albumId || '', '').catch(() => {});
 }
 
