@@ -19,6 +19,7 @@ import {
   verifySetupCode,
 } from '../services/setup.js';
 import { validate, idParam } from '../utils/validate.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 
 const usernameSchema = z.string().trim().min(1).max(64);
 const passwordSchema = z.string().min(8).max(256);
@@ -82,82 +83,92 @@ authRouter.get('/setup-status', (_req, res) => {
 // Register creates the first (admin) account and nothing else. It needs the
 // one-time setup code from the server log / setup-code.txt / SETUP_CODE, so
 // two visitors of a fresh install cannot race for the admin account.
-authRouter.post('/register', registerLimiter, validate({ body: setupSchema }), async (req, res) => {
-  const { username, password, setupCode } = req.body;
-  if (!isSetupRequired()) {
-    res.status(403).json({
-      error: 'Forbidden',
-      message: 'Setup is complete. Admins create further users in Settings.',
+authRouter.post(
+  '/register',
+  registerLimiter,
+  validate({ body: setupSchema }),
+  asyncHandler(async (req, res) => {
+    const { username, password, setupCode } = req.body;
+    if (!isSetupRequired()) {
+      res.status(403).json({
+        error: 'Forbidden',
+        message: 'Setup is complete. Admins create further users in Settings.',
+      });
+      return;
+    }
+    if (!verifySetupCode(setupCode)) {
+      logger.warn('Setup: registration attempt with an invalid setup code');
+      res.status(403).json({ error: 'Forbidden', message: 'Invalid setup code' });
+      return;
+    }
+
+    const db = getRawDb();
+    const id = uuid();
+    const passwordHash = await hashPassword(password);
+    const role = 'admin';
+    const registerFirstUser = db.transaction(() => {
+      const current = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
+      if (current.count !== 0) return false;
+      db.prepare('INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)').run(
+        id,
+        username,
+        passwordHash,
+        role,
+      );
+      return true;
     });
-    return;
-  }
-  if (!verifySetupCode(setupCode)) {
-    logger.warn('Setup: registration attempt with an invalid setup code');
-    res.status(403).json({ error: 'Forbidden', message: 'Invalid setup code' });
-    return;
-  }
+    const registered = registerFirstUser.immediate();
 
-  const db = getRawDb();
-  const id = uuid();
-  const passwordHash = await hashPassword(password);
-  const role = 'admin';
-  const registerFirstUser = db.transaction(() => {
-    const current = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
-    if (current.count !== 0) return false;
-    db.prepare('INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)').run(
-      id,
-      username,
-      passwordHash,
-      role,
-    );
-    return true;
-  });
-  const registered = registerFirstUser.immediate();
+    if (!registered) {
+      res.status(403).json({
+        error: 'Forbidden',
+        message: 'Setup is complete. Admins create further users in Settings.',
+      });
+      return;
+    }
 
-  if (!registered) {
-    res.status(403).json({
-      error: 'Forbidden',
-      message: 'Setup is complete. Admins create further users in Settings.',
+    clearSetupCode();
+    const session = createSession(id, userAgentOf(req));
+    logger.info(`Setup complete: admin account "${username}" created`);
+    res.json({
+      data: { token: session.token, expiresAt: session.expiresAt, user: { id, username, role } },
     });
-    return;
-  }
-
-  clearSetupCode();
-  const session = createSession(id, userAgentOf(req));
-  logger.info(`Setup complete: admin account "${username}" created`);
-  res.json({
-    data: { token: session.token, expiresAt: session.expiresAt, user: { id, username, role } },
-  });
-});
+  }),
+);
 
 // ─── Session ────────────────────────────────────────────────────
 
-authRouter.post('/login', loginLimiter, validate({ body: credentialsSchema }), async (req, res) => {
-  const { username, password } = req.body;
-  const db = getRawDb();
-  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username) as
-    | UserRow
-    | undefined;
-  if (!user) {
-    res.status(401).json({ error: 'Unauthorized', message: 'Invalid credentials' });
-    return;
-  }
+authRouter.post(
+  '/login',
+  loginLimiter,
+  validate({ body: credentialsSchema }),
+  asyncHandler(async (req, res) => {
+    const { username, password } = req.body;
+    const db = getRawDb();
+    const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username) as
+      | UserRow
+      | undefined;
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized', message: 'Invalid credentials' });
+      return;
+    }
 
-  const valid = await verifyPassword(password, user.password_hash);
-  if (!valid) {
-    res.status(401).json({ error: 'Unauthorized', message: 'Invalid credentials' });
-    return;
-  }
+    const valid = await verifyPassword(password, user.password_hash);
+    if (!valid) {
+      res.status(401).json({ error: 'Unauthorized', message: 'Invalid credentials' });
+      return;
+    }
 
-  const session = createSession(user.id, userAgentOf(req));
-  res.json({
-    data: {
-      token: session.token,
-      expiresAt: session.expiresAt,
-      user: { id: user.id, username: user.username, role: user.role },
-    },
-  });
-});
+    const session = createSession(user.id, userAgentOf(req));
+    res.json({
+      data: {
+        token: session.token,
+        expiresAt: session.expiresAt,
+        user: { id: user.id, username: user.username, role: user.role },
+      },
+    });
+  }),
+);
 
 // End the current session. Idempotent: an already-dead token gets 200 too,
 // so a client can always "sign out" without first checking its state.
@@ -206,26 +217,30 @@ authRouter.post('/sessions/revoke-others', (req, res) => {
 });
 
 // Change own password; other sessions are ended, the current one stays.
-authRouter.post('/password', validate({ body: changePasswordSchema }), async (req, res) => {
-  const db = getRawDb();
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId) as
-    | UserRow
-    | undefined;
-  if (!user) {
-    res.status(401).json({ error: 'Unauthorized', message: 'Authentication required' });
-    return;
-  }
-  const valid = await verifyPassword(req.body.currentPassword, user.password_hash);
-  if (!valid) {
-    res.status(403).json({ error: 'Forbidden', message: 'Current password is incorrect' });
-    return;
-  }
-  const passwordHash = await hashPassword(req.body.newPassword);
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, user.id);
-  const revoked = revokeUserSessions(user.id, req.sessionId);
-  logger.info(`Password changed for "${user.username}" (${revoked} other session(s) ended)`);
-  res.json({ data: { ok: true, revokedSessions: revoked } });
-});
+authRouter.post(
+  '/password',
+  validate({ body: changePasswordSchema }),
+  asyncHandler(async (req, res) => {
+    const db = getRawDb();
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId) as
+      | UserRow
+      | undefined;
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized', message: 'Authentication required' });
+      return;
+    }
+    const valid = await verifyPassword(req.body.currentPassword, user.password_hash);
+    if (!valid) {
+      res.status(403).json({ error: 'Forbidden', message: 'Current password is incorrect' });
+      return;
+    }
+    const passwordHash = await hashPassword(req.body.newPassword);
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, user.id);
+    const revoked = revokeUserSessions(user.id, req.sessionId);
+    logger.info(`Password changed for "${user.username}" (${revoked} other session(s) ended)`);
+    res.json({ data: { ok: true, revokedSessions: revoked } });
+  }),
+);
 
 // Issue a session-scoped stream token (1h TTL, dies with the session).
 // Used by <img src> / <audio src> tags that cannot set an Authorization header.
@@ -251,7 +266,7 @@ authRouter.post(
   '/users/create',
   requireAdmin,
   validate({ body: createUserSchema }),
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const { username, password, role } = req.body;
     const db = getRawDb();
     const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
@@ -272,7 +287,7 @@ authRouter.post(
 
     logger.info(`Admin created user: ${username} (${userRole})`);
     res.status(201).json({ data: { id, username, role: userRole } });
-  },
+  }),
 );
 
 // Managed password reset: an admin sets a new password for a user who is
@@ -282,7 +297,7 @@ authRouter.post(
   '/users/:id/reset-password',
   requireAdmin,
   validate({ params: idParam, body: resetPasswordSchema }),
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const db = getRawDb();
     const user = db
       .prepare('SELECT id, username FROM users WHERE id = ?')
@@ -296,7 +311,7 @@ authRouter.post(
     const revoked = revokeUserSessions(user.id, user.id === req.userId ? req.sessionId : undefined);
     logger.info(`Admin reset password for "${user.username}" (${revoked} session(s) ended)`);
     res.json({ data: { ok: true, revokedSessions: revoked } });
-  },
+  }),
 );
 
 authRouter.post(

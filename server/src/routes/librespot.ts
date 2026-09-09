@@ -13,6 +13,7 @@ import { config } from '../config.js';
 import { z } from 'zod';
 import { requireAdmin } from '../middleware/auth.js';
 import { validate } from '../utils/validate.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 
 const librespotStartSchema = z.object({
   username: z.string().min(1).max(256),
@@ -22,26 +23,29 @@ const librespotStartSchema = z.object({
 export const librespotRouter = Router();
 
 // Check if librespot + ffmpeg are installed
-librespotRouter.get('/status', async (_req, res) => {
-  const [hasLibrespot, hasFfmpeg] = await Promise.all([
-    checkLibrespotAvailable(),
-    checkFfmpegAvailable(),
-  ]);
-  res.json({
-    data: {
-      ...getLibrespotState(),
-      librespotInstalled: hasLibrespot,
-      ffmpegInstalled: hasFfmpeg,
-    },
-  });
-});
+librespotRouter.get(
+  '/status',
+  asyncHandler(async (_req, res) => {
+    const [hasLibrespot, hasFfmpeg] = await Promise.all([
+      checkLibrespotAvailable(),
+      checkFfmpegAvailable(),
+    ]);
+    res.json({
+      data: {
+        ...getLibrespotState(),
+        librespotInstalled: hasLibrespot,
+        ffmpegInstalled: hasFfmpeg,
+      },
+    });
+  }),
+);
 
 // Start librespot with Spotify credentials
 librespotRouter.post(
   '/start',
   requireAdmin,
   validate({ body: librespotStartSchema }),
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     const { username, password } = req.body;
     const ok = await startLibrespot(username, password);
     if (ok) {
@@ -51,7 +55,7 @@ librespotRouter.post(
         .status(500)
         .json({ error: 'Failed to start librespot. Check if librespot and ffmpeg are installed.' });
     }
-  },
+  }),
 );
 
 // Stop librespot
@@ -74,42 +78,45 @@ librespotRouter.get('/stream', (req, res) => {
  * 3. The stream endpoint serves it as MP3
  * 4. We send the stream URL to the target DLNA/Volumio device
  */
-librespotRouter.post('/play-to-device', async (req, res) => {
-  const { trackUri, deviceId } = req.body;
-  if (!trackUri || !deviceId) {
-    res.status(400).json({ error: 'trackUri and deviceId required' });
-    return;
-  }
+librespotRouter.post(
+  '/play-to-device',
+  asyncHandler(async (req, res) => {
+    const { trackUri, deviceId } = req.body;
+    if (!trackUri || !deviceId) {
+      res.status(400).json({ error: 'trackUri and deviceId required' });
+      return;
+    }
 
-  const state = getLibrespotState();
-  if (!state.isRunning) {
-    res
-      .status(400)
-      .json({ error: 'Librespot is not running. Start it first via /api/librespot/start' });
-    return;
-  }
+    const state = getLibrespotState();
+    if (!state.isRunning) {
+      res
+        .status(400)
+        .json({ error: 'Librespot is not running. Start it first via /api/librespot/start' });
+      return;
+    }
 
-  try {
-    // Step 1: Tell Spotify to play on the "AudioServer" librespot device
-    // (This is done via the Spotify Connect API from the frontend)
+    try {
+      // Step 1: Tell Spotify to play on the "AudioServer" librespot device
+      // (This is done via the Spotify Connect API from the frontend)
 
-    // Step 2: Build the stream URL that the target device will connect to.
-    // Use the configured port — 3001 was hardcoded, so a custom PORT broke
-    // DLNA playback with a connection-refused on the device.
-    const lanAddress = req.headers.host?.split(':')[0] || '127.0.0.1';
-    const streamUrl = `http://${lanAddress}:${config.port}/api/librespot/stream`;
+      // Step 2: Build the stream URL that the target device will connect to.
+      // Use the configured port — 3001 was hardcoded, so a custom PORT broke
+      // DLNA playback with a connection-refused on the device.
+      const lanAddress = req.headers.host?.split(':')[0] || '127.0.0.1';
+      const streamUrl = `http://${lanAddress}:${config.port}/api/librespot/stream`;
 
-    // Step 3: Send the stream URL to the target DLNA/Volumio device
-    await deviceManager.play(deviceId, streamUrl, {
-      title: 'Spotify Stream',
-      artist: 'via AudioServer',
-      album: 'Spotify',
-    });
+      // Step 3: Send the stream URL to the target DLNA/Volumio device
+      await deviceManager.play(deviceId, streamUrl, {
+        title: 'Spotify Stream',
+        artist: 'via AudioServer',
+        album: 'Spotify',
+      });
 
-    logger.info(`Librespot: Routing Spotify stream to device ${deviceId}`);
-    res.json({ data: { ok: true, streamUrl } });
-  } catch (err) {
-    logger.error(`Librespot play-to-device failed: ${err}`);
-    res.status(500).json({ error: String(err) });
-  }
-});
+      logger.info(`Librespot: Routing Spotify stream to device ${deviceId}`);
+      res.json({ data: { ok: true, streamUrl } });
+    } catch (err) {
+      logger.error(`Librespot play-to-device failed: ${err}`);
+      res.status(500).json({ error: String(err) });
+    }
+  }),
+);

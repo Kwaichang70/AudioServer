@@ -21,6 +21,7 @@ import {
 } from '../services/coverart-fetch.js';
 import { parsePagination, buildMeta } from '../utils/pagination.js';
 import { getSimilarArtists, similarArtistsAvailable } from '../services/similar-artists.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 
 export const libraryRouter = Router();
 
@@ -105,17 +106,20 @@ libraryRouter.get('/artists/:id/albums', (req, res) => {
 });
 
 // "Listeners also like" — similar artists (Last.fm), matched to the library.
-libraryRouter.get('/artists/:id/similar', async (req, res) => {
-  const db = getDb();
-  const artist = db.select().from(artists).where(eq(artists.id, req.params.id)).get();
-  if (!artist) return res.status(404).json({ error: 'Artist not found' });
-  try {
-    const similar = await getSimilarArtists(artist.name);
-    res.json({ data: { available: similarArtistsAvailable(), similar } });
-  } catch (err) {
-    res.status(502).json({ error: String(err) });
-  }
-});
+libraryRouter.get(
+  '/artists/:id/similar',
+  asyncHandler(async (req, res) => {
+    const db = getDb();
+    const artist = db.select().from(artists).where(eq(artists.id, req.params.id)).get();
+    if (!artist) return res.status(404).json({ error: 'Artist not found' });
+    try {
+      const similar = await getSimilarArtists(artist.name);
+      res.json({ data: { available: similarArtistsAvailable(), similar } });
+    } catch (err) {
+      res.status(502).json({ error: String(err) });
+    }
+  }),
+);
 
 // ─── Albums ──────────────────────────────────────────────────────
 
@@ -183,21 +187,27 @@ libraryRouter.get('/artists/:id/image', (req, res) => {
 
 // ─── Cover Art ───────────────────────────────────────────────────
 
-libraryRouter.get('/albums/:id/cover', async (req, res) => {
-  const cover = await getCoverForAlbum(req.params.id);
-  if (!cover) return res.status(404).json({ error: 'No cover art found' });
-  res.setHeader('Content-Type', cover.mime);
-  res.setHeader('Cache-Control', 'public, max-age=86400');
-  res.send(cover.data);
-});
+libraryRouter.get(
+  '/albums/:id/cover',
+  asyncHandler(async (req, res) => {
+    const cover = await getCoverForAlbum(req.params.id);
+    if (!cover) return res.status(404).json({ error: 'No cover art found' });
+    res.setHeader('Content-Type', cover.mime);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.send(cover.data);
+  }),
+);
 
-libraryRouter.get('/tracks/:id/cover', async (req, res) => {
-  const cover = await getCoverForTrack(req.params.id);
-  if (!cover) return res.status(404).json({ error: 'No cover art found' });
-  res.setHeader('Content-Type', cover.mime);
-  res.setHeader('Cache-Control', 'public, max-age=86400');
-  res.send(cover.data);
-});
+libraryRouter.get(
+  '/tracks/:id/cover',
+  asyncHandler(async (req, res) => {
+    const cover = await getCoverForTrack(req.params.id);
+    if (!cover) return res.status(404).json({ error: 'No cover art found' });
+    res.setHeader('Content-Type', cover.mime);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.send(cover.data);
+  }),
+);
 
 // ─── Tracks ──────────────────────────────────────────────────────
 
@@ -360,23 +370,26 @@ libraryRouter.get('/genres/:genre/albums', (req, res) => {
 
 // ─── Lyrics ─────────────────────────────────────────────────────
 
-libraryRouter.get('/tracks/:id/lyrics', async (req, res) => {
-  try {
-    const { getLyrics, parseLrc } = await import('../services/lyrics.js');
-    const result = await getLyrics(req.params.id);
-    if (!result) return res.status(404).json({ error: 'No lyrics found' });
+libraryRouter.get(
+  '/tracks/:id/lyrics',
+  asyncHandler(async (req, res) => {
+    try {
+      const { getLyrics, parseLrc } = await import('../services/lyrics.js');
+      const result = await getLyrics(req.params.id);
+      if (!result) return res.status(404).json({ error: 'No lyrics found' });
 
-    res.json({
-      data: {
-        plain: result.plain || null,
-        synced: result.synced ? parseLrc(result.synced) : null,
-        source: result.source,
-      },
-    });
-  } catch (err) {
-    res.status(500).json({ error: String(err) });
-  }
-});
+      res.json({
+        data: {
+          plain: result.plain || null,
+          synced: result.synced ? parseLrc(result.synced) : null,
+          source: result.source,
+        },
+      });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  }),
+);
 
 // ─── Search ──────────────────────────────────────────────────────
 

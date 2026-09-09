@@ -93,6 +93,19 @@ Logs:
 sudo /usr/local/bin/docker-compose -f /volume1/docker/AudioServer/docker-compose.yml logs --tail=120 audioserver
 ```
 
+Crash check (an "api error 502" in the browser while the container is
+`healthy` usually means the Node process died on one request and restarted;
+the setup code changes on every restart, which is the tell-tale sign):
+
+```bash
+sudo docker logs --since 1h audioserver_audioserver_1 2>&1 | grep -B 40 "Node.js v" | head -80
+```
+
+The 40 lines before `Node.js v22...` are the stack trace of the exception.
+Since 9 Sept 2026 route errors are answered with a logged `500` instead
+(look for `"level":"error"` lines with a request id); a `Node.js v` line
+after that date means an `uncaughtException` entry precedes it.
+
 Health:
 
 ```bash

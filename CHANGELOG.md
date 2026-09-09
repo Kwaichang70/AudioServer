@@ -4,6 +4,32 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fix — async route errors no longer kill the server (9 Sept 2026)
+
+Found while creating the admin account on the Synology: the request got an
+empty reply (`502` behind the reverse proxy) and the container restarted,
+with a fresh setup code each time. Root cause is structural, not the
+setup screen: Express 4 does not await handlers, so a bare
+`async (req, res) => {...}` that throws after its first `await` becomes an
+unhandled promise rejection, and Node 15+ terminates the process on those.
+64 handlers across the routers were written that way.
+
+- Every async route handler is wrapped in `asyncHandler` (typed so
+  `req.params` and validated bodies keep their types). A throw now reaches
+  the error middleware: a logged `500` with request id and stack, server
+  stays up.
+- `process.on('unhandledRejection')` logs the stack and keeps running (the
+  only rejections left come from background work: scanner, polls,
+  providers). `uncaughtException` logs the stack and exits so the container
+  supervisor restarts it with a visible reason in `docker logs`.
+- Regression test `async-routes.test.ts`: a handler that throws after an
+  await answers 500, and a source scan fails the build when a new bare async
+  handler appears in `server/src/routes`.
+- `DEPLOY_SYNOLOGY.md` §4: how to read a crash out of `docker logs`.
+
+The actual exception that fired on the NAS is still to be read from the
+container log; the fix above makes it visible instead of fatal.
+
 ## V04 — The NAS plays local and Qobuz on its own (verbeterplan sprint 4)
 
 **One resolver** (`server/src/services/playback-resolver.ts`,

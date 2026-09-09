@@ -273,6 +273,23 @@ function shutdown(signal: string): Promise<void> {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
+// Route handlers are wrapped in asyncHandler, so a rejection that still
+// reaches here comes from background work (scanner, device polls, providers).
+// Node's default would terminate the process; a music server must not restart
+// because one poll failed. Log it with its stack and carry on.
+process.on('unhandledRejection', (reason) => {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  logger.error(`Unhandled promise rejection: ${err.message}\n${err.stack ?? ''}`);
+});
+
+// A synchronous uncaught exception leaves state undefined: log it with its
+// stack (the JSON log line is what the operator sees in `docker logs`) and let
+// the supervisor restart the container.
+process.on('uncaughtException', (err) => {
+  logger.error(`Uncaught exception: ${err.message}\n${err.stack ?? ''}`);
+  process.exit(1);
+});
+
 main().catch((err) => {
   logger.error(`Failed to start: ${err}`);
   process.exit(1);

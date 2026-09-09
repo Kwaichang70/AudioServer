@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { scrobbler } from '../services/scrobbler.js';
 import { validate } from '../utils/validate.js';
 import { requireAdmin } from '../middleware/auth.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 
 // Scrobbling targets are configured once for the server (one Last.fm /
 // ListenBrainz account), so connecting and disconnecting are admin-only.
@@ -36,31 +37,35 @@ scrobbleRouter.get('/config', (_req, res) => {
 });
 
 // Last.fm: get auth URL (fetches a request token + builds api_key+token URL)
-scrobbleRouter.get('/lastfm/auth-url', requireAdmin, async (_req, res) => {
-  if (!process.env.LASTFM_API_KEY) {
-    res.status(400).json({ error: 'LASTFM_API_KEY not configured' });
-    return;
-  }
-  try {
-    res.json({ data: await scrobbler.getLastfmAuthUrl() });
-  } catch (err) {
-    res.status(502).json({ error: String(err) });
-  }
-});
+scrobbleRouter.get(
+  '/lastfm/auth-url',
+  requireAdmin,
+  asyncHandler(async (_req, res) => {
+    if (!process.env.LASTFM_API_KEY) {
+      res.status(400).json({ error: 'LASTFM_API_KEY not configured' });
+      return;
+    }
+    try {
+      res.json({ data: await scrobbler.getLastfmAuthUrl() });
+    } catch (err) {
+      res.status(502).json({ error: String(err) });
+    }
+  }),
+);
 
 // Last.fm: complete auth with token
 scrobbleRouter.post(
   '/lastfm/auth',
   requireAdmin,
   validate({ body: tokenSchema }),
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     try {
       const username = await scrobbler.authenticateLastfm(req.body.token);
       res.json({ data: { username, authenticated: true } });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
-  },
+  }),
 );
 
 // Last.fm: disconnect
@@ -74,7 +79,7 @@ scrobbleRouter.post(
   '/listenbrainz/auth',
   requireAdmin,
   validate({ body: tokenSchema }),
-  async (req, res) => {
+  asyncHandler(async (req, res) => {
     try {
       const valid = await scrobbler.validateListenbrainz(req.body.token);
       if (!valid) {
@@ -85,7 +90,7 @@ scrobbleRouter.post(
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
-  },
+  }),
 );
 
 // ListenBrainz: disconnect
@@ -101,7 +106,11 @@ scrobbleRouter.post('/scrobble', validate({ body: scrobbleSchema }), (req, res) 
 });
 
 // Now playing update
-scrobbleRouter.post('/now-playing', validate({ body: scrobbleSchema }), async (req, res) => {
-  await scrobbler.nowPlaying(req.body);
-  res.json({ data: { ok: true } });
-});
+scrobbleRouter.post(
+  '/now-playing',
+  validate({ body: scrobbleSchema }),
+  asyncHandler(async (req, res) => {
+    await scrobbler.nowPlaying(req.body);
+    res.json({ data: { ok: true } });
+  }),
+);

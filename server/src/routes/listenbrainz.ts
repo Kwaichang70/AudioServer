@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as lb from '../services/listenbrainz.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 
 export const listenbrainzRouter = Router();
 
@@ -10,49 +11,55 @@ listenbrainzRouter.get('/status', (_req, res) => {
 
 // Top artists / releases / recordings for a range, each matched back to the
 // local library so the UI can deep-link albums/artists you own.
-listenbrainzRouter.get('/stats', async (req, res) => {
-  if (!lb.isConfigured()) {
-    res.json({
-      data: {
-        configured: false,
-        userName: null,
-        range: 'month',
-        artists: [],
-        releases: [],
-        recordings: [],
-      },
-    });
-    return;
-  }
-  const range = lb.parseRange(req.query.range);
-  try {
-    const [userName, artists, releases, recordings] = await Promise.all([
-      lb.getUserName(),
-      lb.topArtists(range),
-      lb.topReleases(range),
-      lb.topRecordings(range),
-    ]);
-    res.json({ data: { configured: true, userName, range, artists, releases, recordings } });
-  } catch (err) {
-    res.status(502).json({ error: String(err) });
-  }
-});
+listenbrainzRouter.get(
+  '/stats',
+  asyncHandler(async (req, res) => {
+    if (!lb.isConfigured()) {
+      res.json({
+        data: {
+          configured: false,
+          userName: null,
+          range: 'month',
+          artists: [],
+          releases: [],
+          recordings: [],
+        },
+      });
+      return;
+    }
+    const range = lb.parseRange(req.query.range);
+    try {
+      const [userName, artists, releases, recordings] = await Promise.all([
+        lb.getUserName(),
+        lb.topArtists(range),
+        lb.topReleases(range),
+        lb.topRecordings(range),
+      ]);
+      res.json({ data: { configured: true, userName, range, artists, releases, recordings } });
+    } catch (err) {
+      res.status(502).json({ error: String(err) });
+    }
+  }),
+);
 
 // Discovery: fresh releases from your artists + the "Created for you"
 // recommendation playlists. Local items deep-link; the rest can be searched
 // across your providers.
-listenbrainzRouter.get('/discover', async (_req, res) => {
-  if (!lb.isConfigured()) {
-    res.json({ data: { configured: false, freshReleases: [], playlists: [] } });
-    return;
-  }
-  try {
-    const [freshReleases, playlists] = await Promise.all([
-      lb.freshReleases(),
-      lb.recommendationPlaylists(),
-    ]);
-    res.json({ data: { configured: true, freshReleases, playlists } });
-  } catch (err) {
-    res.status(502).json({ error: String(err) });
-  }
-});
+listenbrainzRouter.get(
+  '/discover',
+  asyncHandler(async (_req, res) => {
+    if (!lb.isConfigured()) {
+      res.json({ data: { configured: false, freshReleases: [], playlists: [] } });
+      return;
+    }
+    try {
+      const [freshReleases, playlists] = await Promise.all([
+        lb.freshReleases(),
+        lb.recommendationPlaylists(),
+      ]);
+      res.json({ data: { configured: true, freshReleases, playlists } });
+    } catch (err) {
+      res.status(502).json({ error: String(err) });
+    }
+  }),
+);
