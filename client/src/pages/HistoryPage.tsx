@@ -6,17 +6,7 @@ import { useGridNavigation } from '../hooks/useGridNavigation.js';
 import { DEFAULT_HISTORY_PAGE_SIZE } from '../constants.js';
 import { formatDuration } from '../utils/format.js';
 
-interface HistoryEntry {
-  id: number;
-  track_id: string;
-  album_id: string;
-  artist_id: string;
-  played_at: string;
-  track_title: string;
-  album_title: string;
-  artist_name: string;
-  duration: number;
-}
+import type { HistoryEntry } from '../api/types.js';
 
 interface RecentAlbum {
   album_id: string;
@@ -30,8 +20,12 @@ interface TopArtist {
   play_count: number;
 }
 
-function formatDate(dateStr: string): string {
+function formatDate(dateStr: string | null): string {
+  // Listens migrated from the pre-V05 table may have no recorded time. Say
+  // so instead of inventing one.
+  if (!dateStr) return 'Time unknown';
   const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return 'Time unknown';
   const now = new Date();
   const diff = now.getTime() - d.getTime();
   const hours = diff / (1000 * 60 * 60);
@@ -188,9 +182,9 @@ export default function HistoryPage() {
                       id: entry.track_id,
                       title: entry.track_title,
                       artistName: entry.artist_name,
-                      albumId: entry.album_id,
-                      albumTitle: entry.album_title,
-                      duration: entry.duration,
+                      albumId: entry.album_id ?? undefined,
+                      albumTitle: entry.album_title ?? '',
+                      duration: entry.duration ?? undefined,
                     };
                     playTrack(track);
                   }}
@@ -219,7 +213,7 @@ export default function HistoryPage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0">
-                    {entry.duration > 0 && (
+                    {entry.duration != null && entry.duration > 0 && (
                       <span className="text-xs text-gray-500">
                         {formatDuration(entry.duration)}
                       </span>

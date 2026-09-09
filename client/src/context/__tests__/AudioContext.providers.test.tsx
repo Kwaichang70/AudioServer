@@ -30,7 +30,7 @@ const mocks = vi.hoisted(() => {
     getStreamUrl: vi.fn((id: string) => `/api/library/tracks/${id}/stream`),
     getAlbumCoverUrl: vi.fn((id: string) => `/api/library/albums/${id}/cover`),
     play: vi.fn(),
-    recordPlay: vi.fn(),
+    reportProgress: vi.fn(() => Promise.resolve({ data: { accepted: true } })),
     stop: vi.fn(() => Promise.resolve({})),
   };
   return {

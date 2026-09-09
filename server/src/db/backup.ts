@@ -29,6 +29,7 @@ export interface TableCounts {
   playlists: number;
   playlistTracks: number;
   playHistory: number;
+  listeningSessions: number;
   favorites: number;
   queueItems: number;
   providerTokens: number;
@@ -52,6 +53,7 @@ const COUNTED_TABLES: Array<[keyof TableCounts, string]> = [
   ['playlists', 'playlists'],
   ['playlistTracks', 'playlist_tracks'],
   ['playHistory', 'play_history'],
+  ['listeningSessions', 'listening_sessions'],
   ['favorites', 'favorites'],
   ['queueItems', 'queue_items'],
   ['providerTokens', 'provider_tokens'],

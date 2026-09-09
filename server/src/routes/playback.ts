@@ -328,6 +328,34 @@ playbackRouter.post(
   },
 );
 
+/**
+ * A browser that plays audio itself confirms every few seconds that it is
+ * still playing (V05.3). Only the current queue item counts; a stale tab
+ * reporting an old item is ignored. No revision or client id needed: it is
+ * an observation, not an edit.
+ */
+playbackRouter.post(
+  '/progress',
+  validate({
+    body: z.object({
+      itemId: z.string().max(128).optional().nullable(),
+      position: z
+        .number()
+        .min(0)
+        .max(24 * 3600),
+    }),
+  }),
+  (req, res) => {
+    const current = playbackService.getSnapshot().currentItemId ?? null;
+    if (req.body.itemId && current && req.body.itemId !== current) {
+      res.status(200).json({ data: { accepted: false, reason: 'stale-item' } });
+      return;
+    }
+    playbackService.progress(req.body.position);
+    res.json({ data: { accepted: true } });
+  },
+);
+
 playbackRouter.post('/pause', (req, res) => {
   playbackService.pause(originOf(req));
   res.json({ data: playbackService.getState() });

@@ -419,6 +419,53 @@ export const openApiSpec = {
         responses: { 200: ok('PlaybackSnapshot') },
       },
     },
+    '/playback/progress': {
+      post: {
+        tags: ['Playback'],
+        summary:
+          'A browser that plays audio itself confirms it is still playing (V05); credits listened time',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['position'],
+                properties: {
+                  itemId: { type: 'string', nullable: true },
+                  position: { type: 'number', description: 'Seconds into the track' },
+                },
+              },
+            },
+          },
+        },
+        responses: { 200: { description: '{ accepted: boolean, reason?: "stale-item" }' } },
+      },
+    },
+    '/history/tracks': {
+      get: {
+        tags: ['History'],
+        summary: 'Qualified listens, newest first; played_at is ISO-8601 or null when unknown',
+        parameters: [
+          { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1 } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', maximum: 100 } },
+        ],
+        responses: { 200: { description: 'data[] + meta { page, limit, total, totalPages }' } },
+      },
+    },
+    '/history/stats': {
+      get: {
+        tags: ['History'],
+        summary: 'Local listening statistics for the last N days (0 = all time)',
+        parameters: [{ name: 'days', in: 'query', schema: { type: 'integer', minimum: 0 } }],
+        responses: {
+          200: {
+            description:
+              '{ days, listens, listenedMs, distinctTracks, topTracks[], topArtists[], bySource[] }',
+          },
+        },
+      },
+    },
     '/library/albums': {
       get: {
         tags: ['Library'],

@@ -16,8 +16,8 @@ import { useTrackPlayback } from '../hooks/useTrackPlayback.js';
 import { api, ApiError, getClientId, newCommandId } from '../api/client.js';
 import type { PlaybackQueueEntry, PlaybackSnapshot } from '../api/types.js';
 import { useToast } from '../components/Toast.js';
-import { setProgress } from './ProgressStore.js';
-import { DEVICE_POLL_INTERVAL, STORAGE_KEYS } from '../constants.js';
+import { getProgressSnapshot, setProgress } from './ProgressStore.js';
+import { DEVICE_POLL_INTERVAL, PROGRESS_REPORT_INTERVAL, STORAGE_KEYS } from '../constants.js';
 import type { TrackInfo } from '../types/playback.js';
 
 // Re-export so consumers can keep importing from this module.
@@ -386,7 +386,6 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       if (isExternalLocalDevice(deviceId) && isLocalTrack(track.id)) {
         setCurrentTrack(track);
         setIsLoading(false);
-        api.recordPlay(track.id, track.albumId || '', '').catch(() => {});
         return;
       }
       startTrack(track);
@@ -910,6 +909,21 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         ? !!spotifyWeb.playback && !spotifyWeb.playback.paused
         : audio.isPlaying
       : deviceIsPlaying;
+
+  // V05: while this browser plays audio itself, confirm it every few seconds.
+  // The server credits listened time only between confirmations, so a closed
+  // tab stops counting by itself; speakers the server drives are polled there.
+  useEffect(() => {
+    if (selectedDeviceId !== 'browser' || !isPlaying) return;
+    const report = () => {
+      const track = currentTrackRef.current;
+      if (!track) return;
+      api.reportProgress(track.itemId ?? null, getProgressSnapshot().currentTime).catch(() => {});
+    };
+    report();
+    const timer = setInterval(report, PROGRESS_REPORT_INTERVAL);
+    return () => clearInterval(timer);
+  }, [selectedDeviceId, isPlaying, currentTrack?.itemId]);
 
   useMediaSession({
     currentTrack,

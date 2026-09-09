@@ -1,57 +1,39 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
-import { playHistory, favorites, tracks, albums, artists, radioStations } from '../db/schema.js';
+import { favorites, tracks, albums, artists, radioStations } from '../db/schema.js';
 import { eq, and, desc, sql } from 'drizzle-orm';
-import { scrobbler } from '../services/scrobbler.js';
 
 export const historyRouter = Router();
 
 // ─── Play History ────────────────────────────────────────────────
+//
+// V05: history, "recent" and top lists come from listening_sessions and count
+// only qualified sessions (Last.fm rule: > 30 s track, at least half or four
+// minutes heard). started_at is NULL for rows migrated from the old
+// play_history table whose time was never recorded; they keep their place in
+// counts but never claim to be "recent".
 
-historyRouter.post('/played', (req, res) => {
-  const { trackId, albumId, artistId } = req.body;
-  if (!trackId) return res.status(400).json({ error: 'trackId required' });
+const ISO_STARTED = sql`CASE WHEN s.started_at IS NULL THEN NULL ELSE strftime('%Y-%m-%dT%H:%M:%fZ', s.started_at, 'unixepoch') END`;
 
-  const db = getDb();
-  db.insert(playHistory)
-    .values({
-      trackId,
-      albumId: albumId || '',
-      artistId: artistId || '',
-    })
-    .run();
-
-  // Scrobble: look up track details for title/artist/album
-  try {
-    const track = db.select().from(tracks).where(eq(tracks.id, trackId)).get();
-    if (track) {
-      scrobbler.scrobble({
-        title: track.title,
-        artist: track.artistName,
-        album: track.albumTitle,
-        duration: track.duration ? Math.round(track.duration) : undefined,
-      });
-      scrobbler.nowPlaying({
-        title: track.title,
-        artist: track.artistName,
-        album: track.albumTitle,
-        duration: track.duration ? Math.round(track.duration) : undefined,
-      });
-    }
-  } catch {}
-
-  res.json({ data: { ok: true } });
+/**
+ * Deprecated: pre-V05 clients reported a play the moment it started. Listens
+ * are now measured server-side, so this is accepted and ignored rather than
+ * writing a fictitious listen.
+ */
+historyRouter.post('/played', (_req, res) => {
+  res.json({ data: { ok: true, deprecated: true } });
 });
 
-// Recently played tracks (unique by album, most recent first)
+// Recently played albums (unique by album, most recent first)
 historyRouter.get('/recent', (_req, res) => {
   const db = getDb();
   const result = db.all(sql`
-    SELECT DISTINCT h.album_id, a.title, a.artist_name, a.year, a.track_count,
-      MAX(h.played_at) as last_played
-    FROM play_history h
-    JOIN albums a ON a.id = h.album_id
-    GROUP BY h.album_id
+    SELECT s.album_id, a.title, a.artist_name, a.year, a.track_count,
+      MAX(s.started_at) as last_played
+    FROM listening_sessions s
+    JOIN albums a ON a.id = s.album_id
+    WHERE s.qualified = 1 AND s.album_id IS NOT NULL AND s.started_at IS NOT NULL
+    GROUP BY s.album_id
     ORDER BY last_played DESC
     LIMIT 20
   `);
@@ -62,14 +44,65 @@ historyRouter.get('/recent', (_req, res) => {
 historyRouter.get('/top-artists', (_req, res) => {
   const db = getDb();
   const result = db.all(sql`
-    SELECT h.artist_id as id, ar.name, COUNT(*) as play_count
-    FROM play_history h
-    JOIN artists ar ON ar.id = h.artist_id
-    GROUP BY h.artist_id
+    SELECT s.artist_id as id, COALESCE(ar.name, s.artist_name) as name, COUNT(*) as play_count
+    FROM listening_sessions s
+    LEFT JOIN artists ar ON ar.id = s.artist_id
+    WHERE s.qualified = 1 AND s.artist_id IS NOT NULL
+    GROUP BY s.artist_id
     ORDER BY play_count DESC
     LIMIT 10
   `);
   res.json({ data: result });
+});
+
+// Local listening statistics for a period (days back, default 30; 0 = all time)
+historyRouter.get('/stats', (req, res) => {
+  const daysRaw = parseInt(String(req.query.days ?? '30'), 10);
+  const days = Number.isFinite(daysRaw) && daysRaw >= 0 ? Math.min(daysRaw, 3650) : 30;
+  const since = days === 0 ? 0 : Math.floor(Date.now() / 1000) - days * 86400;
+  const db = getDb();
+  const totals = db.get(sql`
+    SELECT COUNT(*) as listens, COALESCE(SUM(s.listened_ms), 0) as listened_ms,
+      COUNT(DISTINCT s.track_id) as distinct_tracks
+    FROM listening_sessions s
+    WHERE s.qualified = 1 AND (s.started_at IS NULL OR s.started_at >= ${since})
+  `) as { listens: number; listened_ms: number; distinct_tracks: number };
+  const topTracks = db.all(sql`
+    SELECT s.track_id, s.title, s.artist_name, s.album_title, s.album_id, s.source,
+      COUNT(*) as play_count, COALESCE(SUM(s.listened_ms), 0) as listened_ms
+    FROM listening_sessions s
+    WHERE s.qualified = 1 AND (s.started_at IS NULL OR s.started_at >= ${since})
+    GROUP BY s.track_id, s.title, s.artist_name
+    ORDER BY play_count DESC, listened_ms DESC
+    LIMIT 10
+  `);
+  const topArtists = db.all(sql`
+    SELECT s.artist_id as id, s.artist_name as name, COUNT(*) as play_count,
+      COALESCE(SUM(s.listened_ms), 0) as listened_ms
+    FROM listening_sessions s
+    WHERE s.qualified = 1 AND (s.started_at IS NULL OR s.started_at >= ${since})
+    GROUP BY COALESCE(s.artist_id, s.artist_name)
+    ORDER BY play_count DESC, listened_ms DESC
+    LIMIT 10
+  `);
+  const bySource = db.all(sql`
+    SELECT s.source, COUNT(*) as play_count, COALESCE(SUM(s.listened_ms), 0) as listened_ms
+    FROM listening_sessions s
+    WHERE s.qualified = 1 AND (s.started_at IS NULL OR s.started_at >= ${since})
+    GROUP BY s.source
+    ORDER BY play_count DESC
+  `);
+  res.json({
+    data: {
+      days,
+      listens: totals.listens,
+      listenedMs: totals.listened_ms,
+      distinctTracks: totals.distinct_tracks,
+      topTracks,
+      topArtists,
+      bySource,
+    },
+  });
 });
 
 // ─── Favorites ───────────────────────────────────────────────────
@@ -168,7 +201,8 @@ historyRouter.get('/favorites/tracks', (_req, res) => {
   res.json({ data: enriched });
 });
 
-// Play history (track-level, chronological, paginated)
+// Play history (track-level, chronological, paginated). Rows without a known
+// time sort last and carry played_at: null.
 historyRouter.get('/tracks', (req, res) => {
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const limit = Math.min(100, parseInt(req.query.limit as string) || 50);
@@ -176,22 +210,22 @@ historyRouter.get('/tracks', (req, res) => {
 
   const db = getDb();
   const result = db.all(sql`
-    SELECT h.id, h.track_id, h.album_id, h.artist_id,
-      strftime('%Y-%m-%dT%H:%M:%fZ', h.played_at, 'unixepoch') as played_at,
-      t.title as track_title, t.duration, t.track_number,
-      a.title as album_title,
-      ar.name as artist_name
-    FROM play_history h
-    LEFT JOIN tracks t ON t.id = h.track_id
-    LEFT JOIN albums a ON a.id = h.album_id
-    LEFT JOIN artists ar ON ar.id = h.artist_id
-    ORDER BY h.played_at DESC
+    SELECT s.id, s.track_id, s.album_id, s.artist_id, s.source,
+      ${ISO_STARTED} as played_at,
+      s.listened_ms,
+      s.title as track_title, COALESCE(s.duration, t.duration) as duration, t.track_number,
+      s.album_title,
+      s.artist_name
+    FROM listening_sessions s
+    LEFT JOIN tracks t ON t.id = s.track_id
+    WHERE s.qualified = 1
+    ORDER BY (s.started_at IS NULL) ASC, s.started_at DESC, s.id DESC
     LIMIT ${limit} OFFSET ${offset}
   `);
 
-  const totalResult = db.get(sql`SELECT COUNT(*) as count FROM play_history`) as
-    | { count: number }
-    | undefined;
+  const totalResult = db.get(
+    sql`SELECT COUNT(*) as count FROM listening_sessions s WHERE s.qualified = 1`,
+  ) as { count: number } | undefined;
   const total = totalResult?.count || 0;
 
   res.json({ data: result, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } });

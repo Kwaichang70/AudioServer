@@ -4,6 +4,51 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## V05 — Listening history you can trust (verbeterplan sprint 5)
+
+**Listening sessions** (`server/src/services/listening.ts`, migration
+`0004_listening_sessions`, schema v5)
+
+- One row per track start with a metadata snapshot (title, artist, album,
+  local ids when known, duration, source), a UTC start time and the time
+  actually heard. Provider tracks and files that later disappear keep their
+  history: no foreign key to `tracks`.
+- Listened time is confirmed playing time: device monitor samples for
+  speakers the NAS drives, `POST /api/playback/progress` every 10 s from a
+  browser that plays itself. Intervals are capped at 45 s, pauses stop the
+  clock, seeks and skips add nothing, two controllers cannot double-count.
+- A listen qualifies by Last.fm's rule (track > 30 s, at least half or four
+  minutes heard). Failed plays and immediate skips never count.
+- The old `play_history` table is copied once and kept read-only; rows whose
+  time was never recorded stay `started_at = NULL` and are shown as
+  "Time unknown", never given an invented time.
+
+**Scrobbling**
+
+- Exactly one submission per listen and service: `scrobble_queue.session_id`
+  with a unique `(session_id, service)` index; the submission carries the
+  start time. Retries, reconnects and a second controller cannot duplicate.
+- Radio never scrobbles; Spotify only with `SCROBBLE_SPOTIFY=true` (Spotify
+  scrobbles itself). A disabled service keeps its rows pending instead of
+  burning retries; sent rows are pruned after 30 days.
+- Sessions left open by a previous run are closed on startup with their
+  accrued time; a qualifying one still gets its single scrobble.
+
+**Timestamps**
+
+- Every Drizzle timestamp column has a schema default now (`$defaultFn`):
+  Drizzle wrote an explicit NULL for omitted columns, so favorites,
+  playlists and history rows had no time.
+
+**History and stats**
+
+- `/api/history/tracks|recent|top-artists` read qualified sessions
+  (`played_at` ISO-8601 or `null`, plus `listened_ms` and `source`).
+- New `GET /api/history/stats?days=` and an "On this server" block on the
+  stats page that works without ListenBrainz.
+- `POST /api/history/played` (pre-V05 clients) is accepted and ignored.
+- Client no longer records a play when play is pressed.
+
 ## Fix — async route errors no longer kill the server (9 Sept 2026)
 
 Found while creating the admin account on the Synology: the request got an

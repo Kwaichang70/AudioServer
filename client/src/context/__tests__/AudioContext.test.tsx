@@ -31,7 +31,7 @@ const mocks = vi.hoisted(() => {
     getStreamUrl: vi.fn((id: string) => `/api/library/tracks/${id}/stream`),
     getAlbumCoverUrl: vi.fn((id: string) => `/api/library/albums/${id}/cover`),
     play: vi.fn(() => Promise.resolve({})),
-    recordPlay: vi.fn(() => Promise.resolve({})),
+    reportProgress: vi.fn(() => Promise.resolve({ data: { accepted: true } })),
     deviceVolume: vi.fn(() => Promise.resolve({})),
     spotifyConnectVolume: vi.fn(() => Promise.resolve({})),
     spotifyConnectPlay: vi.fn(() => Promise.resolve({})),
@@ -207,6 +207,44 @@ describe('AudioProvider queue controls', () => {
       'spotify:track:spotify-2',
       'spotify-web-device',
     );
+  });
+
+  it('confirms browser playback to the server while it plays (V05 heartbeat)', async () => {
+    const view = renderHarness();
+    mocks.api.reportProgress.mockClear();
+
+    fireEvent.click(screen.getByText('Play Spotify Album'));
+    mocks.spotifyWeb.playback = {
+      paused: false,
+      position: 12,
+      duration: 180,
+      trackId: 'spotify-1',
+    };
+    view.rerender(
+      <AudioProvider>
+        <Harness />
+      </AudioProvider>,
+    );
+    // The first report may precede the server's item id; once the snapshot
+    // is applied the confirmation names the current queue item.
+    await waitFor(() => expect(mocks.api.reportProgress).toHaveBeenCalledWith('item-1', 12));
+
+    // Paused: no further confirmations, the server stops the clock.
+    mocks.spotifyWeb.playback = { paused: true, position: 20, duration: 180, trackId: 'spotify-1' };
+    view.rerender(
+      <AudioProvider>
+        <Harness />
+      </AudioProvider>,
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    mocks.api.reportProgress.mockClear();
+    view.rerender(
+      <AudioProvider>
+        <Harness />
+      </AudioProvider>,
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(mocks.api.reportProgress).not.toHaveBeenCalled();
   });
 
   it('does not advance Spotify playback for a manual pause mid-track', async () => {

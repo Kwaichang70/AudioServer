@@ -47,6 +47,7 @@ import type {
   TopArtist,
   UserAccount,
   LyricsResult,
+  HistoryStats,
 } from './types.js';
 
 /**
@@ -427,11 +428,19 @@ export const api = {
     fetchApi('/playback/repeat', { method: 'POST', body: JSON.stringify({ repeat }) }),
 
   // ─── History & Favorites ───────────────────────────────────
-  recordPlay: (trackId: string, albumId: string, artistId: string): Promise<OkResponse> =>
-    fetchApi('/history/played', {
+  /**
+   * V05: a browser that plays audio itself confirms every few seconds that
+   * it is still playing. The server measures listened time from these
+   * confirmations; history and scrobbles follow from that, not from "play
+   * was pressed".
+   */
+  reportProgress: (itemId: string | null, position: number): Promise<ApiResponse<unknown>> =>
+    fetchApi('/playback/progress', {
       method: 'POST',
-      body: JSON.stringify({ trackId, albumId, artistId }),
+      body: JSON.stringify({ itemId, position }),
     }),
+  getHistoryStats: (days: number): Promise<ApiResponse<HistoryStats>> =>
+    fetchApi(`/history/stats?days=${days}`),
   getRecentAlbums: (): Promise<ApiResponse<RecentAlbum[]>> => fetchApi('/history/recent'),
   getTopArtists: (): Promise<ApiResponse<TopArtist[]>> => fetchApi('/history/top-artists'),
   getHistoryTracks: (page = 1, limit = 50): Promise<PaginatedResponse<HistoryEntry>> =>

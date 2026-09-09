@@ -443,7 +443,6 @@ function playLocalTrack(context: PlaybackContext): void {
   }
 
   api.play(track, deviceId, track.itemId).catch(() => {});
-  api.recordPlay(track.id, track.albumId || '', '').catch(() => {});
 }
 
 function buildTrackMetadata(track: TrackInfo): Record<string, unknown> {

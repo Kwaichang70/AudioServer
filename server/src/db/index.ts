@@ -18,7 +18,7 @@ import { fileURLToPath } from 'url';
  * it does not understand. Databases from before this check carry version 0,
  * which every build accepts and upgrades.
  */
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export class DatabaseVersionError extends Error {
   constructor(
@@ -101,6 +101,11 @@ export async function initDatabase(overridePath?: string) {
   runMigration(sqlite, 'albums', 'sample_rate', 'INTEGER');
   runMigration(sqlite, 'albums', 'bit_depth', 'INTEGER');
   backfillUserRoles(sqlite);
+  // V05.3: one submission per listening session and service.
+  runMigration(sqlite, 'scrobble_queue', 'session_id', 'TEXT');
+  sqlite.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_scrobble_session_service ON scrobble_queue (session_id, service) WHERE session_id IS NOT NULL',
+  );
 
   if (found !== SCHEMA_VERSION) {
     sqlite.pragma(`user_version = ${SCHEMA_VERSION}`);

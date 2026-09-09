@@ -113,6 +113,12 @@ with a track it cannot play on the speaker (default skip, max 3 in a row);
 `PLAYBACK_RESUME_ON_RESTART=true` restarts the current track after a server
 restart when the speaker is idle (default: restore the queue, wait for a tap).
 
+Listening history and scrobbling (`docs/architecture.md`, "Listening
+sessions"): a listen counts once at least half the track, or four minutes,
+was actually heard; pauses, seeks and skips do not count. Last.fm and
+ListenBrainz get exactly one submission per listen. `SCROBBLE_SPOTIFY=true`
+also submits Spotify listens (off by default, Spotify scrobbles them itself).
+
 Recommended logging:
 
 ```env

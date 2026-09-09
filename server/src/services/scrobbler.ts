@@ -7,7 +7,7 @@ const LASTFM_API_KEY = process.env.LASTFM_API_KEY || '';
 const LASTFM_API_SECRET = process.env.LASTFM_API_SECRET || '';
 const LISTENBRAINZ_API_URL = 'https://api.listenbrainz.org/1';
 
-interface ScrobbleTrack {
+export interface ScrobbleTrack {
   title: string;
   artist: string;
   album?: string;
@@ -267,7 +267,20 @@ async function processQueueItems(): Promise<void> {
     )
     .all() as ScrobbleQueueRow[];
 
+  // Sent rows only matter for the audit trail; keep a month.
+  db.prepare("DELETE FROM scrobble_queue WHERE status = 'sent' AND timestamp < ?").run(
+    Math.floor(Date.now() / 1000) - 30 * 24 * 3600,
+  );
+
   for (const item of pending) {
+    // A service that is switched off keeps its rows pending instead of
+    // burning retries: switching it back on later still submits them.
+    const enabled =
+      item.service === 'lastfm'
+        ? Boolean(config.lastfmEnabled && config.lastfmSessionKey)
+        : Boolean(config.listenbrainzEnabled && config.listenbrainzToken);
+    if (!enabled) continue;
+
     const track: ScrobbleTrack = {
       title: item.track_title,
       artist: item.artist_name,
@@ -345,40 +358,37 @@ export const scrobbler = {
     }
   },
 
-  /** Called when a track should be scrobbled (>50% or >4min listened) */
-  scrobble(track: ScrobbleTrack): void {
+  /**
+   * Queue a scrobble for every enabled service. Called by the listening
+   * session once a listen qualifies (V05.3). With `sessionId` the unique
+   * (session, service) index makes a second call for the same session a
+   * no-op, so retries, reconnects and two controllers cannot submit twice.
+   * `timestamp` is the moment the track started (what Last.fm expects).
+   */
+  scrobble(track: ScrobbleTrack, options: { sessionId?: string; timestamp?: number } = {}): void {
     const config = getConfig();
-    const timestamp = Math.floor(Date.now() / 1000);
+    const timestamp = options.timestamp ?? Math.floor(Date.now() / 1000);
     const db = getRawDb();
-
-    if (config.lastfmEnabled && config.lastfmSessionKey) {
-      db.prepare(
-        'INSERT INTO scrobble_queue (service, track_title, artist_name, album_title, duration, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
-      ).run(
-        'lastfm',
+    const insert = db.prepare(
+      'INSERT OR IGNORE INTO scrobble_queue (service, track_title, artist_name, album_title, duration, timestamp, session_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    );
+    const services: Array<'lastfm' | 'listenbrainz'> = [];
+    if (config.lastfmEnabled && config.lastfmSessionKey) services.push('lastfm');
+    if (config.listenbrainzEnabled && config.listenbrainzToken) services.push('listenbrainz');
+    let queued = 0;
+    for (const service of services) {
+      const result = insert.run(
+        service,
         track.title,
         track.artist,
         track.album || null,
         track.duration || null,
         timestamp,
+        options.sessionId ?? null,
       );
+      queued += result.changes;
     }
-
-    if (config.listenbrainzEnabled && config.listenbrainzToken) {
-      db.prepare(
-        'INSERT INTO scrobble_queue (service, track_title, artist_name, album_title, duration, timestamp) VALUES (?, ?, ?, ?, ?, ?)',
-      ).run(
-        'listenbrainz',
-        track.title,
-        track.artist,
-        track.album || null,
-        track.duration || null,
-        timestamp,
-      );
-    }
-
-    // Process immediately
-    processQueue().catch(() => {});
+    if (queued > 0) processQueue().catch(() => {});
   },
 
   /** Last.fm auth helpers */

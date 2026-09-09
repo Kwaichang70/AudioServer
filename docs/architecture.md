@@ -181,6 +181,44 @@ tablet sleeps:
   server player, which stops the session instead of keeping a fictitious
   "playing".
 
+**Listening sessions (V05).** "Listened" has one meaning. Every track start
+opens a row in `listening_sessions` (`services/listening.ts`) with a metadata
+snapshot (title, artist, album, ids when local, duration, source), a UTC
+start time and a listened-time counter; history, statistics and scrobbles all
+derive from that row, the old `play_history` table is read-only legacy
+(copied over by migration 0004; rows whose time was never recorded keep
+`started_at = NULL` and are shown as "time unknown", never given an invented
+time).
+
+- Listened time is confirmed playing time: the device monitor's samples for a
+  speaker the NAS drives, `POST /api/playback/progress` every 10 s from a
+  browser that plays itself. Each confirmed interval is capped at 45 s, so a
+  tab that vanishes adds at most one cap; pausing stops the clock; seeking
+  and skipping add nothing; two controllers cannot double-count because a
+  confirmation only credits the time since the previous one.
+- A listen qualifies by Last.fm's rule: track longer than 30 s and at least
+  half of it, or four minutes, heard. Unknown length: four minutes. Failed
+  plays end the session `failed`; an immediate skip ends it unqualified. Only
+  qualified sessions appear in history, "recent", top lists and
+  `GET /api/history/stats`.
+- One scrobble per session and service: the session id is stored on the
+  `scrobble_queue` row under a unique `(session_id, service)` index, so a
+  retry, reconnect or second controller cannot submit twice. The submission
+  carries the start time. Radio never scrobbles; Spotify only with
+  `SCROBBLE_SPOTIFY=true` (Spotify scrobbles itself). A disabled service
+  keeps its rows pending instead of burning retries; sent rows are pruned
+  after 30 days.
+- Restart: sessions left `active` by a previous run are closed with what they
+  had accrued (a qualifying one still gets its single scrobble); a speaker
+  found still playing opens a fresh session on its first status sample.
+- `PlaybackService` knows none of this: it calls an injected
+  `ListeningObserver` (`trackStarted`, `transport`, `heartbeat`, `failed`),
+  the same pattern as the event sink and the server-player hooks.
+- Timestamps: every Drizzle timestamp column has a schema default now
+  (`$defaultFn`), because Drizzle writes an explicit NULL for an omitted
+  column and the SQL `DEFAULT (unixepoch())` never fired. New favorites,
+  playlists and library rows get a UTC time.
+
 **Auth surface.** Three hooks: `attachUser` (always-on, never fails —
 resolves the Bearer token to a revocable session row and populates
 `req.userId` / `req.sessionId` / `req.userRole`), `requireAuth` (gates every

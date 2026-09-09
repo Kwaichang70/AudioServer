@@ -16,7 +16,6 @@ const mocks = vi.hoisted(() => ({
     getRadioStream: vi.fn(),
     devicePlay: vi.fn(),
     play: vi.fn(),
-    recordPlay: vi.fn(),
     spotifyConnectDevices: vi.fn(),
     spotifyConnectPlay: vi.fn(),
     librespotStatus: vi.fn(),
@@ -86,14 +85,13 @@ describe('useTrackPlayback', () => {
     mocks.api.getHealth.mockResolvedValue({ lanAddress: '192.168.1.25', port: 4321 });
     mocks.api.devicePlay.mockResolvedValue({});
     mocks.api.play.mockResolvedValue({});
-    mocks.api.recordPlay.mockResolvedValue({});
     mocks.api.spotifyConnectDevices.mockResolvedValue({ data: [] });
     mocks.api.spotifyConnectPlay.mockResolvedValue({});
     mocks.api.librespotStatus.mockResolvedValue({ data: { isRunning: false } });
     mocks.api.getDevices.mockResolvedValue({ data: [] });
   });
 
-  it('plays a local track in the browser and records it', () => {
+  it('plays a local track in the browser and tells the server which item started', () => {
     const options = createOptions();
     const { result } = renderHook(() => useTrackPlayback(options));
 
@@ -103,7 +101,6 @@ describe('useTrackPlayback', () => {
     expect(options.pauseSpotifyWeb).toHaveBeenCalledOnce();
     expect(options.audio.pause).not.toHaveBeenCalled();
     expect(mocks.api.play).toHaveBeenCalledWith(localTrack, 'browser', undefined);
-    expect(mocks.api.recordPlay).toHaveBeenCalledWith('local-1', 'album-1', '');
   });
 
   it('updates the selected device when a non-Spotify track falls back from Spotify Connect', () => {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
+import type { HistoryStats } from '../api/types.js';
 
 type Range = 'week' | 'month' | 'year' | 'all_time';
 
@@ -37,6 +38,14 @@ const RANGES: { value: Range; label: string }[] = [
   { value: 'year', label: 'Year' },
   { value: 'all_time', label: 'All time' },
 ];
+
+/** Days back per range for the local statistics (0 = all time). */
+const LOCAL_DAYS: Record<Range, number> = { week: 7, month: 30, year: 365, all_time: 0 };
+
+function hours(ms: number) {
+  const h = ms / 3_600_000;
+  return h >= 10 ? `${Math.round(h)} h` : `${h.toFixed(1)} h`;
+}
 
 function plays(n: number) {
   return `${n.toLocaleString()} ${n === 1 ? 'play' : 'plays'}`;
@@ -93,6 +102,24 @@ export default function StatsPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [local, setLocal] = useState<HistoryStats | null>(null);
+
+  // Local statistics (V05): what this server measured itself, qualified
+  // listens only. Independent of ListenBrainz.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getHistoryStats(LOCAL_DAYS[range])
+      .then((res) => {
+        if (!cancelled) setLocal(res.data);
+      })
+      .catch(() => {
+        if (!cancelled) setLocal(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [range]);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,6 +164,64 @@ export default function StatsPage() {
           ))}
         </div>
       </div>
+
+      {local && (
+        <div className="mb-6">
+          <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 mb-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-400">
+              On this server
+            </h2>
+            <p className="text-sm text-gray-300" data-testid="local-stats-summary">
+              {plays(local.listens)} · {hours(local.listenedMs)} listened ·{' '}
+              {local.distinctTracks.toLocaleString()} different tracks
+            </p>
+          </div>
+          {local.listens === 0 ? (
+            <p className="text-gray-500 text-sm">
+              No qualified listens in this range yet. A listen counts once at least half a track (or
+              four minutes) was actually heard.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Section title="Top artists">
+                {local.topArtists.map((a, i) => (
+                  <Row
+                    key={`${a.name}-${i}`}
+                    rank={i + 1}
+                    primary={a.name}
+                    count={a.play_count}
+                    to={a.id ? `/artists/${a.id}` : null}
+                  />
+                ))}
+              </Section>
+              <Section title="Top tracks">
+                {local.topTracks.map((t, i) => (
+                  <Row
+                    key={`${t.title}-${i}`}
+                    rank={i + 1}
+                    primary={t.title}
+                    secondary={t.artist_name}
+                    count={t.play_count}
+                    to={t.album_id ? `/albums/${t.album_id}` : null}
+                  />
+                ))}
+              </Section>
+              <Section title="By source">
+                {local.bySource.map((b, i) => (
+                  <Row
+                    key={b.source}
+                    rank={i + 1}
+                    primary={b.source}
+                    secondary={hours(b.listened_ms)}
+                    count={b.play_count}
+                    to={null}
+                  />
+                ))}
+              </Section>
+            </div>
+          )}
+        </div>
+      )}
 
       {loading && <p className="text-gray-500 text-sm">Loading…</p>}
       {error && <p className="text-red-400 text-sm">{error}</p>}

@@ -262,7 +262,7 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 | V02    | Betrouwbare setup, aanmelding en beheerrechten     | V01                               | Uitgevoerd in code (8 sep 2026); wacht op NAS-acceptatie |
 | V03    | Correcte wachtrij en herstel tussen clients        | V01–V02                           | Uitgevoerd in code (8 sep 2026); wacht op NAS-acceptatie |
 | V04    | Zelfstandige lokale/Qobuz-playback op server       | V03                               | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
-| V05    | Betrouwbare luistergegevens en tijdstempels        | V03–V04                           | Gepland                                                  |
+| V05    | Betrouwbare luistergegevens en tijdstempels        | V03–V04                           | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
 | V06    | Bibliotheekwijzigingen zonder verlies van relaties | V01, V05                          | Gepland                                                  |
 | V07    | Betere zoekresultaten, edities en bronkeuze        | V04, V06                          | Gepland                                                  |
 | V08    | Mobiele afronding, onboarding en offline shell     | V02–V07                           | Gepland                                                  |
@@ -367,18 +367,22 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 **Doel:** “geluisterd” heeft één betrouwbare betekenis.  
 **Bevinding:** B06.
 
-- [ ] **V05.1 · 2 dagen:** tijdstempelstrategie in schema en writes corrigeren; migratie voor bestaande NULL-waarden met onderscheid tussen bekende en onbekende historische tijden.
-- [ ] **V05.2 · 2 dagen:** luistersessies met echte track-/artiestinformatie en metadata-snapshot; externe nummers ondersteunen zonder verplichte verwijzing naar een lokaal bestand.
-- [ ] **V05.3 · 2 dagen:** werkelijk afgespeelde tijd en unieke scrobbleverwerking; pauze, seek, skip, retry en twee controllers correct behandelen.
-- [ ] **V05.4 · 2 dagen:** geschiedenis/statistieken op de nieuwe gegevens aansluiten; regressies en Last.fm/ListenBrainz-acceptatie uitvoeren.
+- [x] **V05.1 · 2 dagen:** tijdstempelstrategie in schema en writes corrigeren; migratie voor bestaande NULL-waarden met onderscheid tussen bekende en onbekende historische tijden.
+      _Gedaan:_ elke Drizzle-tijdstempelkolom heeft nu een schemadefault (`$defaultFn`), want Drizzle schrijft een expliciete NULL voor een weggelaten kolom en de SQL-default vuurde nooit (test `timestamp-defaults.test.ts`). Migratie `0004_listening_sessions` (schemaversie 5) kopieert `play_history` naar `listening_sessions`; rijen zonder tijd houden `started_at = NULL`, worden als “Time unknown” getoond, sorteren achteraan en zijn nooit “recent”. Geen enkele oude tijd wordt verzonnen.
+- [x] **V05.2 · 2 dagen:** luistersessies met echte track-/artiestinformatie en metadata-snapshot; externe nummers ondersteunen zonder verplichte verwijzing naar een lokaal bestand.
+      _Gedaan:_ tabel `listening_sessions` met snapshot (titel, artiest, album, lokale ids waar bekend, duur, bron), UTC-starttijd, `listened_ms`, status en `qualified`; geen foreign key naar `tracks`, dus Qobuz/radio/Spotify en verdwenen bestanden houden hun geschiedenis. `services/listening.ts` wordt door `PlaybackService` aangeroepen via een geïnjecteerde `ListeningObserver` (zelfde patroon als de event-sink). De oude `recordPlay` uit client en serverplayer is verwijderd; `POST /history/played` is een no-op voor oude clients.
+- [x] **V05.3 · 2 dagen:** werkelijk afgespeelde tijd en unieke scrobbleverwerking; pauze, seek, skip, retry en twee controllers correct behandelen.
+      _Gedaan:_ luistertijd is bevestigde speeltijd: apparaatsamples van de device monitor, of `POST /api/playback/progress` elke 10 s vanuit een browser die zelf speelt; elk bevestigd interval is begrensd op 45 s (een verdwenen tab telt hooguit één keer die grens), pauze stopt de klok, seek en skip tellen niets, twee controllers tellen niet dubbel omdat een bevestiging alleen de tijd sinds de vorige crediteert. Kwalificatie volgens Last.fm (> 30 s en ≥ helft of ≥ 4 min). Scrobble-queue kreeg `session_id` met unieke index `(session_id, service)` en `INSERT OR IGNORE`; inzending draagt de starttijd. Radio scrobbelt nooit, Spotify alleen met `SCROBBLE_SPOTIFY=true`. Uitgeschakelde dienst houdt rijen pending in plaats van retries te verbranden; verzonden rijen na 30 dagen opgeruimd. Open sessies van een vorig proces worden bij start gesloten met de opgebouwde tijd.
+- [x] **V05.4 · 2 dagen:** geschiedenis/statistieken op de nieuwe gegevens aansluiten; regressies en Last.fm/ListenBrainz-acceptatie uitvoeren.
+      _Gedaan:_ `/history/tracks`, `/recent`, `/top-artists` lezen gekwalificeerde sessies (ISO-8601 of `null`), nieuw `GET /api/history/stats?days=` (luisterbeurten, geluisterde tijd, topnummers, topartiesten, per bron) met een blok “On this server” op de statistiekpagina naast ListenBrainz. Tests: `listening-sessions.test.ts` (regel, pauze/seek, skip/fout, dode client, twee controllers, één inzending per dienst, radio/Spotify-beleid, herstart, wezen), contracttest met NULL-tijd, client-heartbeattest. Echte Last.fm/ListenBrainz-inzending is NAS-acceptatie.
 
 **Acceptatie:**
 
-- Nieuwe relevante records krijgen een correcte UTC-tijd; onbekende oude tijden worden niet als verzonnen luistermomenten ingevuld.
-- Een mislukte play of onmiddellijke skip telt niet als gekwalificeerde luisterbeurt.
-- Pauzetijd en vooruitzoeken tellen niet mee als werkelijk geluisterde tijd.
-- Eén luistersessie leidt per scrobbledienst maximaal tot één inzending, ook na retries/reconnect.
-- Lokale tracks en Qobuz krijgen geschiedenis met correcte artiest; Spotify-scrobbling is alleen actief met betrouwbare voortgang en beleid tegen dubbele inzending via Spotify zelf.
+- Nieuwe relevante records krijgen een correcte UTC-tijd; onbekende oude tijden worden niet als verzonnen luistermomenten ingevuld. _Gehaald: schemadefaults plus migratie met `started_at = NULL` voor onbekende tijden; contracttest controleert ISO-8601 én `null`._
+- Een mislukte play of onmiddellijke skip telt niet als gekwalificeerde luisterbeurt. _Gehaald: `markPlaybackFailed` → sessie `failed`; skip na 3 s → `ended`, niet gekwalificeerd, geen scrobble (test)._
+- Pauzetijd en vooruitzoeken tellen niet mee als werkelijk geluisterde tijd. _Gehaald: alleen bevestigde speeltijd telt; test met 10 minuten pauze en een seek._
+- Eén luistersessie leidt per scrobbledienst maximaal tot één inzending, ook na retries/reconnect. _Gehaald: unieke index `(session_id, service)`; tweede `scrobble()` voor dezelfde sessie is een no-op (test)._
+- Lokale tracks en Qobuz krijgen geschiedenis met correcte artiest; Spotify-scrobbling is alleen actief met betrouwbare voortgang en beleid tegen dubbele inzending via Spotify zelf. _Gehaald in code: snapshot met artiestnaam en, voor lokaal, artiest-id uit de bibliotheek; Spotify wordt wel in de geschiedenis opgenomen maar pas gescrobbeld met `SCROBBLE_SPOTIFY=true`. Open: echte inzending naar Last.fm/ListenBrainz vanaf de NAS controleren._
 
 ### V06 — Bibliotheekbehoud en inzicht in scans
 
@@ -681,6 +685,18 @@ Zelfde branch en omgeving als V01–V03.
 **Bevinding op de NAS (9 september 2026, ochtend):** het aanmaken van het admin-account op de NAS (V01–V03-build 42fa0c0) gaf “api error 502”. Rechtstreeks op poort 3001: `curl: (52) Empty reply from server` na 0,85 s, de container herstartte en de setupcode wisselde bij elke poging (0134-04E8 → 69AF-A3A4 → EFBB-3F7B), in de log staat `Node.js v22.22.2` als staart van een stacktrace. Lokaal in productiemodus met verse database slaagt dezelfde registratie in 0,35 s. Structurele oorzaak: 64 async-routehandlers stonden onverpakt op Express 4, waardoor elke fout na een `await` een unhandled rejection is en Node het proces beëindigt. Fix op de featurebranch: alle async-handlers in `asyncHandler`, `unhandledRejection` logt en gaat door, `uncaughtException` logt en stopt; regressietest `async-routes.test.ts` bewaakt dat er geen onverpakte async-handler meer bijkomt. De eigenlijke exception, daarna uit `docker logs` gelezen: `SqliteError: table users has no column named role`. De NAS-database dateert van vóór de rollen; de tabel `users` heeft daar alleen `id, username, password_hash, created_at`, en `CREATE TABLE IF NOT EXISTS` in migratie 0000 laat zo'n tabel staan. Fix: backfill `users.role` bij het opstarten (oudste account wordt admin als er al accounts zijn zonder rol), getest met een nagebouwde legacy-database. Tweede bevinding uit dezelfde log: `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` van express-rate-limit, de Synology reverse proxy zet `X-Forwarded-For` terwijl `trust proxy` uit stond, waardoor alle bezoekers één rate-limit-emmer deelden. Nieuwe instelling `TRUST_PROXY` (standaard `loopback`). Les voor §4 (compatibiliteit): een `CREATE TABLE IF NOT EXISTS`-migratie bewijst niets over de kolommen van een bestaande tabel; de startup-smoketest draait op een verse database en zag dit dus niet.
 
 **Beslismoment na V04:** de gebruikstest “tablet dicht, album blijft spelen” is nu de eerste NAS-taak. Zolang die niet is gedaan, geen grotere audio-uitbreiding (V11) starten; V05 (luistergegevens) hangt er niet van af en kan door.
+
+### V05 — 9 september 2026
+
+**Uitgevoerd:** V05.1–V05.4 volledig in code, 22 nieuwe tests (server 259, client 95), lint/typecheck/build groen.
+
+**Ontwerpkeuzes:** “geluisterd” is bevestigde speeltijd, niet “play ingedrukt”. De server meet zelf: apparaatsamples voor speakers die de NAS aanstuurt, een voortgangsbevestiging elke 10 s vanuit een browser die zelf speelt. Daardoor is er geen aparte seek- of pauzeboekhouding nodig: wat niet bevestigd wordt, telt niet, en een verdwenen client telt hooguit 45 s na. De Last.fm-regel bepaalt zowel geschiedenis als scrobbles, dus “recent” en topartiesten bevatten alleen echte luisterbeurten. De oude `play_history` blijft als legacy-tabel bestaan (back-ups, oude scanner-opruiming) en is eenmalig gekopieerd; onbekende tijden blijven `NULL`. Spotify wordt standaard niet gescrobbeld omdat Spotify dat zelf al doet; de instelling is expliciet.
+
+**Gedragswijzigingen voor de gebruiker:** de geschiedenis toont alleen nog nummers die echt beluisterd zijn (minstens de helft of vier minuten); snel doorgeklikte nummers verdwijnen uit “recent”. Oude regels zonder tijd staan onderaan met “Time unknown”. De statistiekpagina heeft een blok “On this server” dat zonder ListenBrainz werkt. Een oude, nog geopende browserpagina meldt plays via het oude endpoint; die worden genegeerd in plaats van als luisterbeurt geboekt.
+
+**Wacht op acceptatie (NAS):** een album op Sonos/DLNA laten spelen en daarna in Last.fm/ListenBrainz één inzending per nummer zien, met de starttijd als tijdstip; een nummer na 10 s overslaan en controleren dat het niet in de geschiedenis staat; een nummer pauzeren, tien minuten wachten, hervatten en controleren dat de geluisterde tijd niet is gegroeid (`GET /api/history/tracks` → `listened_ms`); een herstart tijdens weergave en kijken of de sessie doorloopt zonder dubbele scrobble.
+
+**Beslismoment na V05:** V06 (bibliotheekbehoud) kan starten; de nieuwe tabel heeft geen foreign key naar `tracks`, dus verplaatsingsscenario’s uit V06 raken de geschiedenis niet meer.
 
 ## Bronverwijzingen naar de onderzochte code
 

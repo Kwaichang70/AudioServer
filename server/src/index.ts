@@ -29,6 +29,7 @@ import { playbackService } from './services/playback.js';
 import { startWatcher, stopWatcher } from './services/watcher.js';
 import { deviceMonitor } from './services/device-monitor.js';
 import { initServerPlayer, reconcileAfterRestart } from './services/server-player.js';
+import { closeOrphanedSessions, playbackListeningObserver } from './services/listening.js';
 import { globalLimiter } from './middleware/rateLimiter.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { attachUser, requireAuth } from './middleware/auth.js';
@@ -196,6 +197,10 @@ async function main() {
   if (purged > 0) logger.info(`Sessions: purged ${purged} expired/revoked row(s)`);
   announceSetupIfRequired();
   await providers.initialize();
+  // Listening sessions (V05): history, stats and scrobbles derive from what
+  // was actually heard. Sessions a previous run left open are closed first.
+  closeOrphanedSessions();
+  playbackService.setListeningObserver(playbackListeningObserver);
   playbackService.initialize();
   // Server-driven playback: pushes the next queue track to DLNA/Sonos devices
   // itself, so albums keep playing when every client (tablet) is asleep.

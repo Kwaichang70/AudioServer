@@ -247,16 +247,39 @@ export interface TopArtist {
 }
 
 export interface HistoryEntry {
-  id: number;
+  id: string;
   track_id: string;
-  album_id: string;
-  artist_id: string;
-  played_at: string;
+  album_id: string | null;
+  artist_id: string | null;
+  /** ISO-8601 UTC, or null for an old listen whose time was never recorded. */
+  played_at: string | null;
+  /** Milliseconds actually heard (V05). */
+  listened_ms: number;
+  source: string;
   track_title: string;
-  album_title: string;
+  album_title: string | null;
   artist_name: string;
-  duration: number;
-  track_number?: number;
+  duration: number | null;
+  track_number?: number | null;
+}
+
+export interface HistoryStats {
+  days: number;
+  listens: number;
+  listenedMs: number;
+  distinctTracks: number;
+  topTracks: Array<{
+    track_id: string | null;
+    title: string;
+    artist_name: string;
+    album_title: string | null;
+    album_id: string | null;
+    source: string;
+    play_count: number;
+    listened_ms: number;
+  }>;
+  topArtists: Array<{ id: string | null; name: string; play_count: number; listened_ms: number }>;
+  bySource: Array<{ source: string; play_count: number; listened_ms: number }>;
 }
 
 export type FavoriteType = 'album' | 'artist' | 'track' | 'station';

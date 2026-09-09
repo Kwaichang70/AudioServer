@@ -8,8 +8,6 @@ import {
   type ResolvedStream,
 } from './playback-resolver.js';
 import { isClientConnected } from '../socketio.js';
-import { scrobbler } from './scrobbler.js';
-import { getRawDb } from '../db/index.js';
 import { logger } from '../logger.js';
 
 /**
@@ -156,7 +154,6 @@ export async function dispatch(
         attempts: attempt,
       });
       logger.info(`ServerPlayer: sent "${track.title}" (${resolved.source}) to ${deviceId}`);
-      recordPlay(track);
       return;
     } catch (err) {
       lastError = err;
@@ -298,33 +295,6 @@ export async function reconcileAfterRestart(): Promise<
   playbackService.setServerManaged(false);
   logger.info(`ServerPlayer: ${info.deviceId} is ${deviceState} after restart; session stopped`);
   return 'stopped';
-}
-
-function recordPlay(track: TrackInfo): void {
-  // Mirror what the client's recordPlay does so overnight listening still
-  // shows up in history and gets scrobbled. Provider tracks have no local
-  // album/artist rows; V05 gives history a proper listening-session model.
-  try {
-    const db = getRawDb();
-    const row = db.prepare('SELECT album_id, artist_id FROM tracks WHERE id = ?').get(track.id) as
-      | { album_id: string | null; artist_id: string | null }
-      | undefined;
-    if (row) {
-      db.prepare(
-        'INSERT INTO play_history (track_id, album_id, artist_id, played_at) VALUES (?, ?, ?, unixepoch())',
-      ).run(track.id, row.album_id ?? track.albumId ?? '', row.artist_id ?? '');
-    }
-    const payload = {
-      title: track.title,
-      artist: track.artistName,
-      album: track.albumTitle,
-      duration: track.duration ? Math.round(track.duration) : undefined,
-    };
-    scrobbler.scrobble(payload);
-    scrobbler.nowPlaying(payload);
-  } catch (err) {
-    logger.debug(`ServerPlayer: history/scrobble record failed: ${err}`);
-  }
 }
 
 /** Wire the playback hooks. Call once at startup. */

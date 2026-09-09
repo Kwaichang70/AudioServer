@@ -1,12 +1,20 @@
 import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
+/**
+ * Timestamp default (V05.1). Drizzle fills every column it knows about on an
+ * insert and writes an explicit NULL for the ones you omit, so a SQL
+ * `DEFAULT (unixepoch())` never fires through these schema inserts. The
+ * default function below makes omitted timestamps the current UTC time.
+ */
+const now = () => new Date();
+
 export const artists = sqliteTable('artists', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   imageUrl: text('image_url'),
   source: text('source').notNull().default('local'),
-  createdAt: integer('created_at', { mode: 'timestamp' }),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(now),
 });
 
 export const albums = sqliteTable('albums', {
@@ -37,8 +45,8 @@ export const albums = sqliteTable('albums', {
   sampleRate: integer('sample_rate'),
   bitDepth: integer('bit_depth'),
   source: text('source').notNull().default('local'),
-  createdAt: integer('created_at', { mode: 'timestamp' }),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(now),
 });
 
 export const tracks = sqliteTable('tracks', {
@@ -68,8 +76,8 @@ export const tracks = sqliteTable('tracks', {
   replayGainTrack: real('replay_gain_track'),
   replayGainTrackPeak: real('replay_gain_track_peak'),
   source: text('source').notNull().default('local'),
-  createdAt: integer('created_at', { mode: 'timestamp' }),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(now),
 });
 
 export const users = sqliteTable('users', {
@@ -77,7 +85,7 @@ export const users = sqliteTable('users', {
   username: text('username').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
   role: text('role').notNull().default('user'),
-  createdAt: integer('created_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
 });
 
 /**
@@ -110,8 +118,8 @@ export const playlists = sqliteTable('playlists', {
   name: text('name').notNull(),
   description: text('description'),
   trackCount: integer('track_count').default(0),
-  createdAt: integer('created_at', { mode: 'timestamp' }),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(now),
 });
 
 export const playlistTracks = sqliteTable(
@@ -125,7 +133,7 @@ export const playlistTracks = sqliteTable(
       .notNull()
       .references(() => tracks.id),
     position: integer('position').notNull(),
-    addedAt: integer('added_at', { mode: 'timestamp' }),
+    addedAt: integer('added_at', { mode: 'timestamp' }).$defaultFn(now),
   },
   (table) => ({
     playlistPositionIdx: index('idx_playlist_tracks_playlist').on(table.playlistId, table.position),
@@ -139,7 +147,7 @@ export const playHistory = sqliteTable('play_history', {
     .references(() => tracks.id),
   albumId: text('album_id').notNull(),
   artistId: text('artist_id').notNull(),
-  playedAt: integer('played_at', { mode: 'timestamp' }),
+  playedAt: integer('played_at', { mode: 'timestamp' }).$defaultFn(now),
 });
 
 export const playbackState = sqliteTable('playback_state', {
@@ -159,7 +167,7 @@ export const playbackState = sqliteTable('playback_state', {
   ownerUserId: text('owner_user_id'),
   /** True while the NAS itself drives the active device (DLNA/Sonos/Volumio). */
   serverManaged: integer('server_managed', { mode: 'boolean' }).default(false),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(now),
 });
 
 export const queueItems = sqliteTable(
@@ -178,7 +186,7 @@ export const queueItems = sqliteTable(
     /** JSON with the extra track fields a client needs to play it (ReplayGain, format). */
     metadata: text('metadata'),
     position: integer('position').notNull(),
-    addedAt: integer('added_at', { mode: 'timestamp' }),
+    addedAt: integer('added_at', { mode: 'timestamp' }).$defaultFn(now),
   },
   (table) => ({
     positionIdx: index('idx_queue_position').on(table.position),
@@ -190,8 +198,8 @@ export const smartPlaylists = sqliteTable('smart_playlists', {
   name: text('name').notNull(),
   rules: text('rules').notNull(), // JSON: array of rule objects
   trackCount: integer('track_count').default(0),
-  createdAt: integer('created_at', { mode: 'timestamp' }),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(now),
 });
 
 export const scrobbleConfig = sqliteTable('scrobble_config', {
@@ -213,7 +221,51 @@ export const scrobbleQueue = sqliteTable('scrobble_queue', {
   timestamp: integer('timestamp').notNull(),
   status: text('status').notNull().default('pending'), // 'pending' | 'sent' | 'failed'
   retries: integer('retries').default(0),
+  /** Listening session this submission belongs to (V05.3); unique per service. */
+  sessionId: text('session_id'),
 });
+
+/**
+ * One listening session per track start (V05.2): what was played, from
+ * which source, when it started and how much of it was actually heard.
+ * Metadata is a snapshot, so provider tracks and files that later disappear
+ * keep their history. `startedAt` is NULL only for rows copied from the old
+ * play_history table whose time was never recorded.
+ */
+export const listeningSessions = sqliteTable(
+  'listening_sessions',
+  {
+    id: text('id').primaryKey(),
+    queueItemId: text('queue_item_id'),
+    trackId: text('track_id'),
+    source: text('source').notNull().default('local'),
+    title: text('title').notNull(),
+    artistName: text('artist_name').notNull(),
+    albumTitle: text('album_title'),
+    albumId: text('album_id'),
+    artistId: text('artist_id'),
+    /** Track length in seconds when known. */
+    duration: integer('duration'),
+    /** Unix seconds (UTC); NULL = unknown historical time. */
+    startedAt: integer('started_at'),
+    endedAt: integer('ended_at'),
+    /** Milliseconds actually spent in the playing state. */
+    listenedMs: integer('listened_ms').notNull().default(0),
+    /** 'active' | 'ended' | 'failed' */
+    status: text('status').notNull().default('active'),
+    /** Counts as a listen (Last.fm rule) and feeds history, stats and scrobbles. */
+    qualified: integer('qualified', { mode: 'boolean' }).notNull().default(false),
+    deviceId: text('device_id'),
+    userId: text('user_id'),
+  },
+  (table) => ({
+    startedIdx: index('idx_listening_started').on(table.startedAt),
+    trackIdx: index('idx_listening_track').on(table.trackId),
+    artistIdx: index('idx_listening_artist').on(table.artistId),
+    albumIdx: index('idx_listening_album').on(table.albumId),
+    statusIdx: index('idx_listening_status').on(table.status),
+  }),
+);
 
 export const favorites = sqliteTable(
   'favorites',
@@ -221,7 +273,7 @@ export const favorites = sqliteTable(
     id: integer('id').primaryKey({ autoIncrement: true }),
     itemType: text('item_type').notNull(), // 'track', 'album', 'artist', 'station'
     itemId: text('item_id').notNull(),
-    createdAt: integer('created_at', { mode: 'timestamp' }),
+    createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
   },
   (table) => ({
     itemIdx: index('idx_favorites_type').on(table.itemType, table.itemId),
@@ -240,5 +292,5 @@ export const radioStations = sqliteTable('radio_stations', {
   faviconUrl: text('favicon_url'),
   bitrate: integer('bitrate'),
   codec: text('codec'),
-  addedAt: integer('added_at', { mode: 'timestamp' }),
+  addedAt: integer('added_at', { mode: 'timestamp' }).$defaultFn(now),
 });

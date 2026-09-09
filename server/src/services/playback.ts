@@ -122,6 +122,28 @@ export interface PersistedSessionInfo {
   serverManaged: boolean;
 }
 
+/**
+ * Listening observer (V05): told when a track starts, when transport changes,
+ * when audio is confirmed to be flowing and when playback failed. The
+ * listening-session service implements it; injected so this module keeps
+ * its dependency-free position.
+ */
+export interface ListeningObserver {
+  trackStarted(
+    track: TrackInfo,
+    ctx: { queueItemId: string | null; deviceId: string; userId: string | null; playing: boolean },
+  ): void;
+  transport(
+    state: 'playing' | 'paused' | 'stopped',
+    current: {
+      track: TrackInfo;
+      ctx: { queueItemId: string | null; deviceId: string; userId: string | null };
+    } | null,
+  ): void;
+  heartbeat(): void;
+  failed(): void;
+}
+
 export interface PlaybackEventSink {
   emit: <EventName extends keyof ServerToClientEvents>(
     event: EventName,
@@ -160,6 +182,27 @@ export class PlaybackService {
 
   constructor() {
     this.state = this.defaultState();
+  }
+
+  private listening: ListeningObserver | null = null;
+
+  setListeningObserver(observer: ListeningObserver | null): void {
+    this.listening = observer;
+  }
+
+  private listeningCtx(): { queueItemId: string | null; deviceId: string; userId: string | null } {
+    return {
+      queueItemId: this.state.queueItemId,
+      deviceId: this.state.deviceId,
+      userId: this.state.ownerUserId,
+    };
+  }
+
+  private notifyTransport(state: 'playing' | 'paused' | 'stopped'): void {
+    this.listening?.transport(
+      state,
+      this.currentTrack ? { track: this.currentTrack, ctx: this.listeningCtx() } : null,
+    );
   }
 
   setHooks(hooks: PlaybackHooks): void {
@@ -336,6 +379,7 @@ export class PlaybackService {
       this.persistState();
     }
     this.emitState(SERVER_ORIGIN);
+    this.listening?.failed();
   }
 
   getSnapshot(): PlaybackSnapshot {
@@ -382,6 +426,13 @@ export class PlaybackService {
       this.advance(SERVER_ORIGIN);
       return;
     }
+    // Every device sample is a transport confirmation: 'playing' credits
+    // listened time (and opens a session after a restart), 'paused' stops
+    // the clock, 'stopped' closes the session.
+    if (updates.state !== undefined) this.notifyTransport(updates.state);
+    else if (this.state.state === 'playing' && updates.position !== undefined) {
+      this.listening?.heartbeat();
+    }
     if (wasState !== this.state.state) this.bump();
     this.persistState();
     this.emitState(SERVER_ORIGIN);
@@ -415,6 +466,17 @@ export class PlaybackService {
     this.bump();
     this.persistState();
     this.emitState(origin);
+    this.listening?.trackStarted(track, { ...this.listeningCtx(), playing: true });
+  }
+
+  /**
+   * A player confirms audio is flowing (browser progress report, V05.3).
+   * Credits listened time and remembers the position for a later restart.
+   */
+  progress(position: number): void {
+    if (this.state.state !== 'playing') return;
+    if (Number.isFinite(position) && position >= 0) this.state.position = position;
+    this.notifyTransport('playing');
   }
 
   /** Make a specific queue item current and (re)start it. */
@@ -434,6 +496,7 @@ export class PlaybackService {
     this.bump();
     this.persistState();
     this.emitState(origin);
+    this.notifyTransport('paused');
   }
 
   resume(origin: PlaybackOrigin = SERVER_ORIGIN): void {
@@ -441,6 +504,7 @@ export class PlaybackService {
     this.bump();
     this.persistState();
     this.emitState(origin);
+    this.notifyTransport('playing');
   }
 
   /**
@@ -455,6 +519,7 @@ export class PlaybackService {
     this.bump();
     this.persistState();
     this.emitState(origin);
+    this.notifyTransport('stopped');
     this.hooks.onIdle?.(this.state.deviceId);
   }
 
@@ -716,6 +781,7 @@ export class PlaybackService {
     this.bump();
     this.persistState();
     this.emitState(origin);
+    this.notifyTransport('stopped');
     this.hooks.onIdle?.(this.state.deviceId);
   }
 
