@@ -38,6 +38,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { openApiSpec } from './openapi.js';
 
 const app = express();
+app.set('trust proxy', config.trustProxy);
 const httpServer = createServer(app);
 initSocketIO(httpServer);
 

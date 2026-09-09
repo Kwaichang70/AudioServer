@@ -27,6 +27,7 @@ const envSchema = z.object({
   DATABASE_PATH: z.string().default('./data/audioserver.db'),
   JWT_SECRET: z.string().optional(),
   ALLOWED_ORIGINS: z.string().default('http://localhost:5173,http://127.0.0.1:5173'),
+  TRUST_PROXY: z.string().default('loopback'),
 
   // Optional provider credentials
   SPOTIFY_CLIENT_ID: z.string().optional(),
@@ -98,6 +99,22 @@ function getJwtSecret(): string {
   return env.JWT_SECRET;
 }
 
+// ─── Reverse proxy ───────────────────────────────────────────────
+// Express's `trust proxy` setting: decides whether X-Forwarded-* headers are
+// believed for req.ip / req.protocol (rate limiting keys on req.ip, so behind
+// a proxy that is not trusted every visitor shares one bucket, and
+// express-rate-limit logs ERR_ERL_UNEXPECTED_X_FORWARDED_FOR). The default
+// `loopback` trusts a proxy on the same host only (Synology reverse proxy
+// with network_mode: host); set `false` when nothing sits in front, or a
+// hop count / IP list for a proxy on another machine.
+export function parseTrustProxy(raw: string): boolean | number | string {
+  const v = raw.trim();
+  if (v === '' || v.toLowerCase() === 'false') return false;
+  if (v.toLowerCase() === 'true') return true;
+  if (/^\d+$/.test(v)) return parseInt(v, 10);
+  return v;
+}
+
 // ─── Exported config ─────────────────────────────────────────────
 
 const musicLibraryPaths = csv(env.MUSIC_LIBRARY_PATHS);
@@ -110,6 +127,7 @@ export const config = {
   databasePath: env.DATABASE_PATH,
   jwtSecret: getJwtSecret(),
   allowedOrigins: csv(env.ALLOWED_ORIGINS),
+  trustProxy: parseTrustProxy(env.TRUST_PROXY),
   watchLibrary: env.WATCH_LIBRARY ?? false,
   logLevel: env.LOG_LEVEL ?? (env.NODE_ENV === 'production' ? 'info' : 'debug'),
   logFormat: env.LOG_FORMAT ?? (env.NODE_ENV === 'production' ? 'json' : 'text'),

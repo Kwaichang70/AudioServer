@@ -27,8 +27,22 @@ unhandled promise rejection, and Node 15+ terminates the process on those.
   handler appears in `server/src/routes`.
 - `DEPLOY_SYNOLOGY.md` §4: how to read a crash out of `docker logs`.
 
-The actual exception that fired on the NAS is still to be read from the
-container log; the fix above makes it visible instead of fatal.
+The exception itself, read from the container log afterwards:
+`SqliteError: table users has no column named role`. The Synology database
+predates roles, its `users` table has `id, username, password_hash,
+created_at` only, and the initial migration's `CREATE TABLE IF NOT EXISTS`
+leaves such a table as it is.
+
+- Startup backfill `backfillUserRoles`: adds `users.role` (default `user`)
+  when missing; if accounts already exist and none has a role, the oldest
+  becomes admin so the installation stays administrable. Idempotent, covered
+  by `legacy-users-table.test.ts`.
+- `TRUST_PROXY` (default `loopback`): the same log showed express-rate-limit's
+  `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR`, the Synology reverse proxy sets
+  `X-Forwarded-For` and without `trust proxy` every visitor shares one
+  rate-limit bucket. `loopback` trusts a proxy on the same host only;
+  `false`, a hop count or an IP list are accepted too (`.env.example`,
+  `docker-compose.yml`, `docs/synology-https.md`).
 
 ## V04 — The NAS plays local and Qobuz on its own (verbeterplan sprint 4)
 

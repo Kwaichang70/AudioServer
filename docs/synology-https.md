@@ -89,6 +89,9 @@ In the NAS `.env`:
 
 ```env
 ALLOWED_ORIGINS=https://mymusic.synology.me
+# default; the Synology reverse proxy runs on the same host, so its
+# X-Forwarded-For header is trusted and rate limits count per visitor
+TRUST_PROXY=loopback
 ```
 
 Same-origin requests already pass regardless, but setting this keeps the CORS

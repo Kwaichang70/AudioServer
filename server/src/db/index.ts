@@ -100,6 +100,7 @@ export async function initDatabase(overridePath?: string) {
   runMigration(sqlite, 'albums', 'format', 'TEXT');
   runMigration(sqlite, 'albums', 'sample_rate', 'INTEGER');
   runMigration(sqlite, 'albums', 'bit_depth', 'INTEGER');
+  backfillUserRoles(sqlite);
 
   if (found !== SCHEMA_VERSION) {
     sqlite.pragma(`user_version = ${SCHEMA_VERSION}`);
@@ -119,6 +120,27 @@ function runMigration(
   if (cols.some((c) => c.name === column)) return;
   sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   logger.info(`Migration: added ${table}.${column}`);
+}
+
+/**
+ * Databases created before roles existed have a `users` table without `role`
+ * (seen on the Synology, 9 Sept 2026: `CREATE TABLE IF NOT EXISTS` in the
+ * initial migration keeps such a table as it is, and the first registration
+ * then failed with "table users has no column named role"). Add the column;
+ * when accounts already exist but none is an admin, the oldest account
+ * becomes admin so the installation stays administrable.
+ */
+function backfillUserRoles(sqlite: InstanceType<typeof Database>): void {
+  const cols = sqlite.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>;
+  if (cols.length === 0 || cols.some((c) => c.name === 'role')) return;
+  sqlite.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'");
+  logger.info('Migration: added users.role');
+  const oldest = sqlite
+    .prepare('SELECT id, username FROM users ORDER BY created_at ASC, rowid ASC LIMIT 1')
+    .get() as { id: string; username: string } | undefined;
+  if (!oldest) return;
+  sqlite.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(oldest.id);
+  logger.warn(`Migration: no admin existed; promoted oldest account "${oldest.username}" to admin`);
 }
 
 export { schema };
