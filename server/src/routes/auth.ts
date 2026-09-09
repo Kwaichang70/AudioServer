@@ -360,9 +360,39 @@ authRouter.delete('/users/:id', requireAdmin, validate({ params: idParam }), (re
     return;
   }
   revokeUserSessions(id);
+  const handedOver = handOverPersonalData(id, String(req.userId));
   db.prepare('DELETE FROM users WHERE id = ?').run(id);
-  res.json({ data: { ok: true } });
+  logger.info(
+    `Deleted account ${id}; ${handedOver} shared playlist(s) handed to ${req.userId}, personal data removed`,
+  );
+  res.json({ data: { ok: true, sharedPlaylistsHandedOver: handedOver } });
 });
+
+/**
+ * Deleting an account (V09.4). What that person kept to themselves goes with
+ * them — favourites, listening history, statistics, their own playlists and
+ * their scrobble accounts. What they had explicitly shared with the household
+ * is the household's: those playlists are handed to the admin doing the
+ * deletion, so the kitchen playlist does not disappear with the account.
+ * Returns how many were handed over.
+ */
+function handOverPersonalData(userId: string, adminId: string): number {
+  const db = getRawDb();
+  const transfer = db.transaction(() => {
+    let handed = 0;
+    for (const table of ['playlists', 'smart_playlists']) {
+      handed += db
+        .prepare(`UPDATE ${table} SET user_id = ? WHERE user_id = ? AND shared = 1`)
+        .run(adminId, userId).changes;
+      db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(userId);
+    }
+    for (const table of ['favorites', 'listening_sessions', 'scrobble_config', 'scrobble_queue']) {
+      db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(userId);
+    }
+    return handed;
+  });
+  return transfer();
+}
 
 // Import provider tokens (for syncing between local dev and Synology).
 // A provider connection is global for the household, hence admin-only.

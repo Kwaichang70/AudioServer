@@ -4,6 +4,44 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## V09 — Eén collectie, ieder zijn eigen luistergeschiedenis (verbeterplan sprint 9)
+
+**Eigendom en migratie** (`server/src/db/index.ts`, `server/src/db/schema.ts`)
+
+- `user_id` op playlists, smart_playlists, favorites, scrobble_config,
+  scrobble_queue en listening_sessions, plus een `shared` vlag op beide
+  playlisttabellen. Schemaversie 7.
+- Bestaande rijen gaan naar de oudste admin; niets wordt verwijderd en de
+  migratie is idempotent.
+- `favorites` en `scrobble_config` worden eenmalig herbouwd: hun
+  huishoudregels — `UNIQUE(item_type, item_id)` en `id INTEGER PRIMARY KEY
+DEFAULT 1` — zitten in de CREATE TABLE, waar geen ALTER bij komt. Zonder
+  die herbouw kon een tweede persoon hetzelfde album niet liken en botste een
+  tweede scrobble-account op id 1. Rijen, ids en tijdstempels blijven.
+
+**Toegang** (`server/src/utils/ownership.ts` en alle persoonlijke routes)
+
+- Een read geeft nooit rijen van een ander terug, ook niet aan een admin.
+- Een geraden ID antwoordt 404, nooit 403.
+- Een playlist of slimme playlist kan gedeeld worden met het huishouden:
+  zichtbaar voor iedereen, alleen te bewerken door de eigenaar.
+
+**Scrobbling en ListenBrainz**
+
+- `scrobble_config` is per persoon in plaats van één rij voor het huis; de
+  wachtrij draagt de luisteraar mee en Last.fm/ListenBrainz koppelen is niet
+  langer admin-only. De leeskant van ListenBrainz (stats, discover) leest het
+  token van de aanvrager in plaats van dat van het eerste account.
+
+**Account verwijderen**
+
+- Privé data gaat mee; gedeelde playlists worden overgedragen aan de admin
+  die verwijdert, zodat de keukenplaylist niet met het account verdwijnt.
+
+Tests: `personal-privacy.test.ts` (favorieten, geschiedenis, statistieken,
+playlists, delen, 404-in-plaats-van-403, accountverwijdering) en de
+migratietest voor de herbouwde tabellen — 302 servertests, 114 clienttests.
+
 ## Bugfix — An album keeps playing (reported from the NAS, 9 Sept 2026)
 
 **The queue stopped after one song on a speaker**

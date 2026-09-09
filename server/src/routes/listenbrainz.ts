@@ -1,12 +1,18 @@
 import { Router } from 'express';
 import * as lb from '../services/listenbrainz.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { requireOwner } from '../utils/ownership.js';
+
+// ListenBrainz is a personal account (V09): everything here answers for the
+// caller's own token, never for the household's first connected account.
 
 export const listenbrainzRouter = Router();
 
 // Is ListenBrainz connected? (cheap — just checks the stored token.)
-listenbrainzRouter.get('/status', (_req, res) => {
-  res.json({ data: { configured: lb.isConfigured() } });
+listenbrainzRouter.get('/status', (req, res) => {
+  const owner = requireOwner(req, res);
+  if (!owner) return;
+  res.json({ data: { configured: lb.isConfigured(owner) } });
 });
 
 // Top artists / releases / recordings for a range, each matched back to the
@@ -14,7 +20,9 @@ listenbrainzRouter.get('/status', (_req, res) => {
 listenbrainzRouter.get(
   '/stats',
   asyncHandler(async (req, res) => {
-    if (!lb.isConfigured()) {
+    const owner = requireOwner(req, res);
+    if (!owner) return;
+    if (!lb.isConfigured(owner)) {
       res.json({
         data: {
           configured: false,
@@ -30,10 +38,10 @@ listenbrainzRouter.get(
     const range = lb.parseRange(req.query.range);
     try {
       const [userName, artists, releases, recordings] = await Promise.all([
-        lb.getUserName(),
-        lb.topArtists(range),
-        lb.topReleases(range),
-        lb.topRecordings(range),
+        lb.getUserName(owner),
+        lb.topArtists(owner, range),
+        lb.topReleases(owner, range),
+        lb.topRecordings(owner, range),
       ]);
       res.json({ data: { configured: true, userName, range, artists, releases, recordings } });
     } catch (err) {
@@ -47,15 +55,17 @@ listenbrainzRouter.get(
 // across your providers.
 listenbrainzRouter.get(
   '/discover',
-  asyncHandler(async (_req, res) => {
-    if (!lb.isConfigured()) {
+  asyncHandler(async (req, res) => {
+    const owner = requireOwner(req, res);
+    if (!owner) return;
+    if (!lb.isConfigured(owner)) {
       res.json({ data: { configured: false, freshReleases: [], playlists: [] } });
       return;
     }
     try {
       const [freshReleases, playlists] = await Promise.all([
-        lb.freshReleases(),
-        lb.recommendationPlaylists(),
+        lb.freshReleases(owner),
+        lb.recommendationPlaylists(owner),
       ]);
       res.json({ data: { configured: true, freshReleases, playlists } });
     } catch (err) {

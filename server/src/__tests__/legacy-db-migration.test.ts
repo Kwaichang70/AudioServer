@@ -134,3 +134,95 @@ describe('migrating an early-release database', () => {
     });
   });
 });
+
+/**
+ * V09: `favorites` and `scrobble_config` were created for a household with a
+ * single listener — UNIQUE(item_type, item_id) and `id INTEGER PRIMARY KEY
+ * DEFAULT 1` — and SQLite keeps both rules inside the CREATE TABLE, out of
+ * reach of ALTER. This is the shape every installation carries, the Synology
+ * included, so the rebuild has to keep every row.
+ */
+describe('rebuilding the household-singleton tables', () => {
+  let dir: string;
+  let path: string;
+
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'audioserver-v09-db-'));
+    path = join(dir, 'household.db');
+    const db = new Database(path);
+    db.exec(`
+      CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', created_at INTEGER DEFAULT (unixepoch()));
+      CREATE TABLE favorites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        item_type TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        created_at INTEGER DEFAULT (unixepoch()),
+        UNIQUE(item_type, item_id)
+      );
+      CREATE TABLE scrobble_config (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        lastfm_enabled INTEGER DEFAULT 0,
+        lastfm_session_key TEXT,
+        lastfm_username TEXT,
+        listenbrainz_enabled INTEGER DEFAULT 0,
+        listenbrainz_token TEXT
+      );
+      INSERT INTO users (id, username, password_hash, role) VALUES ('u1', 'danny', 'h', 'admin');
+      INSERT INTO users (id, username, password_hash) VALUES ('u2', 'guest', 'h');
+      INSERT INTO favorites (id, item_type, item_id, created_at) VALUES (7, 'album', 'al', 1700000000);
+      INSERT INTO scrobble_config (id, listenbrainz_enabled, listenbrainz_token) VALUES (1, 1, 'household-token');
+    `);
+    db.close();
+    await initDatabase(path);
+  });
+
+  afterAll(() => {
+    closeDatabase();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('keeps the existing rows, ids included, and hands them to the admin', () => {
+    const fav = getRawDb().prepare('SELECT * FROM favorites').get() as {
+      id: number;
+      user_id: string;
+      item_id: string;
+      created_at: number;
+    };
+    expect(fav).toMatchObject({ id: 7, user_id: 'u1', item_id: 'al', created_at: 1700000000 });
+
+    const config = getRawDb().prepare('SELECT * FROM scrobble_config').get() as {
+      id: number;
+      user_id: string;
+      listenbrainz_token: string;
+    };
+    expect(config).toMatchObject({ id: 1, user_id: 'u1', listenbrainz_token: 'household-token' });
+  });
+
+  it('lets the second account like the same album and keep its own scrobble account', () => {
+    const db = getRawDb();
+    expect(() =>
+      db
+        .prepare("INSERT INTO favorites (user_id, item_type, item_id) VALUES ('u2', 'album', 'al')")
+        .run(),
+    ).not.toThrow();
+    expect(() =>
+      db
+        .prepare("INSERT INTO scrobble_config (user_id, listenbrainz_token) VALUES ('u2', 'own')")
+        .run(),
+    ).not.toThrow();
+
+    // The same person still cannot like the same album twice.
+    expect(() =>
+      db
+        .prepare("INSERT INTO favorites (user_id, item_type, item_id) VALUES ('u2', 'album', 'al')")
+        .run(),
+    ).toThrow(/UNIQUE/);
+  });
+
+  it('is a no-op on a second start', async () => {
+    closeDatabase();
+    await initDatabase(path);
+    expect(getRawDb().prepare('SELECT COUNT(*) as n FROM favorites').get()).toEqual({ n: 2 });
+    expect(getRawDb().prepare('SELECT COUNT(*) as n FROM scrobble_config').get()).toEqual({ n: 2 });
+  });
+});

@@ -333,6 +333,18 @@ itself for device playback) and die with it. Helmet sends a
 `Content-Security-Policy-Report-Only` header; violations land in the log via
 `POST /api/csp-report`.
 
+**Personal vs household data (V09).** The library, the playback session, the
+output devices and the provider tokens belong to the household; playlists,
+smart playlists, favorites, listening history, statistics and scrobble
+accounts belong to one account (`user_id`, plus a `shared` flag on both
+playlist tables). Every personal route resolves its owner through
+`utils/ownership.ts`; a read never returns another user's rows and an id that
+is not yours answers 404, never 403 — "forbidden" would confirm the id
+exists. The migration hands pre-V09 rows to the oldest admin, and rebuilds
+`favorites` and `scrobble_config` once: their single-listener rules
+(`UNIQUE(item_type, item_id)`, `id INTEGER PRIMARY KEY DEFAULT 1`) live
+inside the CREATE TABLE where ALTER cannot reach them.
+
 **SQLite + WAL.** Single-process app; better-sqlite3 in WAL mode is fast
 enough for 10k+ tracks without a separate DB process. Drizzle ORM for typed
 queries; raw SQL where pagination / aggregates need it.

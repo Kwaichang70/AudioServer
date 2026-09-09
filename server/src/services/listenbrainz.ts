@@ -2,7 +2,9 @@
 // fresh releases and matches them back to the local library (by name) so the
 // UI can deep-link into albums you own. The scrobble side lives in
 // scrobbler.ts; this is the read side. Token is the same one stored in
-// scrobble_config (Settings → Scrobbling → ListenBrainz).
+// scrobble_config (Settings → Scrobbling → ListenBrainz), which is personal
+// since V09: every function here takes the account whose ListenBrainz data is
+// being read, so two people on one server never see each other's listening.
 
 import { getRawDb } from '../db/index.js';
 import { logger } from '../logger.js';
@@ -16,17 +18,19 @@ export function parseRange(v: unknown): StatRange {
   return RANGES.includes(v as StatRange) ? (v as StatRange) : 'month';
 }
 
-function getToken(): string | null {
+function getToken(userId: string): string | null {
   const db = getRawDb();
   const row = db
-    .prepare('SELECT listenbrainz_token, listenbrainz_enabled FROM scrobble_config WHERE id = 1')
-    .get() as { listenbrainz_token: string | null; listenbrainz_enabled: number } | undefined;
+    .prepare(
+      'SELECT listenbrainz_token, listenbrainz_enabled FROM scrobble_config WHERE user_id = ?',
+    )
+    .get(userId) as { listenbrainz_token: string | null; listenbrainz_enabled: number } | undefined;
   if (!row || !row.listenbrainz_enabled || !row.listenbrainz_token) return null;
   return row.listenbrainz_token;
 }
 
-export function isConfigured(): boolean {
-  return getToken() !== null;
+export function isConfigured(userId: string): boolean {
+  return getToken(userId) !== null;
 }
 
 async function lbFetch<T = unknown>(path: string, token: string): Promise<T | null> {
@@ -39,16 +43,18 @@ async function lbFetch<T = unknown>(path: string, token: string): Promise<T | nu
 }
 
 // validate-token is cheap and returns the canonical user_name; cache it per
-// token so stats calls don't re-validate every time.
-let cachedUser: { token: string; name: string } | null = null;
-export async function getUserName(): Promise<string | null> {
-  const token = getToken();
+// token so stats calls don't re-validate every time. Keyed by token, so two
+// accounts on this server keep their own entry.
+const cachedUsers = new Map<string, string>();
+export async function getUserName(userId: string): Promise<string | null> {
+  const token = getToken(userId);
   if (!token) return null;
-  if (cachedUser && cachedUser.token === token) return cachedUser.name;
+  const cached = cachedUsers.get(token);
+  if (cached) return cached;
   try {
     const data = await lbFetch<{ valid?: boolean; user_name?: string }>('/validate-token', token);
     if (data?.valid && data.user_name) {
-      cachedUser = { token, name: data.user_name };
+      cachedUsers.set(token, data.user_name);
       return data.user_name;
     }
   } catch (err) {
@@ -106,9 +112,9 @@ export interface TopRecording {
   localAlbumId: string | null;
 }
 
-export async function topArtists(range: StatRange): Promise<TopArtist[]> {
-  const user = await getUserName();
-  const token = getToken();
+export async function topArtists(userId: string, range: StatRange): Promise<TopArtist[]> {
+  const user = await getUserName(userId);
+  const token = getToken(userId);
   if (!user || !token) return [];
   const data = await lbFetch<{
     payload?: { artists?: Array<{ artist_name: string; listen_count: number }> };
@@ -120,9 +126,9 @@ export async function topArtists(range: StatRange): Promise<TopArtist[]> {
   }));
 }
 
-export async function topReleases(range: StatRange): Promise<TopRelease[]> {
-  const user = await getUserName();
-  const token = getToken();
+export async function topReleases(userId: string, range: StatRange): Promise<TopRelease[]> {
+  const user = await getUserName(userId);
+  const token = getToken(userId);
   if (!user || !token) return [];
   const data = await lbFetch<{
     payload?: {
@@ -137,9 +143,9 @@ export async function topReleases(range: StatRange): Promise<TopRelease[]> {
   }));
 }
 
-export async function topRecordings(range: StatRange): Promise<TopRecording[]> {
-  const user = await getUserName();
-  const token = getToken();
+export async function topRecordings(userId: string, range: StatRange): Promise<TopRecording[]> {
+  const user = await getUserName(userId);
+  const token = getToken(userId);
   if (!user || !token) return [];
   const data = await lbFetch<{
     payload?: {
@@ -184,9 +190,9 @@ export interface DiscoverPlaylist {
 }
 
 /** New + upcoming releases from artists the user listens to. */
-export async function freshReleases(): Promise<FreshRelease[]> {
-  const user = await getUserName();
-  const token = getToken();
+export async function freshReleases(userId: string): Promise<FreshRelease[]> {
+  const user = await getUserName(userId);
+  const token = getToken(userId);
   if (!user || !token) return [];
   const data = await lbFetch<{
     payload?: {
@@ -206,9 +212,9 @@ export async function freshReleases(): Promise<FreshRelease[]> {
  * The list endpoint only returns metadata, so we fetch each playlist's tracks
  * (capped) and resolve them against the local library.
  */
-export async function recommendationPlaylists(): Promise<DiscoverPlaylist[]> {
-  const user = await getUserName();
-  const token = getToken();
+export async function recommendationPlaylists(userId: string): Promise<DiscoverPlaylist[]> {
+  const user = await getUserName(userId);
+  const token = getToken(userId);
   if (!user || !token) return [];
   const list = await lbFetch<{
     playlists?: Array<{ playlist?: { identifier?: string; title?: string } }>;

@@ -266,7 +266,7 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 | V06    | Bibliotheekwijzigingen zonder verlies van relaties | V01, V05                          | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
 | V07    | Betere zoekresultaten, edities en bronkeuze        | V04, V06                          | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
 | V08    | Mobiele afronding, onboarding en offline shell     | V02–V07                           | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
-| V09    | Persoonlijke muziekomgevingen                      | V02, V05–V06                      | Optioneel vervolg                                        |
+| V09    | Persoonlijke muziekomgevingen                      | V02, V05–V06                      | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
 | V10    | Onafhankelijke wachtrij per zone                   | V03–V04, V09                      | Optioneel vervolg                                        |
 | V11    | Audio-inzicht en geverifieerde trackovergangen     | V04; V10 als zones worden gebouwd | Optioneel vervolg                                        |
 | V12    | Gemengde playlists en betere ontdekfuncties        | V05, V07; V09 bij profielen       | Optioneel vervolg                                        |
@@ -458,10 +458,10 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 **Keuzemoment:** uitvoeren als de app door meerdere mensen wordt gebruikt.  
 **Bevinding:** B10.
 
-- [ ] **V09.1 · 2 dagen:** userId/eigendom aan persoonlijke gegevens toevoegen; bestaande gedeelde data gecontroleerd als huishoudcollectie behouden of aan een gekozen eigenaar koppelen.
-- [ ] **V09.2 · 2 dagen:** toegang tot playlists, favorieten, history, stats en slimme playlists consequent per gebruiker afhandelen; expliciet delen ondersteunen of voorlopig uitsluiten.
-- [ ] **V09.3 · 2 dagen:** persoonlijke scrobbleconfiguratie en bijbehorende cache-/retry-isolatie. Globale muziekproviders blijven zichtbaar als beheerde huishoudverbinding.
-- [ ] **V09.4 · 2 dagen:** accounts wisselen, data-overdracht bij verwijderen en privacyregressies op API, UI en sockets testen.
+- [x] **V09.1 · 2 dagen:** userId/eigendom aan persoonlijke gegevens toevoegen; bestaande gedeelde data gecontroleerd als huishoudcollectie behouden of aan een gekozen eigenaar koppelen.
+- [x] **V09.2 · 2 dagen:** toegang tot playlists, favorieten, history, stats en slimme playlists consequent per gebruiker afhandelen; expliciet delen ondersteunen of voorlopig uitsluiten.
+- [x] **V09.3 · 2 dagen:** persoonlijke scrobbleconfiguratie en bijbehorende cache-/retry-isolatie. Globale muziekproviders blijven zichtbaar als beheerde huishoudverbinding.
+- [x] **V09.4 · 2 dagen:** accounts wisselen, data-overdracht bij verwijderen en privacyregressies op API, UI en sockets testen.
 
 **Acceptatie:**
 
@@ -747,6 +747,32 @@ Zelfde branch en omgeving als V01–V03.
 **Wacht op acceptatie (NAS):** Android/Chrome en iOS/Safari: app openen, vliegtuigmodus aan, pagina herladen (shell of offlinepagina, geen fout), vliegtuigmodus uit (banner verdwijnt, wachtrij klopt); telefoon een nacht laten slapen en de app openen (geen uitloggen, playbackstatus klopt); twee opeenvolgende releases uitrollen en de updatebanner zien zonder witte pagina; schermlezer (TalkBack/VoiceOver) door login → zoeken → album → wachtrij; “Copy diagnostics” en de inhoud controleren op geheimen.
 
 **Beslismoment na V08:** de basisroute (V01–V08) is in code af. V09 (persoonlijke profielen) kan starten; volgens §9 eerst NAS-acceptatie van V03/V04 (tablet dicht, album blijft spelen) afronden voordat V11 (grotere audio-uitbreiding) start.
+
+### Bugfix — 9 september 2026
+
+**Gemeld vanaf de NAS:** een album stopte na één nummer; de wachtrij bleef op 1/11 staan met 0:00/0:00 en een play-knop, en op de telefoon was de onderbalk slecht leesbaar zonder zichtbare apparaatkeuze.
+
+**Oorzaak:** einddetectie van een track op een externe speaker. Een renderer zet bij het einde zijn tellers terug op 0:00/0:00 en meldt “stopped”, terwijl het laatst bewaarde monitorsample enkele seconden achterloopt (polls elke 2 s, alleen bewaard bij meer dan 3 s verschuiving). De oude regel eiste een positie binnen twee seconden van de duur en miste het einde daardoor meestal: de sessie ging naar stopped in plaats van door te schakelen.
+
+**Opgelost:** de monitor onthoudt hoever het apparaat werkelijk kwam en beoordeelt een stop daarop (binnen het gratieveld = nummer klaar, eerder = iemand drukte op stop); dat oordeel reist mee als `setState({ ended: true })` in plaats van opnieuw te worden afgeleid uit de positie; een “stopped” van een apparaat dat nog laadt wordt genegeerd zolang de dispatch bezig is (15 s). Klikken op een nummer in album/playlist zet nu de hele lijst vanaf dat nummer in de wachtrij. De onderbalk op de telefoon geeft de tekst de vrije breedte, toont de tijd op een eigen regel, tekent de voortgang langs de bovenrand en houdt wachtrijteller en apparaatkiezer altijd bereikbaar.
+
+**Regressietests:** `album-advance.test.ts` (hele HTTP-flow), `device-monitor.test.ts` (tellers gereset, dispatch nog bezig, geen positie van de vorige track), `server-player.test.ts` (monitor → advance → dispatch van track 2 en een handmatige stop midden in een nummer).
+
+### V09 — 9 september 2026
+
+**Uitgevoerd:** V09.1–V09.4 in code; 302 servertests, 114 clienttests, lint/typecheck/build groen.
+
+**Ontwerpkeuzes:** de bibliotheek, de afspeelsessie, de apparaten en de providertokens blijven van het huishouden; wat iemand zelf opbouwt is persoonlijk. Twee regels lopen door elke route: een read geeft nooit rijen van een ander terug (ook een admin niet — admin beheert accounts, geen luistergeschiedenis), en een geraden ID antwoordt 404 en niet 403, omdat “forbidden” zou bevestigen dat het ID bestaat. Playlists en slimme playlists kunnen expliciet gedeeld worden: zichtbaar voor iedereen, alleen te bewerken door de eigenaar. De migratie koppelt bestaande rijen aan de oudste admin en verwijdert niets; ze is idempotent en draait bij elke start.
+
+**Twee tabellen moesten herbouwd worden.** `favorites` had `UNIQUE(item_type, item_id)` en `scrobble_config` had `id INTEGER PRIMARY KEY DEFAULT 1` — regels die SQLite in de CREATE TABLE bewaart, waar geen ALTER bij komt. Zonder herbouw kon de tweede persoon hetzelfde album niet als favoriet zetten (“UNIQUE constraint failed”) en botste een tweede scrobble-account op id 1. Beide tabellen worden eenmalig herbouwd met behoud van rijen, ids en tijdstempels; detectie gebeurt op het opgeslagen CREATE-statement, dus een tweede start is een no-op.
+
+**Bij verwijderen van een account** gaat wat privé was mee (favorieten, geschiedenis, statistieken, eigen playlists, scrobble-accounts) en worden gedeelde playlists overgedragen aan de admin die verwijdert, zodat de keukenplaylist niet met het account verdwijnt.
+
+**Gedragswijzigingen voor de gebruiker:** iedereen ziet zijn eigen favorieten, geschiedenis, statistieken en playlists; een playlist kan gedeeld worden met het huishouden; Last.fm en ListenBrainz zijn niet langer admin-only maar per persoon — de API-sleutels in de omgeving blijven huishoudbreed. Bestaande gegevens komen bij het eerste account (de admin) terecht.
+
+**Wacht op acceptatie (NAS):** een tweede account aanmaken, met beide accounts hetzelfde album als favoriet zetten, elkaars playlist-ID raden (moet 404 geven), een playlist delen en zien dat de ander hem wel ziet maar niet kan bewerken, met beide accounts ListenBrainz koppelen en controleren dat de “Recent listens” per persoon kloppen, en ten slotte een testaccount verwijderen en controleren dat de gedeelde playlist blijft bestaan.
+
+**Beslismoment na V09:** V10 (wachtrij per zone) of V11 (audio-uitbreiding) — volgens §9 eerst de NAS-acceptatie van V03/V04 afronden.
 
 ## Bronverwijzingen naar de onderzochte code
 

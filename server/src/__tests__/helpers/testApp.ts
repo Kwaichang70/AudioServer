@@ -14,6 +14,7 @@ import { playlistsRouter } from '../../routes/playlists.js';
 import { providersRouter } from '../../routes/providers.js';
 import { historyRouter } from '../../routes/history.js';
 import { smartPlaylistsRouter } from '../../routes/smart-playlists.js';
+import { listenbrainzRouter } from '../../routes/listenbrainz.js';
 import { scrobbleRouter } from '../../routes/scrobble.js';
 import { librespotRouter } from '../../routes/librespot.js';
 import { openApiSpec } from '../../openapi.js';
@@ -86,6 +87,7 @@ export async function createTestApp(options: TestAppOptions = {}) {
   app.use('/api/providers', providersRouter);
   app.use('/api/history', historyRouter);
   app.use('/api/smart-playlists', smartPlaylistsRouter);
+  app.use('/api/listenbrainz', listenbrainzRouter);
   app.use('/api/scrobble', scrobbleRouter);
   app.use('/api/librespot', librespotRouter);
   app.use('/api', notFoundHandler);

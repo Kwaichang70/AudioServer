@@ -179,6 +179,72 @@ function backfillUserRoles(sqlite: InstanceType<typeof Database>): void {
 }
 
 /**
+ * Two tables were built for a household with one listener, and SQLite keeps
+ * such rules inside the CREATE TABLE where no ALTER can reach them — so they
+ * are rebuilt once (V09):
+ *
+ * - `favorites` carried UNIQUE(item_type, item_id), so the second person to
+ *   like an album hit "UNIQUE constraint failed" instead of getting their own
+ *   favourite.
+ * - `scrobble_config` had `id INTEGER PRIMARY KEY DEFAULT 1` — the singleton
+ *   row — so a second account connecting Last.fm collided on id 1.
+ *
+ * Both keep every row, their ids and their timestamps; only the table rule
+ * changes. Detection is on the stored CREATE statement, so this runs once and
+ * is a no-op on every later start.
+ */
+function rebuildHouseholdSingletons(sqlite: InstanceType<typeof Database>): void {
+  const createSqlOf = (table: string): string =>
+    (
+      sqlite
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get(table) as { sql: string | null } | undefined
+    )?.sql ?? '';
+
+  if (/UNIQUE\s*\(\s*item_type/i.test(createSqlOf('favorites'))) {
+    sqlite.exec(`
+      DROP TABLE IF EXISTS favorites_v09;
+      CREATE TABLE favorites_v09 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT,
+        item_type TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        created_at INTEGER DEFAULT (unixepoch())
+      );
+      INSERT INTO favorites_v09 (id, user_id, item_type, item_id, created_at)
+        SELECT id, user_id, item_type, item_id, created_at FROM favorites;
+      DROP TABLE favorites;
+      ALTER TABLE favorites_v09 RENAME TO favorites;
+      CREATE INDEX IF NOT EXISTS idx_favorites_type ON favorites (item_type, item_id);
+    `);
+    logger.info('Migration: favorites rebuilt, a favourite is now per user (V09)');
+  }
+
+  if (/id\s+INTEGER\s+PRIMARY\s+KEY\s+DEFAULT\s+1/i.test(createSqlOf('scrobble_config'))) {
+    sqlite.exec(`
+      DROP TABLE IF EXISTS scrobble_config_v09;
+      CREATE TABLE scrobble_config_v09 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT,
+        lastfm_enabled INTEGER DEFAULT 0,
+        lastfm_session_key TEXT,
+        lastfm_username TEXT,
+        listenbrainz_enabled INTEGER DEFAULT 0,
+        listenbrainz_token TEXT
+      );
+      INSERT INTO scrobble_config_v09
+        (id, user_id, lastfm_enabled, lastfm_session_key, lastfm_username,
+         listenbrainz_enabled, listenbrainz_token)
+        SELECT id, user_id, lastfm_enabled, lastfm_session_key, lastfm_username,
+               listenbrainz_enabled, listenbrainz_token FROM scrobble_config;
+      DROP TABLE scrobble_config;
+      ALTER TABLE scrobble_config_v09 RENAME TO scrobble_config;
+    `);
+    logger.info('Migration: scrobble_config rebuilt, one account per user (V09)');
+  }
+}
+
+/**
  * Personal profiles (V09.1). Playlists, favourites, smart playlists and the
  * single scrobble account used to belong to the household. They are handed
  * to one owner — the oldest admin, or the oldest account when no admin
@@ -188,6 +254,7 @@ function backfillUserRoles(sqlite: InstanceType<typeof Database>): void {
  * safe to run on every start.
  */
 function assignPersonalOwnership(sqlite: InstanceType<typeof Database>): void {
+  rebuildHouseholdSingletons(sqlite);
   const owner = sqlite
     .prepare(
       "SELECT id FROM users ORDER BY (role = 'admin') DESC, created_at ASC, rowid ASC LIMIT 1",
