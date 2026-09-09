@@ -38,6 +38,7 @@ interface ScrobbleQueueRow {
   album_title: string | null;
   duration: number | null;
   timestamp: number;
+  user_id: string | null;
 }
 
 interface LastfmResponse {
@@ -48,21 +49,26 @@ interface LastfmResponse {
 }
 
 // ─── Config ──────────────────────────────────────────────────────
+//
+// One scrobble account per user (V09.3). A Last.fm session key identifies a
+// person, not a household, so every account keeps its own; the queue carries
+// the user whose listen it was and is submitted with that user's credentials.
 
-function getConfig(): ScrobbleConfig {
+const EMPTY_CONFIG: ScrobbleConfig = {
+  lastfmEnabled: false,
+  lastfmSessionKey: null,
+  lastfmUsername: null,
+  listenbrainzEnabled: false,
+  listenbrainzToken: null,
+};
+
+function getConfig(userId: string | null): ScrobbleConfig {
+  if (!userId) return { ...EMPTY_CONFIG };
   const db = getRawDb();
-  const row = db.prepare('SELECT * FROM scrobble_config WHERE id = 1').get() as
+  const row = db.prepare('SELECT * FROM scrobble_config WHERE user_id = ?').get(userId) as
     | ScrobbleConfigRow
     | undefined;
-  if (!row) {
-    return {
-      lastfmEnabled: false,
-      lastfmSessionKey: null,
-      lastfmUsername: null,
-      listenbrainzEnabled: false,
-      listenbrainzToken: null,
-    };
-  }
+  if (!row) return { ...EMPTY_CONFIG };
   return {
     lastfmEnabled: !!row.lastfm_enabled,
     lastfmSessionKey: row.lastfm_session_key,
@@ -72,11 +78,11 @@ function getConfig(): ScrobbleConfig {
   };
 }
 
-function saveConfig(config: Partial<ScrobbleConfig>): void {
+function saveConfig(userId: string, config: Partial<ScrobbleConfig>): void {
   const db = getRawDb();
-  const existing = db.prepare('SELECT id FROM scrobble_config WHERE id = 1').get();
+  const existing = db.prepare('SELECT id FROM scrobble_config WHERE user_id = ?').get(userId);
   if (!existing) {
-    db.prepare('INSERT INTO scrobble_config (id) VALUES (1)').run();
+    db.prepare('INSERT INTO scrobble_config (user_id) VALUES (?)').run(userId);
   }
   const sets: string[] = [];
   const params: Array<string | number | null> = [];
@@ -101,7 +107,8 @@ function saveConfig(config: Partial<ScrobbleConfig>): void {
     params.push(config.listenbrainzToken);
   }
   if (sets.length > 0) {
-    db.prepare(`UPDATE scrobble_config SET ${sets.join(', ')} WHERE id = 1`).run(...params);
+    params.push(userId);
+    db.prepare(`UPDATE scrobble_config SET ${sets.join(', ')} WHERE user_id = ?`).run(...params);
   }
 }
 
@@ -260,7 +267,6 @@ async function listenbrainzNowPlaying(track: ScrobbleTrack, token: string): Prom
 
 async function processQueueItems(): Promise<void> {
   const db = getRawDb();
-  const config = getConfig();
   const pending = db
     .prepare(
       "SELECT * FROM scrobble_queue WHERE status = 'pending' AND retries < 5 ORDER BY timestamp ASC LIMIT 50",
@@ -272,7 +278,22 @@ async function processQueueItems(): Promise<void> {
     Math.floor(Date.now() / 1000) - 30 * 24 * 3600,
   );
 
+  // Each row is submitted with its own user's credentials (V09.3). The
+  // configs are read once per user in this batch, so one person's broken
+  // Last.fm account never touches another's rows.
+  const configs = new Map<string, ScrobbleConfig>();
+  const configFor = (userId: string | null): ScrobbleConfig => {
+    if (!userId) return EMPTY_CONFIG;
+    let c = configs.get(userId);
+    if (!c) {
+      c = getConfig(userId);
+      configs.set(userId, c);
+    }
+    return c;
+  };
+
   for (const item of pending) {
+    const config = configFor(item.user_id);
     // A service that is switched off keeps its rows pending instead of
     // burning retries: switching it back on later still submits them.
     const enabled =
@@ -347,9 +368,9 @@ export const scrobbler = {
     }
   },
 
-  /** Called when a track starts playing */
-  async nowPlaying(track: ScrobbleTrack): Promise<void> {
-    const config = getConfig();
+  /** Called when a track starts playing, for that listener's own accounts. */
+  async nowPlaying(track: ScrobbleTrack, userId: string | null): Promise<void> {
+    const config = getConfig(userId);
     if (config.lastfmEnabled && config.lastfmSessionKey) {
       lastfmUpdateNowPlaying(track, config.lastfmSessionKey).catch(() => {});
     }
@@ -365,12 +386,16 @@ export const scrobbler = {
    * no-op, so retries, reconnects and two controllers cannot submit twice.
    * `timestamp` is the moment the track started (what Last.fm expects).
    */
-  scrobble(track: ScrobbleTrack, options: { sessionId?: string; timestamp?: number } = {}): void {
-    const config = getConfig();
+  scrobble(
+    track: ScrobbleTrack,
+    options: { sessionId?: string; timestamp?: number; userId?: string | null } = {},
+  ): void {
+    const userId = options.userId ?? null;
+    const config = getConfig(userId);
     const timestamp = options.timestamp ?? Math.floor(Date.now() / 1000);
     const db = getRawDb();
     const insert = db.prepare(
-      'INSERT OR IGNORE INTO scrobble_queue (service, track_title, artist_name, album_title, duration, timestamp, session_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT OR IGNORE INTO scrobble_queue (service, track_title, artist_name, album_title, duration, timestamp, session_id, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     );
     const services: Array<'lastfm' | 'listenbrainz'> = [];
     if (config.lastfmEnabled && config.lastfmSessionKey) services.push('lastfm');
@@ -385,6 +410,7 @@ export const scrobbler = {
         track.duration || null,
         timestamp,
         options.sessionId ?? null,
+        userId,
       );
       queued += result.changes;
     }
@@ -400,9 +426,9 @@ export const scrobbler = {
     };
   },
 
-  async authenticateLastfm(token: string): Promise<string> {
+  async authenticateLastfm(userId: string, token: string): Promise<string> {
     const session = await lastfmGetSession(token);
-    saveConfig({
+    saveConfig(userId, {
       lastfmEnabled: true,
       lastfmSessionKey: session.key,
       lastfmUsername: session.name,
@@ -411,13 +437,13 @@ export const scrobbler = {
   },
 
   /** Validate ListenBrainz token */
-  async validateListenbrainz(token: string): Promise<boolean> {
+  async validateListenbrainz(userId: string, token: string): Promise<boolean> {
     const res = await fetch(`${LISTENBRAINZ_API_URL}/validate-token`, {
       headers: { Authorization: `Token ${token}` },
     });
     const data = (await res.json()) as { valid?: boolean };
     if (data.valid) {
-      saveConfig({ listenbrainzEnabled: true, listenbrainzToken: token });
+      saveConfig(userId, { listenbrainzEnabled: true, listenbrainzToken: token });
       return true;
     }
     return false;

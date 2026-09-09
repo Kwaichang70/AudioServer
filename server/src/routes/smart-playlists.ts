@@ -3,10 +3,29 @@ import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
 import { getDb, getRawDb } from '../db/index.js';
 import { smartPlaylists } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, or } from 'drizzle-orm';
 import { validate } from '../utils/validate.js';
+import { requireOwner } from '../utils/ownership.js';
 
 export const smartPlaylistsRouter = Router();
+
+/** Same ownership rule as playlists (V09.2): yours, or shared and read-only. */
+function loadSmartPlaylist(
+  req: Parameters<typeof requireOwner>[0],
+  res: Parameters<typeof requireOwner>[1],
+  access: 'read' | 'write',
+) {
+  const owner = requireOwner(req, res);
+  if (!owner) return null;
+  const id = String(req.params.id);
+  const sp = getDb().select().from(smartPlaylists).where(eq(smartPlaylists.id, id)).get();
+  const visible = sp && (sp.userId === owner || (access === 'read' && sp.shared));
+  if (!visible) {
+    res.status(404).json({ error: 'Smart playlist not found' });
+    return null;
+  }
+  return { sp, owner, id };
+}
 
 const ruleFields = z.enum(['genre', 'year', 'format', 'sampleRate', 'bitDepth', 'artistName']);
 const ruleOperators = z.enum(['equals', 'contains', 'greaterThan', 'lessThan', 'between']);
@@ -73,10 +92,13 @@ const rulesField = z.preprocess((value) => {
 const createSmartSchema = z.object({
   name: z.string().min(1).max(200),
   rules: rulesField,
+  /** Visible to the household, editable only by the owner (V09.2). */
+  shared: z.boolean().optional(),
 });
 const updateSmartSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   rules: rulesField.optional(),
+  shared: z.boolean().optional(),
 });
 
 type Rule = z.infer<typeof ruleSchema>;
@@ -183,15 +205,23 @@ function executeSmartPlaylist(rules: Rule[], limit = 200): SmartPlaylistTrack[] 
 }
 
 // List all smart playlists
-smartPlaylistsRouter.get('/', (_req, res) => {
-  const db = getDb();
-  const result = db.select().from(smartPlaylists).orderBy(smartPlaylists.name).all();
+smartPlaylistsRouter.get('/', (req, res) => {
+  const owner = requireOwner(req, res);
+  if (!owner) return;
+  const result = getDb()
+    .select()
+    .from(smartPlaylists)
+    .where(or(eq(smartPlaylists.userId, owner), eq(smartPlaylists.shared, true)))
+    .orderBy(smartPlaylists.name)
+    .all();
   res.json({ data: result });
 });
 
 // Create a smart playlist
 smartPlaylistsRouter.post('/', validate({ body: createSmartSchema }), (req, res) => {
-  const { name, rules } = req.body;
+  const owner = requireOwner(req, res);
+  if (!owner) return;
+  const { name, rules, shared } = req.body;
   const db = getDb();
   const id = uuid();
   const parsedRules = rules as Rule[];
@@ -203,6 +233,8 @@ smartPlaylistsRouter.post('/', validate({ body: createSmartSchema }), (req, res)
       name,
       rules: JSON.stringify(parsedRules),
       trackCount: tracks.length,
+      userId: owner,
+      shared: shared ?? false,
     })
     .run();
 
@@ -212,9 +244,10 @@ smartPlaylistsRouter.post('/', validate({ body: createSmartSchema }), (req, res)
 
 // Get smart playlist tracks (always re-evaluated)
 smartPlaylistsRouter.get('/:id/tracks', (req, res) => {
+  const found = loadSmartPlaylist(req, res, 'read');
+  if (!found) return;
+  const { sp } = found;
   const db = getDb();
-  const sp = db.select().from(smartPlaylists).where(eq(smartPlaylists.id, req.params.id)).get();
-  if (!sp) return res.status(404).json({ error: 'Smart playlist not found' });
 
   const parsedRules = rulesField.safeParse(sp.rules);
   if (!parsedRules.success) {
@@ -234,18 +267,18 @@ smartPlaylistsRouter.get('/:id/tracks', (req, res) => {
 
 // Update a smart playlist
 smartPlaylistsRouter.patch('/:id', validate({ body: updateSmartSchema }), (req, res) => {
-  const { name, rules } = req.body;
-  const id = req.params.id;
-  if (Array.isArray(id)) {
+  const { name, rules, shared } = req.body;
+  if (Array.isArray(req.params.id)) {
     return res.status(400).json({ error: 'Invalid smart playlist id' });
   }
+  const found = loadSmartPlaylist(req, res, 'write');
+  if (!found) return;
+  const { id } = found;
   const db = getDb();
-
-  const existing = db.select().from(smartPlaylists).where(eq(smartPlaylists.id, id)).get();
-  if (!existing) return res.status(404).json({ error: 'Smart playlist not found' });
 
   const updates: Partial<typeof smartPlaylists.$inferInsert> = {};
   if (name !== undefined) updates.name = name;
+  if (shared !== undefined) updates.shared = shared;
   if (rules !== undefined) {
     updates.rules = JSON.stringify(rules);
     updates.trackCount = executeSmartPlaylist(rules as Rule[]).length;
@@ -261,7 +294,8 @@ smartPlaylistsRouter.patch('/:id', validate({ body: updateSmartSchema }), (req, 
 
 // Delete a smart playlist
 smartPlaylistsRouter.delete('/:id', (req, res) => {
-  const db = getDb();
-  db.delete(smartPlaylists).where(eq(smartPlaylists.id, req.params.id)).run();
+  const found = loadSmartPlaylist(req, res, 'write');
+  if (!found) return;
+  getDb().delete(smartPlaylists).where(eq(smartPlaylists.id, found.id)).run();
   res.json({ data: { ok: true } });
 });

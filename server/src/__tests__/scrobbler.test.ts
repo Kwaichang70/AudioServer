@@ -11,7 +11,7 @@ describe('scrobbler queue processing', () => {
   beforeAll(async () => {
     tempDir = mkdtempSync(join(tmpdir(), 'audioserver-scrobbler-'));
     await initDatabase(join(tempDir, 'test.db'));
-    scrobbler.saveConfig({ listenbrainzEnabled: true, listenbrainzToken: 'token' });
+    scrobbler.saveConfig('user-1', { listenbrainzEnabled: true, listenbrainzToken: 'token' });
   });
 
   afterAll(() => {
@@ -24,8 +24,8 @@ describe('scrobbler queue processing', () => {
     getRawDb()
       .prepare(
         `INSERT INTO scrobble_queue
-          (service, track_title, artist_name, album_title, duration, timestamp)
-         VALUES ('listenbrainz', 'Track', 'Artist', 'Album', 180, 1234567890)`,
+          (service, track_title, artist_name, album_title, duration, timestamp, user_id)
+         VALUES ('listenbrainz', 'Track', 'Artist', 'Album', 180, 1234567890, 'user-1')`,
       )
       .run();
 

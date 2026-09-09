@@ -23,6 +23,9 @@ import { scrobbler } from '../services/scrobbler.js';
  * confirmed playing time; a listen qualifies by Last.fm's rule; exactly one
  * scrobble per session and service.
  */
+/** Every session in this suite belongs to one listener (V09.3). */
+const LISTENER = 'user-listener';
+
 describe('listening sessions', () => {
   let dir: string;
   let now = 1_800_000_000_000;
@@ -40,8 +43,12 @@ describe('listening sessions', () => {
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'audioserver-listening-'));
     await initDatabase(join(dir, 'listening.db'));
-    scrobbler.saveConfig({ lastfmEnabled: true, lastfmSessionKey: 'key', lastfmUsername: 'u' });
-    scrobbler.saveConfig({ listenbrainzEnabled: true, listenbrainzToken: 'token' });
+    scrobbler.saveConfig(LISTENER, {
+      lastfmEnabled: true,
+      lastfmSessionKey: 'key',
+      lastfmUsername: 'u',
+    });
+    scrobbler.saveConfig(LISTENER, { listenbrainzEnabled: true, listenbrainzToken: 'token' });
   });
 
   afterAll(() => {
@@ -102,6 +109,7 @@ describe('listening sessions', () => {
     startSession(track({ id: 'qobuz:42', source: 'qobuz', albumId: null, artistId: null }), {
       queueItemId: 'item-1',
       deviceId: 'browser',
+      userId: LISTENER,
     });
     const [row] = rows();
     expect(row.started_at).toBe(Math.floor(now / 1000));
@@ -113,7 +121,7 @@ describe('listening sessions', () => {
   });
 
   it('counts playing time only: pauses and seeks add nothing', () => {
-    startSession(track(), {});
+    startSession(track(), { userId: LISTENER });
     tick(30_000);
     heartbeat();
     transport('paused', null);
@@ -132,9 +140,9 @@ describe('listening sessions', () => {
   });
 
   it('an immediate skip and a failed play are not listens', () => {
-    startSession(track(), {});
+    startSession(track(), { userId: LISTENER });
     tick(3_000);
-    startSession(track({ id: 'local-2' }), {}); // skip
+    startSession(track({ id: 'local-2' }), { userId: LISTENER }); // skip
     tick(5_000);
     fail();
     const all = rows();
@@ -146,14 +154,14 @@ describe('listening sessions', () => {
   });
 
   it('a dead client adds at most one capped interval', () => {
-    startSession(track({ duration: 3600 }), {});
+    startSession(track({ duration: 3600 }), { userId: LISTENER });
     tick(10 * 60_000); // no heartbeat for ten minutes
     transport('stopped', null);
     expect(rows()[0].listened_ms).toBe(HEARTBEAT_CAP_MS);
   });
 
   it('two controllers reporting the same session do not double count', () => {
-    startSession(track(), {});
+    startSession(track(), { userId: LISTENER });
     for (let i = 0; i < 12; i++) {
       tick(5_000);
       heartbeat(); // tab A
@@ -164,7 +172,7 @@ describe('listening sessions', () => {
   });
 
   it('queues exactly one scrobble per service with the start time, even when finished twice', () => {
-    startSession(track(), { queueItemId: 'item-1' });
+    startSession(track(), { queueItemId: 'item-1', userId: LISTENER });
     const started = Math.floor(now / 1000);
     listen(150_000);
     transport('stopped', null);
@@ -178,26 +186,29 @@ describe('listening sessions', () => {
   });
 
   it('radio never scrobbles; Spotify only by policy', () => {
-    startSession(track({ id: 'radio:x', source: 'radio', duration: null }), {});
+    startSession(track({ id: 'radio:x', source: 'radio', duration: null }), { userId: LISTENER });
     listen(300_000);
     transport('stopped', null);
     expect(rows()[0].qualified).toBe(1);
     expect(queue()).toEqual([]);
 
-    startSession(track({ id: 'spotify:t', source: 'spotify' }), {});
+    startSession(track({ id: 'spotify:t', source: 'spotify' }), { userId: LISTENER });
     listen(150_000);
     transport('stopped', null);
     expect(queue()).toEqual([]);
 
     setListeningPolicy({ scrobbleSpotify: true });
-    startSession(track({ id: 'spotify:t2', source: 'spotify' }), {});
+    startSession(track({ id: 'spotify:t2', source: 'spotify' }), { userId: LISTENER });
     listen(150_000);
     transport('stopped', null);
     expect(queue()).toHaveLength(2);
   });
 
   it('playing without a session opens one (restart while the speaker kept playing)', () => {
-    transport('playing', { track: track(), ctx: { queueItemId: 'item-9', deviceId: 'sonos' } });
+    transport('playing', {
+      track: track(),
+      ctx: { queueItemId: 'item-9', deviceId: 'sonos', userId: LISTENER },
+    });
     expect(getActiveSession()?.trackId).toBe('local-1');
     listen(120_000);
     transport('stopped', null);
@@ -207,9 +218,9 @@ describe('listening sessions', () => {
   it('closes sessions a previous run left open, with their accrued time', () => {
     getRawDb()
       .prepare(
-        `INSERT INTO listening_sessions (id, track_id, source, title, artist_name, duration, started_at, listened_ms, status, qualified)
-         VALUES ('orphan-1', 'local-9', 'local', 'Left', 'Open', 200, ?, 150000, 'active', 0),
-                ('orphan-2', 'local-8', 'local', 'Short', 'One', 200, ?, 5000, 'active', 0)`,
+        `INSERT INTO listening_sessions (id, track_id, source, title, artist_name, duration, started_at, listened_ms, status, qualified, user_id)
+         VALUES ('orphan-1', 'local-9', 'local', 'Left', 'Open', 200, ?, 150000, 'active', 0, '${LISTENER}'),
+                ('orphan-2', 'local-8', 'local', 'Short', 'One', 200, ?, 5000, 'active', 0, '${LISTENER}')`,
       )
       .run(Math.floor(now / 1000) - 400, Math.floor(now / 1000) - 100);
     expect(closeOrphanedSessions()).toBe(2);

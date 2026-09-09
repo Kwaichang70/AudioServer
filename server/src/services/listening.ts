@@ -157,6 +157,7 @@ function finish(session: ActiveSession, status: 'ended' | 'failed', at: number):
     scrobbler.scrobble(toScrobbleTrack(session.track), {
       sessionId: session.id,
       timestamp: Math.floor(session.startedAtMs / 1000),
+      userId: session.userId,
     });
   }
 }
@@ -208,7 +209,7 @@ export function startSession(track: ListeningTrack, ctx: ListeningContext = {}):
   }
   active = session;
   if (scrobbleable(session)) {
-    scrobbler.nowPlaying(toScrobbleTrack(session.track)).catch(() => {});
+    scrobbler.nowPlaying(toScrobbleTrack(session.track), session.userId).catch(() => {});
   }
   return session.id;
 }
@@ -288,7 +289,7 @@ export function closeOrphanedSessions(): number {
   const db = getRawDb();
   const rows = db
     .prepare(
-      "SELECT id, title, artist_name, album_title, duration, source, started_at, listened_ms FROM listening_sessions WHERE status = 'active'",
+      "SELECT id, title, artist_name, album_title, duration, source, started_at, listened_ms, user_id FROM listening_sessions WHERE status = 'active'",
     )
     .all() as Array<{
     id: string;
@@ -299,6 +300,7 @@ export function closeOrphanedSessions(): number {
     source: string;
     started_at: number | null;
     listened_ms: number;
+    user_id: string | null;
   }>;
   const now = Math.floor(clock() / 1000);
   for (const row of rows) {
@@ -328,6 +330,7 @@ export function closeOrphanedSessions(): number {
       scrobbler.scrobble(toScrobbleTrack(fake.track), {
         sessionId: row.id,
         timestamp: row.started_at ?? now,
+        userId: row.user_id,
       });
     }
   }

@@ -58,11 +58,6 @@ describe('permissions matrix', () => {
     ['post', '/api/providers/tidal/auth/logout'],
     ['post', '/api/providers/qobuz/auth/login', { username: 'u', password: 'p' }],
     ['post', '/api/providers/qobuz/auth/logout'],
-    ['get', '/api/scrobble/lastfm/auth-url'],
-    ['post', '/api/scrobble/lastfm/auth', { token: 't' }],
-    ['post', '/api/scrobble/lastfm/disconnect'],
-    ['post', '/api/scrobble/listenbrainz/auth', { token: 't' }],
-    ['post', '/api/scrobble/listenbrainz/disconnect'],
     ['post', '/api/library/scan'],
     ['post', '/api/library/covers/fetch'],
     ['post', '/api/library/artists/images/fetch'],
@@ -110,6 +105,24 @@ describe('permissions matrix', () => {
       .send({ redirectUri: 'not a url' });
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('ValidationError');
+  });
+
+  // V09.3: a Last.fm or ListenBrainz account belongs to a person, not to the
+  // household, so connecting and disconnecting one is no longer admin-only.
+  // The API key/secret in the environment stay admin territory.
+  it.each([
+    ['post', '/api/scrobble/lastfm/disconnect'],
+    ['post', '/api/scrobble/listenbrainz/disconnect'],
+  ])('lets a regular user manage their own scrobble account (%s %s)', async (method, path) => {
+    const post = (token?: string) => {
+      const req = request(app).post(path);
+      return token ? req.set('Authorization', `Bearer ${token}`) : req;
+    };
+    const asUser = await post(member.token).send({});
+    expect(asUser.status, `${method} ${path} as user`).toBe(200);
+
+    const anonymous = await post().send({});
+    expect(anonymous.status, `${method} ${path} anonymous`).toBe(401);
   });
 
   it('keeps household actions open to regular users', async () => {

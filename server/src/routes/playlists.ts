@@ -3,14 +3,40 @@ import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../db/index.js';
 import { playlists, playlistTracks, tracks } from '../db/schema.js';
-import { eq, asc } from 'drizzle-orm';
+import { asc, eq, or } from 'drizzle-orm';
 import { validate } from '../utils/validate.js';
+import { requireOwner } from '../utils/ownership.js';
 
 export const playlistsRouter = Router();
+
+/**
+ * Personal playlists (V09.2). A playlist belongs to one account; `shared`
+ * makes it visible to the household, still editable only by its owner. A
+ * playlist that is not yours and not shared answers 404 — the same as one
+ * that does not exist, so a guessed id reveals nothing.
+ */
+function loadPlaylist(
+  req: Parameters<typeof requireOwner>[0],
+  res: Parameters<typeof requireOwner>[1],
+  access: 'read' | 'write',
+) {
+  const owner = requireOwner(req, res);
+  if (!owner) return null;
+  const id = String(req.params.id);
+  const playlist = getDb().select().from(playlists).where(eq(playlists.id, id)).get();
+  const visible = playlist && (playlist.userId === owner || (access === 'read' && playlist.shared));
+  if (!visible) {
+    res.status(404).json({ error: 'Playlist not found' });
+    return null;
+  }
+  return { playlist, owner, id };
+}
 
 const createPlaylistSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
+  /** Visible to the whole household, still editable only by the owner (V09.2). */
+  shared: z.boolean().optional(),
 });
 const updatePlaylistSchema = createPlaylistSchema.partial();
 const addTrackSchema = z.object({ trackId: z.string().min(1) });
@@ -20,27 +46,36 @@ const importSchema = z.object({
   content: z.string().min(1).max(5_000_000),
 });
 
-// List all playlists
-playlistsRouter.get('/', (_req, res) => {
-  const db = getDb();
-  const result = db.select().from(playlists).orderBy(playlists.name).all();
+// Your own playlists plus the ones the household shares
+playlistsRouter.get('/', (req, res) => {
+  const owner = requireOwner(req, res);
+  if (!owner) return;
+  const result = getDb()
+    .select()
+    .from(playlists)
+    .where(or(eq(playlists.userId, owner), eq(playlists.shared, true)))
+    .orderBy(playlists.name)
+    .all();
   res.json({ data: result, meta: { total: result.length } });
 });
 
 // Get a playlist
 playlistsRouter.get('/:id', (req, res) => {
-  const db = getDb();
-  const playlist = db.select().from(playlists).where(eq(playlists.id, req.params.id)).get();
-  if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
-  res.json({ data: playlist });
+  const found = loadPlaylist(req, res, 'read');
+  if (!found) return;
+  res.json({ data: found.playlist });
 });
 
 // Create a playlist
 playlistsRouter.post('/', validate({ body: createPlaylistSchema }), (req, res) => {
-  const { name, description } = req.body;
+  const owner = requireOwner(req, res);
+  if (!owner) return;
+  const { name, description, shared } = req.body;
   const db = getDb();
   const id = uuid();
-  db.insert(playlists).values({ id, name, description }).run();
+  db.insert(playlists)
+    .values({ id, name, description, userId: owner, shared: shared ?? false })
+    .run();
   const created = db.select().from(playlists).where(eq(playlists.id, id)).get();
   res.status(201).json({ data: created });
 });
@@ -50,39 +85,43 @@ playlistsRouter.patch('/:id', (req, res) => {
   const parsed = updatePlaylistSchema.safeParse(req.body);
   if (!parsed.success)
     return res.status(400).json({ error: 'ValidationError', issues: parsed.error.issues });
-  const { name, description } = parsed.data;
+  const { name, description, shared } = parsed.data;
+  const found = loadPlaylist(req, res, 'write');
+  if (!found) return;
   const db = getDb();
 
-  const existing = db.select().from(playlists).where(eq(playlists.id, req.params.id)).get();
-  if (!existing) return res.status(404).json({ error: 'Playlist not found' });
-
-  const updates: Partial<{ name: string; description: string }> = {};
+  const updates: Partial<{ name: string; description: string; shared: boolean }> = {};
   if (name !== undefined) updates.name = name;
   if (description !== undefined) updates.description = description;
+  if (shared !== undefined) updates.shared = shared;
 
   if (Object.keys(updates).length > 0) {
-    db.update(playlists).set(updates).where(eq(playlists.id, req.params.id)).run();
+    db.update(playlists).set(updates).where(eq(playlists.id, found.id)).run();
   }
 
-  const updated = db.select().from(playlists).where(eq(playlists.id, req.params.id)).get();
+  const updated = db.select().from(playlists).where(eq(playlists.id, found.id)).get();
   res.json({ data: updated });
 });
 
 // Delete a playlist
 playlistsRouter.delete('/:id', (req, res) => {
+  const found = loadPlaylist(req, res, 'write');
+  if (!found) return;
   const db = getDb();
-  db.delete(playlistTracks).where(eq(playlistTracks.playlistId, req.params.id)).run();
-  db.delete(playlists).where(eq(playlists.id, req.params.id)).run();
+  db.delete(playlistTracks).where(eq(playlistTracks.playlistId, found.id)).run();
+  db.delete(playlists).where(eq(playlists.id, found.id)).run();
   res.json({ data: { ok: true } });
 });
 
 // Get tracks in a playlist
 playlistsRouter.get('/:id/tracks', (req, res) => {
+  const found = loadPlaylist(req, res, 'read');
+  if (!found) return;
   const db = getDb();
   const items = db
     .select()
     .from(playlistTracks)
-    .where(eq(playlistTracks.playlistId, req.params.id))
+    .where(eq(playlistTracks.playlistId, found.id))
     .orderBy(asc(playlistTracks.position))
     .all();
 
@@ -103,18 +142,20 @@ playlistsRouter.post('/:id/tracks', (req, res) => {
   if (!parsed.success)
     return res.status(400).json({ error: 'ValidationError', issues: parsed.error.issues });
   const { trackId } = parsed.data;
+  const found = loadPlaylist(req, res, 'write');
+  if (!found) return;
   const db = getDb();
   // Get next position
   const existing = db
     .select()
     .from(playlistTracks)
-    .where(eq(playlistTracks.playlistId, req.params.id))
+    .where(eq(playlistTracks.playlistId, found.id))
     .all();
   const nextPos = existing.length > 0 ? Math.max(...existing.map((e) => e.position)) + 1 : 0;
 
   db.insert(playlistTracks)
     .values({
-      playlistId: req.params.id,
+      playlistId: found.id,
       trackId,
       position: nextPos,
     })
@@ -124,9 +165,9 @@ playlistsRouter.post('/:id/tracks', (req, res) => {
   const count = db
     .select()
     .from(playlistTracks)
-    .where(eq(playlistTracks.playlistId, req.params.id))
+    .where(eq(playlistTracks.playlistId, found.id))
     .all().length;
-  db.update(playlists).set({ trackCount: count }).where(eq(playlists.id, req.params.id)).run();
+  db.update(playlists).set({ trackCount: count }).where(eq(playlists.id, found.id)).run();
 
   res.json({ data: { ok: true, trackCount: count } });
 });
@@ -137,13 +178,15 @@ playlistsRouter.post('/:id/reorder', (req, res) => {
   if (!parsed.success)
     return res.status(400).json({ error: 'ValidationError', issues: parsed.error.issues });
   const { trackIds } = parsed.data;
+  const found = loadPlaylist(req, res, 'write');
+  if (!found) return;
   const db = getDb();
   // Update each track's position based on the new order
   trackIds.forEach((trackId: string, index: number) => {
     const item = db
       .select()
       .from(playlistTracks)
-      .where(eq(playlistTracks.playlistId, req.params.id))
+      .where(eq(playlistTracks.playlistId, found.id))
       .all()
       .find((i) => i.trackId === trackId);
     if (item) {
@@ -159,14 +202,15 @@ playlistsRouter.post('/:id/reorder', (req, res) => {
 
 // Export playlist as M3U
 playlistsRouter.get('/:id/export', (req, res) => {
+  const found = loadPlaylist(req, res, 'read');
+  if (!found) return;
+  const playlist = found.playlist;
   const db = getDb();
-  const playlist = db.select().from(playlists).where(eq(playlists.id, req.params.id)).get();
-  if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
 
   const items = db
     .select()
     .from(playlistTracks)
-    .where(eq(playlistTracks.playlistId, req.params.id))
+    .where(eq(playlistTracks.playlistId, found.id))
     .orderBy(asc(playlistTracks.position))
     .all();
 
@@ -191,10 +235,12 @@ playlistsRouter.get('/:id/export', (req, res) => {
 
 // Import M3U playlist
 playlistsRouter.post('/import', validate({ body: importSchema }), (req, res) => {
+  const owner = requireOwner(req, res);
+  if (!owner) return;
   const { name, content } = req.body;
   const db = getDb();
   const id = uuid();
-  db.insert(playlists).values({ id, name }).run();
+  db.insert(playlists).values({ id, name, userId: owner }).run();
 
   // Parse M3U
   const lines = (content as string)
@@ -229,11 +275,13 @@ playlistsRouter.post('/import', validate({ body: importSchema }), (req, res) => 
 
 // Remove a track from a playlist
 playlistsRouter.delete('/:id/tracks/:trackId', (req, res) => {
+  const found = loadPlaylist(req, res, 'write');
+  if (!found) return;
   const db = getDb();
   const items = db
     .select()
     .from(playlistTracks)
-    .where(eq(playlistTracks.playlistId, req.params.id))
+    .where(eq(playlistTracks.playlistId, found.id))
     .all();
 
   const toRemove = items.find((i) => i.trackId === req.params.trackId);
@@ -245,9 +293,9 @@ playlistsRouter.delete('/:id/tracks/:trackId', (req, res) => {
   const count = db
     .select()
     .from(playlistTracks)
-    .where(eq(playlistTracks.playlistId, req.params.id))
+    .where(eq(playlistTracks.playlistId, found.id))
     .all().length;
-  db.update(playlists).set({ trackCount: count }).where(eq(playlists.id, req.params.id)).run();
+  db.update(playlists).set({ trackCount: count }).where(eq(playlists.id, found.id)).run();
 
   res.json({ data: { ok: true, trackCount: count } });
 });

@@ -15,6 +15,8 @@ describe('Route response contracts', () => {
     app = ctx.app;
     teardown = ctx.teardown;
     dbPath = ctx.dbPath;
+    // History is personal (V09): the seeded listens belong to the caller.
+    const owner = ctx.admin!.id;
 
     const db = getRawDb();
     db.prepare(
@@ -95,10 +97,11 @@ describe('Route response contracts', () => {
       'local',
     );
     db.prepare(
-      `INSERT INTO listening_sessions (id, track_id, source, title, artist_name, album_title, album_id, artist_id, duration, started_at, ended_at, listened_ms, status, qualified)
-       VALUES (?, ?, 'local', 'Contract Track', 'Contract Artist', 'Contract Album', ?, ?, 60, ?, ?, 40000, 'ended', 1)`,
+      `INSERT INTO listening_sessions (id, user_id, track_id, source, title, artist_name, album_title, album_id, artist_id, duration, started_at, ended_at, listened_ms, status, qualified)
+       VALUES (?, ?, ?, 'local', 'Contract Track', 'Contract Artist', 'Contract Album', ?, ?, 60, ?, ?, 40000, 'ended', 1)`,
     ).run(
       'session-contract',
+      owner,
       'track-contract',
       'album-contract',
       'artist-contract',
@@ -108,9 +111,9 @@ describe('Route response contracts', () => {
     // A listen whose time was never recorded (migrated from the old table):
     // shown, sorted last, played_at null. Never a fabricated time.
     db.prepare(
-      `INSERT INTO listening_sessions (id, track_id, source, title, artist_name, started_at, listened_ms, status, qualified)
-       VALUES ('legacy-1', 'track-contract', 'legacy', 'Contract Track', 'Contract Artist', NULL, 0, 'ended', 1)`,
-    ).run();
+      `INSERT INTO listening_sessions (id, user_id, track_id, source, title, artist_name, started_at, listened_ms, status, qualified)
+       VALUES ('legacy-1', ?, 'track-contract', 'legacy', 'Contract Track', 'Contract Artist', NULL, 0, 'ended', 1)`,
+    ).run(owner);
   });
 
   afterAll(() => {

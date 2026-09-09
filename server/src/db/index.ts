@@ -18,7 +18,7 @@ import { fileURLToPath } from 'url';
  * it does not understand. Databases from before this check carry version 0,
  * which every build accepts and upgrades.
  */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 export class DatabaseVersionError extends Error {
   constructor(
@@ -121,6 +121,16 @@ export async function initDatabase(overridePath?: string) {
   sqlite.exec(
     'CREATE INDEX IF NOT EXISTS idx_albums_artist_name ON albums (artist_name COLLATE NOCASE)',
   );
+  // V09.1: personal ownership. ALTER backfills so every database shape gets
+  // the columns; migration 0006 assigns the existing rows to one owner.
+  runMigration(sqlite, 'playlists', 'user_id', 'TEXT');
+  runMigration(sqlite, 'playlists', 'shared', 'INTEGER NOT NULL DEFAULT 0');
+  runMigration(sqlite, 'smart_playlists', 'user_id', 'TEXT');
+  runMigration(sqlite, 'smart_playlists', 'shared', 'INTEGER NOT NULL DEFAULT 0');
+  runMigration(sqlite, 'favorites', 'user_id', 'TEXT');
+  runMigration(sqlite, 'scrobble_config', 'user_id', 'TEXT');
+  runMigration(sqlite, 'scrobble_queue', 'user_id', 'TEXT');
+  assignPersonalOwnership(sqlite);
   // V05.3: one submission per listening session and service.
   runMigration(sqlite, 'scrobble_queue', 'session_id', 'TEXT');
   sqlite.exec(
@@ -166,6 +176,55 @@ function backfillUserRoles(sqlite: InstanceType<typeof Database>): void {
   if (!oldest) return;
   sqlite.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(oldest.id);
   logger.warn(`Migration: no admin existed; promoted oldest account "${oldest.username}" to admin`);
+}
+
+/**
+ * Personal profiles (V09.1). Playlists, favourites, smart playlists and the
+ * single scrobble account used to belong to the household. They are handed
+ * to one owner — the oldest admin, or the oldest account when no admin
+ * exists — so an installation with one user keeps exactly what it had, now
+ * with an owner on it. Nothing is deleted and no ownership is guessed per
+ * row: rows that already have an owner are left alone, which makes this
+ * safe to run on every start.
+ */
+function assignPersonalOwnership(sqlite: InstanceType<typeof Database>): void {
+  const owner = sqlite
+    .prepare(
+      "SELECT id FROM users ORDER BY (role = 'admin') DESC, created_at ASC, rowid ASC LIMIT 1",
+    )
+    .get() as { id: string } | undefined;
+
+  if (owner) {
+    let claimed = 0;
+    for (const table of [
+      'playlists',
+      'smart_playlists',
+      'favorites',
+      'scrobble_config',
+      'scrobble_queue',
+      'listening_sessions',
+    ]) {
+      claimed += sqlite
+        .prepare(`UPDATE ${table} SET user_id = ? WHERE user_id IS NULL`)
+        .run(owner.id).changes;
+    }
+    if (claimed > 0) {
+      logger.info(`Migration: assigned ${claimed} personal row(s) to "${owner.id}" (V09)`);
+    }
+  }
+
+  // A favourite is now one per user and item, not one per item for everyone.
+  sqlite.exec('DROP INDEX IF EXISTS idx_favorites_unique_item');
+  sqlite.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_favorites_unique_owner_item ON favorites (user_id, item_type, item_id)',
+  );
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_playlists_owner ON playlists (user_id)');
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_smart_playlists_owner ON smart_playlists (user_id)');
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_listening_user ON listening_sessions (user_id)');
+  // One scrobble account per user; the pre-V09 singleton keeps its row.
+  sqlite.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_scrobble_config_owner ON scrobble_config (user_id)',
+  );
 }
 
 export { schema };

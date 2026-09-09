@@ -156,6 +156,10 @@ export const playlists = sqliteTable('playlists', {
   name: text('name').notNull(),
   description: text('description'),
   trackCount: integer('track_count').default(0),
+  /** Owner (V09.1). Only the owner edits or deletes; NULL only until migrated. */
+  userId: text('user_id'),
+  /** Visible to the whole household, read-only for everyone but the owner. */
+  shared: integer('shared', { mode: 'boolean' }).notNull().default(false),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(now),
 });
@@ -236,12 +240,21 @@ export const smartPlaylists = sqliteTable('smart_playlists', {
   name: text('name').notNull(),
   rules: text('rules').notNull(), // JSON: array of rule objects
   trackCount: integer('track_count').default(0),
+  /** Owner (V09.1); a smart playlist reads that user's own favourites and history. */
+  userId: text('user_id'),
+  shared: integer('shared', { mode: 'boolean' }).notNull().default(false),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(now),
 });
 
+/**
+ * Scrobble accounts, one row per user (V09.3). Before V09 this was a single
+ * household row; the migration hands that row to the first admin, because a
+ * Last.fm session key belongs to one person, not to a household.
+ */
 export const scrobbleConfig = sqliteTable('scrobble_config', {
-  id: integer('id').primaryKey().default(1), // singleton
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  userId: text('user_id'),
   lastfmEnabled: integer('lastfm_enabled', { mode: 'boolean' }).default(false),
   lastfmSessionKey: text('lastfm_session_key'),
   lastfmUsername: text('lastfm_username'),
@@ -261,6 +274,8 @@ export const scrobbleQueue = sqliteTable('scrobble_queue', {
   retries: integer('retries').default(0),
   /** Listening session this submission belongs to (V05.3); unique per service. */
   sessionId: text('session_id'),
+  /** Whose listen this is (V09.3): submitted with that user's own credentials. */
+  userId: text('user_id'),
 });
 
 /**
@@ -311,11 +326,17 @@ export const favorites = sqliteTable(
     id: integer('id').primaryKey({ autoIncrement: true }),
     itemType: text('item_type').notNull(), // 'track', 'album', 'artist', 'station'
     itemId: text('item_id').notNull(),
+    /** Whose favourite this is (V09.1); one row per user and item. */
+    userId: text('user_id'),
     createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
   },
   (table) => ({
     itemIdx: index('idx_favorites_type').on(table.itemType, table.itemId),
-    itemUniqueIdx: uniqueIndex('idx_favorites_unique_item').on(table.itemType, table.itemId),
+    itemUniqueIdx: uniqueIndex('idx_favorites_unique_owner_item').on(
+      table.userId,
+      table.itemType,
+      table.itemId,
+    ),
   }),
 );
 

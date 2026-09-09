@@ -37,11 +37,11 @@ no longer a "first-run lets everything through" bypass.
 | Own account       | `GET /api/auth/sessions`, `DELETE /api/auth/sessions/:id`, `POST /api/auth/sessions/revoke-others`, `POST /api/auth/password`, `GET /api/auth/stream-token` |
 | Library           | all `GET /api/library/*` (browse, search, stream, covers, lyrics, scan status)                                                                              |
 | Playback & queue  | all `/api/playback/*`, all `/api/devices/*` (household output is shared, see V10 for zones)                                                                 |
-| Playlists         | all `/api/playlists/*`, `/api/smart-playlists/*`                                                                                                            |
-| History/favorites | all `/api/history/*`                                                                                                                                        |
+| Playlists         | all `/api/playlists/*`, `/api/smart-playlists/*` — **own** playlists plus the ones marked `shared` (V09)                                                    |
+| History/favorites | all `/api/history/*` — **own** listens, favorites and statistics only (V09)                                                                                 |
 | Providers (use)   | `GET /api/providers/status`, `/search`, album/track/playlist reads, streams, Spotify Connect controls                                                       |
 | Radio             | all `/api/radio/*`                                                                                                                                          |
-| Scrobbling (use)  | `GET /api/scrobble/config`, `POST /api/scrobble/scrobble`, `POST /api/scrobble/now-playing`                                                                 |
+| Scrobbling        | all `/api/scrobble/*` — everyone connects and disconnects their **own** Last.fm / ListenBrainz account (V09)                                                |
 | ListenBrainz data | all `GET /api/listenbrainz/*`                                                                                                                               |
 | Librespot (use)   | `GET /api/librespot/status`, `/stream`, `POST /api/librespot/play-to-device`                                                                                |
 | Diagnostics       | `GET /api/health`                                                                                                                                           |
@@ -60,18 +60,30 @@ no longer a "first-run lets everything through" bypass.
 | `POST /api/providers/{spotify,tidal}/auth/callback`     |                                                          |
 | `POST /api/providers/{spotify,tidal,qobuz}/auth/logout` | Disconnects the shared account                           |
 | `POST /api/providers/qobuz/auth/login`                  | Shared Qobuz credentials                                 |
-| `GET /api/scrobble/lastfm/auth-url`                     | Shared Last.fm account                                   |
-| `POST /api/scrobble/lastfm/auth`, `/disconnect`         |                                                          |
-| `POST /api/scrobble/listenbrainz/auth`, `/disconnect`   | Shared ListenBrainz token                                |
 | `POST /api/library/scan`                                | Rewrites the library index                               |
 | `POST /api/library/covers/fetch`                        | Bulk external fetch                                      |
 | `POST /api/library/artists/images/fetch`                | Bulk external fetch                                      |
 | `POST /api/librespot/start`, `/stop`                    | Runs a process on the NAS with Spotify credentials       |
 
+## Personal data (V09)
+
+Playlists, smart playlists, favorites, listening history, statistics and
+scrobble accounts belong to one account. Two rules run through every route:
+
+- A read never returns another user's rows. A playlist or smart playlist can
+  be `shared` with the household — visible to everyone, editable only by its
+  owner. Everything else is private, admin included: being an admin manages
+  accounts, it does not open other people's listening history.
+- An id that is not yours answers **404, not 403**. "Forbidden" would confirm
+  that the id exists and that somebody else uses this server; "not found"
+  tells the caller exactly as much as they are entitled to know.
+
+The library itself, the playback session, the output devices and the
+provider tokens (Spotify, Tidal, Qobuz) stay household-wide — those are the
+NAS's, not a person's, and the tokens remain admin-managed.
+
 Open questions parked for later sprints (not enforced yet):
 
-- Per-user favorites/history/playlists (V09 personal profiles). Today they
-  are household-wide by design.
 - Per-zone device control (V10). Today every user controls every output.
 
 ## Sessions
