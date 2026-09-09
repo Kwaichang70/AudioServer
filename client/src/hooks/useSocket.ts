@@ -33,6 +33,11 @@ export interface LibraryScanProgress {
   errors: number;
   currentDir?: string;
   currentFile?: string;
+  relinkedTracks?: number;
+  missingTracks?: number;
+  recoveredTracks?: number;
+  doubtfulTracks?: number;
+  failedRoots?: Array<{ path: string; error: string; failedDirs: string[] }>;
 }
 
 interface ServerToClientEvents {

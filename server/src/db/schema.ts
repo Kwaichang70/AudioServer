@@ -76,8 +76,46 @@ export const tracks = sqliteTable('tracks', {
   replayGainTrack: real('replay_gain_track'),
   replayGainTrackPeak: real('replay_gain_track_peak'),
   source: text('source').notNull().default('local'),
+  // ── Source location vs identity (V06.1) ──
+  // The row id is the track's identity (playlists, favorites, history point
+  // at it); file_path is only where it currently lives. Size + mtime say
+  // whether the file changed; the fingerprint (size, duration, tags) says
+  // whether a file at a new path is the same recording, so a move keeps the id.
+  fileSize: integer('file_size'),
+  fileMtime: integer('file_mtime'),
+  fingerprint: text('fingerprint'),
+  /** Scanner rule version that last processed this file; a bump reprocesses everything once. */
+  scanVersion: integer('scan_version'),
+  /** 'available' | 'missing': a missing file keeps its row until an explicit purge. */
+  availability: text('availability').notNull().default('available'),
+  missingSince: integer('missing_since'),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(now),
+});
+
+/** One row per library scan (V06.3): what was scanned, what happened, when. */
+export const scanRuns = sqliteTable('scan_runs', {
+  id: text('id').primaryKey(),
+  startedAt: integer('started_at').notNull(),
+  finishedAt: integer('finished_at'),
+  /** 'running' | 'done' | 'failed' */
+  status: text('status').notNull().default('running'),
+  trigger: text('trigger').notNull().default('manual'),
+  forced: integer('forced', { mode: 'boolean' }).notNull().default(false),
+  /** JSON string[] */
+  roots: text('roots').notNull(),
+  /** JSON string[] */
+  successfulRoots: text('successful_roots'),
+  /** JSON {path, error, failedDirs[]}[] */
+  failedRoots: text('failed_roots'),
+  totalFiles: integer('total_files').notNull().default(0),
+  newTracks: integer('new_tracks').notNull().default(0),
+  updatedTracks: integer('updated_tracks').notNull().default(0),
+  relinkedTracks: integer('relinked_tracks').notNull().default(0),
+  missingTracks: integer('missing_tracks').notNull().default(0),
+  recoveredTracks: integer('recovered_tracks').notNull().default(0),
+  errors: integer('errors').notNull().default(0),
+  message: text('message'),
 });
 
 export const users = sqliteTable('users', {

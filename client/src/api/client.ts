@@ -48,6 +48,9 @@ import type {
   UserAccount,
   LyricsResult,
   HistoryStats,
+  ScanRun,
+  ScanStatusResponse,
+  MissingTrack,
 } from './types.js';
 
 /**
@@ -259,9 +262,23 @@ export const api = {
     fetchApi(`/library/tracks?page=${page}&limit=${limit}`),
   search: (q: string, limit = 20): Promise<ApiResponse<LocalSearchResults>> =>
     fetchApi(`/library/search?q=${encodeURIComponent(q)}&limit=${limit}`),
-  scanLibrary: (): Promise<ApiResponse<ScanStatus>> =>
-    fetchApi('/library/scan', { method: 'POST' }),
-  getScanStatus: (): Promise<ApiResponse<ScanStatus>> => fetchApi('/library/scan/status'),
+  getScanRuns: (limit = 10): Promise<ApiResponse<ScanRun[]>> =>
+    fetchApi(`/library/scan/runs?limit=${limit}`),
+  getMissingTracks: (): Promise<ApiResponse<MissingTrack[]> & { meta: { total: number } }> =>
+    fetchApi('/library/missing'),
+  relinkMissingTrack: (
+    missingId: string,
+    targetTrackId: string,
+  ): Promise<ApiResponse<{ playlistRefs: number; favorites: number; sessions: number }>> =>
+    fetchApi(`/library/missing/${encodeURIComponent(missingId)}/relink`, {
+      method: 'POST',
+      body: JSON.stringify({ targetTrackId }),
+    }),
+  purgeMissingTracks: (ids?: string[]): Promise<ApiResponse<{ purged: number }>> =>
+    fetchApi('/library/missing/purge', { method: 'POST', body: JSON.stringify({ ids }) }),
+  scanLibrary: (options: { force?: boolean } = {}): Promise<ApiResponse<ScanStatus>> =>
+    fetchApi(`/library/scan${options.force ? '?force=true' : ''}`, { method: 'POST' }),
+  getScanStatus: (): Promise<ScanStatusResponse> => fetchApi('/library/scan/status'),
 
   // ─── Devices ────────────────────────────────────────────────
   getDevices: (): Promise<DevicesResponse> => fetchApi('/devices'),

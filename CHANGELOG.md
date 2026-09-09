@@ -4,6 +4,49 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## V06 — Library changes without losing user data (verbeterplan sprint 6)
+
+**Source location vs identity** (`server/src/services/scanner.ts`, migration
+`0005_library_identity`, schema v6)
+
+- Tracks store `file_size`, `file_mtime`, a `fingerprint` (size, duration,
+  tags) and the `scan_version` that processed them. Unchanged size + mtime
+  skips the file; a `SCAN_VERSION` bump or "Full rescan"
+  (`POST /api/library/scan?force=true`) re-reads everything once.
+
+**Moves and missing files**
+
+- A file at a new path is recognised as an existing track when exactly one
+  row has the same fingerprint and its old file is gone: the row is
+  relinked, playlists, favorites and history follow. Doubtful cases (two
+  candidates, same title but a different recording) are never merged.
+- A file that disappeared under a readable root is marked `missing`, not
+  deleted. Unreadable roots or subdirectories never make music missing. A
+  missing file that returns is recovered automatically.
+- `GET /api/library/missing` lists missing tracks with strong/weak
+  candidates; `POST /api/library/missing/:id/relink` and
+  `POST /api/library/missing/purge` (admin) are the explicit actions.
+  Streaming a missing track answers 404 `TrackMissing`; album pages dim it.
+- An album folder that moved keeps its favorite when the heir is unambiguous.
+
+**Scan runs**
+
+- `scan_runs` records every scan (roots, failed roots and directories,
+  counts, trigger, forced, timestamps, outcome); `GET /api/library/scan/runs`,
+  `/scan/status` with last successful run and configured roots,
+  `/api/health.lastScanAt` from real runs. Interrupted runs are closed as
+  failed on startup. Settings shows library health with "Clean up missing".
+- `WATCH_LIBRARY` is passed through `docker-compose.yml`; watcher scans are
+  recorded with trigger `watcher`.
+
+**Tests**
+
+- Scanner: unreachable roots and unreadable subdirectories keep items;
+  missing instead of deleted; purge; move keeps id and user data; doubtful
+  matches; two identical candidates; relink; recovery; skip/force/version
+  re-read; scan runs; fingerprint. Migration of an early-release database
+  shape (no journal, no role, no identity columns, NULL history times).
+
 ## V05 — Listening history you can trust (verbeterplan sprint 5)
 
 **Listening sessions** (`server/src/services/listening.ts`, migration

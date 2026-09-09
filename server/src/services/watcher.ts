@@ -36,7 +36,9 @@ export function startWatcher(): void {
         if (debounceTimer) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
           logger.info('Watcher: changes detected, starting incremental scan...');
-          scanLibrary(config.musicLibraryPaths);
+          scanLibrary(config.musicLibraryPaths, { trigger: 'watcher' }).catch((err) =>
+            logger.error(`Watcher: scan crashed: ${err}`),
+          );
         }, DEBOUNCE_MS);
       });
 

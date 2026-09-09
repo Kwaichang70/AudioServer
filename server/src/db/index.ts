@@ -18,7 +18,7 @@ import { fileURLToPath } from 'url';
  * it does not understand. Databases from before this check carry version 0,
  * which every build accepts and upgrades.
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export class DatabaseVersionError extends Error {
   constructor(
@@ -101,6 +101,16 @@ export async function initDatabase(overridePath?: string) {
   runMigration(sqlite, 'albums', 'sample_rate', 'INTEGER');
   runMigration(sqlite, 'albums', 'bit_depth', 'INTEGER');
   backfillUserRoles(sqlite);
+  // V06.1: file identity columns are ALTER backfills so every database shape
+  // (including ones whose tracks table predates the Drizzle files) gets them.
+  runMigration(sqlite, 'tracks', 'file_size', 'INTEGER');
+  runMigration(sqlite, 'tracks', 'file_mtime', 'INTEGER');
+  runMigration(sqlite, 'tracks', 'fingerprint', 'TEXT');
+  runMigration(sqlite, 'tracks', 'scan_version', 'INTEGER');
+  runMigration(sqlite, 'tracks', 'availability', "TEXT NOT NULL DEFAULT 'available'");
+  runMigration(sqlite, 'tracks', 'missing_since', 'INTEGER');
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_tracks_fingerprint ON tracks (fingerprint)');
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_tracks_availability ON tracks (availability)');
   // V05.3: one submission per listening session and service.
   runMigration(sqlite, 'scrobble_queue', 'session_id', 'TEXT');
   sqlite.exec(

@@ -27,6 +27,7 @@ import { providers } from './providers/registry.js';
 import { autoStartLibrespot, stopLibrespot } from './services/librespot.js';
 import { playbackService } from './services/playback.js';
 import { startWatcher, stopWatcher } from './services/watcher.js';
+import { closeInterruptedScanRuns } from './services/scanner.js';
 import { deviceMonitor } from './services/device-monitor.js';
 import { initServerPlayer, reconcileAfterRestart } from './services/server-player.js';
 import { closeOrphanedSessions, playbackListeningObserver } from './services/listening.js';
@@ -200,6 +201,9 @@ async function main() {
   // Listening sessions (V05): history, stats and scrobbles derive from what
   // was actually heard. Sessions a previous run left open are closed first.
   closeOrphanedSessions();
+  const interrupted = closeInterruptedScanRuns();
+  if (interrupted > 0)
+    logger.warn(`Scanner: ${interrupted} scan run(s) were interrupted by the previous shutdown`);
   playbackService.setListeningObserver(playbackListeningObserver);
   playbackService.initialize();
   // Server-driven playback: pushes the next queue track to DLNA/Sonos devices

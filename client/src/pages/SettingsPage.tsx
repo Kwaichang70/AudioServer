@@ -5,6 +5,7 @@ import { useAudioContext, type ReplayGainMode } from '../context/AudioContext.js
 import { useAuth } from '../context/AuthContext.js';
 import { DEVICE_POLL_INTERVAL, STORAGE_KEYS } from '../constants.js';
 import { useSocket, type LibraryScanProgress } from '../hooks/useSocket.js';
+import type { MissingTrack, MissingTrackCandidate, ScanRun } from '../api/types.js';
 
 interface ProviderStatus {
   available: boolean;
@@ -82,6 +83,10 @@ function getErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
+function best(m: MissingTrack): MissingTrackCandidate {
+  return m.candidates[0];
+}
+
 function formatScanInfo(status: LibraryScanProgress): string {
   if (status.phase === 'idle') return '';
   const percent =
@@ -90,9 +95,10 @@ function formatScanInfo(status: LibraryScanProgress): string {
       : '';
   const current =
     status.currentFile || status.currentDir ? ` | ${status.currentFile || status.currentDir}` : '';
+  const relinked = status.relinkedTracks ? ` / moved ${status.relinkedTracks}` : '';
   const changed =
-    status.newTracks || status.updatedTracks || status.removedTracks
-      ? ` | +${status.newTracks} / ~${status.updatedTracks} / -${status.removedTracks}`
+    status.newTracks || status.updatedTracks || status.removedTracks || status.relinkedTracks
+      ? ` | +${status.newTracks} / ~${status.updatedTracks} / missing ${status.removedTracks}${relinked}`
       : '';
 
   return `${status.phase}: ${status.processedFiles}/${status.totalFiles} files${percent} | ${status.artists} artists | ${status.albums} albums | ${status.tracks} tracks${changed}${current}`;
@@ -127,16 +133,42 @@ export default function SettingsPage() {
       .catch(() => {});
   };
 
+  // Library health (V06.3): last successful scan, roots that failed, files
+  // that went missing. Refreshed after every scan.
+  const [lastRun, setLastRun] = useState<ScanRun | null>(null);
+  const [configuredRoots, setConfiguredRoots] = useState<string[]>([]);
+  const [missing, setMissing] = useState<MissingTrack[]>([]);
+  const [missingTotal, setMissingTotal] = useState(0);
+  const loadLibraryHealth = useCallback(() => {
+    api
+      .getScanStatus()
+      .then((r) => {
+        setLastRun(r.lastSuccessfulRun ?? null);
+        setConfiguredRoots(r.configuredRoots ?? []);
+        if (r.data.isScanning) applyScanStatusRef.current?.(r.data);
+      })
+      .catch(() => {});
+    api
+      .getMissingTracks()
+      .then((r) => {
+        setMissing(r.data);
+        setMissingTotal(r.meta?.total ?? r.data.length);
+      })
+      .catch(() => {});
+  }, []);
+  const applyScanStatusRef = useRef<((s: LibraryScanProgress) => void) | null>(null);
+
   const [lanAddress, setLanAddress] = useState<string | null>(null);
   useEffect(() => {
     loadStatus();
+    loadLibraryHealth();
     api
       .getHealth()
       .then((d) => {
         if (d.lanAddress) setLanAddress(d.lanAddress);
       })
       .catch(() => {});
-  }, []);
+  }, [loadLibraryHealth]);
 
   const connectProvider = async (provider: 'spotify' | 'tidal' | 'qobuz') => {
     try {
@@ -190,11 +222,14 @@ export default function SettingsPage() {
       stopScanPolling();
       if (s.phase === 'done' && !scanCompleteToastRef.current) {
         scanCompleteToastRef.current = true;
-        toast('Library scan complete', 'success');
+        const missingNote = s.missingTracks ? `, ${s.missingTracks} file(s) missing` : '';
+        toast(`Library scan complete${missingNote}`, s.missingTracks ? 'info' : 'success');
+        loadLibraryHealth();
       }
     },
-    [stopScanPolling, toast],
+    [stopScanPolling, toast, loadLibraryHealth],
   );
+  applyScanStatusRef.current = applyScanStatus;
 
   const startScanPolling = useCallback(() => {
     stopScanPolling();
@@ -210,11 +245,11 @@ export default function SettingsPage() {
 
   useEffect(() => () => stopScanPolling(), [stopScanPolling]);
 
-  const startScan = async () => {
+  const startScan = async (force = false) => {
     setScanning(true);
     scanCompleteToastRef.current = false;
     try {
-      const res = await api.scanLibrary();
+      const res = await api.scanLibrary({ force });
       applyScanStatus(res.data);
       if (!socket.connected) startScanPolling();
     } catch (err) {
@@ -313,17 +348,118 @@ export default function SettingsPage() {
                   Scan your local music folders for new tracks
                 </p>
               </div>
-              <button
-                onClick={startScan}
-                disabled={scanning}
-                className="px-4 py-1.5 text-sm bg-accent rounded hover:bg-accent-hover transition disabled:opacity-50"
-              >
-                {scanning ? 'Scanning...' : 'Scan Now'}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => startScan(false)}
+                  disabled={scanning}
+                  className="px-4 py-1.5 text-sm bg-accent rounded hover:bg-accent-hover transition disabled:opacity-50"
+                >
+                  {scanning ? 'Scanning...' : 'Scan Now'}
+                </button>
+                <button
+                  onClick={() => startScan(true)}
+                  disabled={scanning}
+                  title="Re-read every file, also unchanged ones (after tag repairs or new metadata rules)"
+                  className="px-3 py-1.5 text-sm bg-surface rounded border border-white/10 hover:bg-surface-light transition disabled:opacity-50"
+                >
+                  Full rescan
+                </button>
+              </div>
             </div>
             {(scanning || scanInfo) && (
               <p className="text-xs text-gray-400 animate-pulse">{scanInfo}</p>
             )}
+
+            {/* Library health (V06.3) */}
+            <div
+              className="pt-2 border-t border-white/5 text-xs space-y-1"
+              data-testid="library-health"
+            >
+              <p className="text-gray-400">
+                Last successful scan:{' '}
+                {lastRun?.finishedAt ? (
+                  <span className="text-gray-200">
+                    {new Date(lastRun.finishedAt * 1000).toLocaleString()} · {lastRun.totalFiles}{' '}
+                    files, +{lastRun.newTracks} new, {lastRun.relinkedTracks} moved,{' '}
+                    {lastRun.missingTracks} missing
+                    {lastRun.failedRoots.length > 0
+                      ? `, ${lastRun.failedRoots.length} root(s) unreadable`
+                      : ''}
+                  </span>
+                ) : (
+                  <span className="text-gray-500">none recorded yet</span>
+                )}
+              </p>
+              {configuredRoots.length > 0 && (
+                <p className="text-gray-500">Roots: {configuredRoots.join(', ')}</p>
+              )}
+              {lastRun && lastRun.failedRoots.length > 0 && (
+                <ul className="text-amber-300">
+                  {lastRun.failedRoots.map((r) => (
+                    <li key={r.path}>
+                      Unreachable: {r.path} ({r.error}). Its music was kept as is.
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {missingTotal > 0 && (
+                <div className="flex items-start justify-between gap-3 pt-1">
+                  <div>
+                    <p className="text-amber-300">
+                      {missingTotal} file(s) missing since the last scans. Playlists, favorites and
+                      history are kept until you clean up.
+                    </p>
+                    <ul className="text-gray-500 mt-1 space-y-0.5">
+                      {missing.slice(0, 5).map((m) => (
+                        <li key={m.id}>
+                          {m.artistName} – {m.title}
+                          {m.candidates.length > 0 && (
+                            <button
+                              className="ml-2 text-accent hover:underline"
+                              onClick={async () => {
+                                const best = m.candidates[0];
+                                try {
+                                  await api.relinkMissingTrack(m.id, best.id);
+                                  toast(`Linked to ${best.title}`, 'success');
+                                  loadLibraryHealth();
+                                } catch (err) {
+                                  toast(getErrorMessage(err, 'Relink failed'), 'error');
+                                }
+                              }}
+                              title={`${best(m).strength === 'strong' ? 'Same file signature' : 'Same title and artist only'}: ${best(m).filePath ?? best(m).title}`}
+                            >
+                              link to {best(m).title}
+                              {best(m).strength === 'weak' ? ' (doubtful)' : ''}
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                      {missingTotal > 5 && <li>… and {missingTotal - 5} more</li>}
+                    </ul>
+                  </div>
+                  <button
+                    className="px-3 py-1 text-xs bg-red-500/20 text-red-200 rounded hover:bg-red-500/30 transition shrink-0"
+                    onClick={async () => {
+                      if (
+                        !window.confirm(
+                          `Remove ${missingTotal} missing file(s) from the library, including their playlist positions and favorites?`,
+                        )
+                      )
+                        return;
+                      try {
+                        const r = await api.purgeMissingTracks();
+                        toast(`Removed ${r.data.purged} missing file(s)`, 'info');
+                        loadLibraryHealth();
+                      } catch (err) {
+                        toast(getErrorMessage(err, 'Clean-up failed'), 'error');
+                      }
+                    }}
+                  >
+                    Clean up missing
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Cover Art Fetch */}
             <div className="flex items-center justify-between pt-2 border-t border-white/5">

@@ -466,6 +466,73 @@ export const openApiSpec = {
         },
       },
     },
+    '/library/scan': {
+      post: {
+        tags: ['Library'],
+        summary: 'Start a library scan (admin); ?force=true re-reads unchanged files',
+        parameters: [{ name: 'force', in: 'query', schema: { type: 'boolean' } }],
+        responses: { 200: { description: 'ScanStatus' } },
+      },
+    },
+    '/library/scan/runs': {
+      get: {
+        tags: ['Library'],
+        summary: 'Recorded scan runs, newest first (V06.3)',
+        parameters: [{ name: 'limit', in: 'query', schema: { type: 'integer', maximum: 100 } }],
+        responses: { 200: { description: 'ScanRun[]' } },
+      },
+    },
+    '/library/missing': {
+      get: {
+        tags: ['Library'],
+        summary:
+          'Tracks whose file disappeared, with candidate matches (never merged automatically)',
+        responses: { 200: { description: 'MissingTrack[] + meta.total' } },
+      },
+    },
+    '/library/missing/{id}/relink': {
+      post: {
+        tags: ['Library'],
+        summary:
+          'Admin: move a missing track’s playlist positions, favorite and history to an available track',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['targetTrackId'],
+                properties: { targetTrackId: { type: 'string' } },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: '{ playlistRefs, favorites, sessions }' },
+          404: { description: 'Not found' },
+        },
+      },
+    },
+    '/library/missing/purge': {
+      post: {
+        tags: ['Library'],
+        summary:
+          'Admin: delete missing tracks (all, or the given ids); the only deletion the scanner ever does',
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: { ids: { type: 'array', items: { type: 'string' } } },
+              },
+            },
+          },
+        },
+        responses: { 200: { description: '{ purged }' } },
+      },
+    },
     '/library/albums': {
       get: {
         tags: ['Library'],

@@ -1,4 +1,6 @@
 import { readdir, stat } from 'node:fs/promises';
+import { existsSync, type Stats } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { extname, basename, dirname } from 'path';
 import { parseFile, selectCover } from 'music-metadata';
 import { v4 as uuid } from 'uuid';
@@ -20,6 +22,13 @@ const SUPPORTED_EXTENSIONS = new Set([
   '.aiff',
 ]);
 
+/**
+ * Bump when the metadata rules change (new columns, different tag parsing):
+ * every file whose row carries an older version is re-read once, even when
+ * its mtime and size did not change. V06.1 introduced size/mtime/fingerprint.
+ */
+export const SCAN_VERSION = 2;
+
 const artistCache = new Map<string, string>();
 const albumCache = new Map<string, string>();
 
@@ -30,7 +39,15 @@ export interface ScanStatus {
   totalFiles: number;
   newTracks: number;
   updatedTracks: number;
+  /** Files that disappeared under a readable root: marked missing, never deleted (V06.2). Same value as missingTracks. */
   removedTracks: number;
+  /** Files found at a new path that were recognised as an existing track (fingerprint match). */
+  relinkedTracks: number;
+  missingTracks: number;
+  /** Previously missing files that are back at their old path. */
+  recoveredTracks: number;
+  /** New files that looked like a missing track but had more than one candidate: left as new. */
+  doubtfulTracks: number;
   artists: number;
   albums: number;
   tracks: number;
@@ -40,24 +57,67 @@ export interface ScanStatus {
   successfulRoots: string[];
   failedRoots: Array<{ path: string; error: string; failedDirs: string[] }>;
   orphanCleanupSkipped: boolean;
+  runId: string | null;
+  forced: boolean;
+  startedAt: number | null;
+  finishedAt: number | null;
 }
 
-let scanStatus: ScanStatus = {
-  isScanning: false,
-  phase: 'idle',
-  processedFiles: 0,
-  totalFiles: 0,
-  newTracks: 0,
-  updatedTracks: 0,
-  removedTracks: 0,
-  artists: 0,
-  albums: 0,
-  tracks: 0,
-  errors: 0,
-  successfulRoots: [],
-  failedRoots: [],
-  orphanCleanupSkipped: false,
-};
+export interface ScanRunSummary {
+  id: string;
+  startedAt: number;
+  finishedAt: number | null;
+  status: 'running' | 'done' | 'failed';
+  trigger: string;
+  forced: boolean;
+  roots: string[];
+  successfulRoots: string[];
+  failedRoots: Array<{ path: string; error: string; failedDirs: string[] }>;
+  totalFiles: number;
+  newTracks: number;
+  updatedTracks: number;
+  relinkedTracks: number;
+  missingTracks: number;
+  recoveredTracks: number;
+  errors: number;
+  message: string | null;
+}
+
+export interface ScanOptions {
+  /** Re-read every file even when size and mtime are unchanged. */
+  force?: boolean;
+  trigger?: 'manual' | 'watcher' | 'startup' | 'test';
+}
+
+function emptyStatus(): ScanStatus {
+  return {
+    isScanning: false,
+    phase: 'idle',
+    processedFiles: 0,
+    totalFiles: 0,
+    newTracks: 0,
+    updatedTracks: 0,
+    removedTracks: 0,
+    relinkedTracks: 0,
+    missingTracks: 0,
+    recoveredTracks: 0,
+    doubtfulTracks: 0,
+    artists: 0,
+    albums: 0,
+    tracks: 0,
+    errors: 0,
+    successfulRoots: [],
+    failedRoots: [],
+    orphanCleanupSkipped: false,
+    runId: null,
+    forced: false,
+    startedAt: null,
+    finishedAt: null,
+  };
+}
+
+let scanStatus: ScanStatus = emptyStatus();
+let forceRescan = false;
 
 export function getScanStatus(): ScanStatus {
   return { ...scanStatus };
@@ -74,27 +134,25 @@ function emitProgress(): void {
   } catch {}
 }
 
-export async function scanLibrary(libraryPaths: string[]): Promise<ScanStatus> {
+export async function scanLibrary(
+  libraryPaths: string[],
+  options: ScanOptions = {},
+): Promise<ScanStatus> {
   if (scanStatus.isScanning) return scanStatus;
 
+  const startedAt = Math.floor(Date.now() / 1000);
   scanStatus = {
+    ...emptyStatus(),
     isScanning: true,
     phase: 'discovering',
-    processedFiles: 0,
-    totalFiles: 0,
-    newTracks: 0,
-    updatedTracks: 0,
-    removedTracks: 0,
-    artists: 0,
-    albums: 0,
-    tracks: 0,
-    errors: 0,
-    successfulRoots: [],
-    failedRoots: [],
-    orphanCleanupSkipped: false,
+    runId: uuid(),
+    forced: Boolean(options.force),
+    startedAt,
   };
+  forceRescan = Boolean(options.force);
   artistCache.clear();
   albumCache.clear();
+  openScanRun(scanStatus.runId!, libraryPaths, options.trigger ?? 'manual', forceRescan, startedAt);
 
   const seenFilePaths = new Set<string>();
 
@@ -111,7 +169,7 @@ export async function scanLibrary(libraryPaths: string[]): Promise<ScanStatus> {
     emitProgress();
 
     for (const libPath of libraryPaths) {
-      logger.info(`Scanning: ${libPath}`);
+      logger.info(`Scanning: ${libPath}${forceRescan ? ' (forced)' : ''}`);
       const result = await scanDirectory(libPath, seenFilePaths);
       if (result.ok) {
         scanStatus.successfulRoots.push(libPath);
@@ -121,45 +179,185 @@ export async function scanLibrary(libraryPaths: string[]): Promise<ScanStatus> {
           error: result.error,
           failedDirs: result.failedDirs,
         });
-        logger.warn(`Scan root skipped for orphan cleanup: ${libPath} (${result.error})`);
+        logger.warn(`Scan root skipped for missing-file marking: ${libPath} (${result.error})`);
       }
       emitProgress();
     }
 
-    // Orphan cleanup only runs for roots that were fully readable. This avoids
-    // deleting database rows when a NAS share is temporarily offline.
+    // Files that vanished are only judged under roots that were fully
+    // readable, so a NAS share that is offline never makes its music
+    // "missing". And missing means marked, not deleted (V06.2): playlists,
+    // favorites and history keep pointing at the row until an admin purges.
     scanStatus.phase = 'cleaning';
     emitProgress();
     if (scanStatus.successfulRoots.length === 0) {
       scanStatus.orphanCleanupSkipped = true;
-      logger.warn('Skipping orphan cleanup: no configured music roots were scanned successfully');
+      logger.warn(
+        'Skipping missing-file marking: no configured music roots were scanned successfully',
+      );
     } else {
-      await cleanOrphans(seenFilePaths, scanStatus.successfulRoots);
+      markMissing(seenFilePaths, scanStatus.successfulRoots);
     }
 
     // Re-keying albums (e.g. splitting quality editions) moves tracks to new
-    // album rows and leaves the old merged albums empty — cleanOrphans only
-    // handles deleted files, so sweep up any now-empty albums + refresh counts.
+    // album rows and leaves the old merged albums empty — sweep those up and
+    // refresh counts. Missing tracks still count as members of their album.
     pruneEmptyAlbums();
 
     scanStatus.phase = 'done';
     scanStatus.isScanning = false;
     scanStatus.currentDir = undefined;
     scanStatus.currentFile = undefined;
+    scanStatus.finishedAt = Math.floor(Date.now() / 1000);
+    closeScanRun(scanStatus, 'done', null);
     emitProgress();
     logger.info(
-      `Scan complete: ${scanStatus.newTracks} new, ${scanStatus.updatedTracks} updated, ${scanStatus.removedTracks} removed, ${scanStatus.errors} errors`,
+      `Scan complete: ${scanStatus.newTracks} new, ${scanStatus.updatedTracks} updated, ${scanStatus.relinkedTracks} relinked, ${scanStatus.missingTracks} missing, ${scanStatus.recoveredTracks} recovered, ${scanStatus.errors} errors`,
     );
   } catch (err) {
     logger.error(`Scan failed: ${err}`);
     scanStatus.isScanning = false;
     scanStatus.phase = 'idle';
+    scanStatus.finishedAt = Math.floor(Date.now() / 1000);
+    closeScanRun(scanStatus, 'failed', describeFsError(err));
     emitProgress();
   }
 
   artistCache.clear();
   albumCache.clear();
+  forceRescan = false;
   return scanStatus;
+}
+
+// ─── Scan runs (V06.3) ───────────────────────────────────────────
+
+function openScanRun(
+  id: string,
+  roots: string[],
+  trigger: string,
+  forced: boolean,
+  startedAt: number,
+): void {
+  try {
+    getRawDb()
+      .prepare(
+        'INSERT INTO scan_runs (id, started_at, status, trigger, forced, roots) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run(id, startedAt, 'running', trigger, forced ? 1 : 0, JSON.stringify(roots));
+  } catch (err) {
+    logger.warn(`Scan run could not be recorded: ${err}`);
+  }
+}
+
+function closeScanRun(
+  status: ScanStatus,
+  outcome: 'done' | 'failed',
+  message: string | null,
+): void {
+  if (!status.runId) return;
+  try {
+    getRawDb()
+      .prepare(
+        `UPDATE scan_runs SET finished_at = ?, status = ?, successful_roots = ?, failed_roots = ?,
+           total_files = ?, new_tracks = ?, updated_tracks = ?, relinked_tracks = ?, missing_tracks = ?,
+           recovered_tracks = ?, errors = ?, message = ?
+         WHERE id = ?`,
+      )
+      .run(
+        status.finishedAt ?? Math.floor(Date.now() / 1000),
+        outcome,
+        JSON.stringify(status.successfulRoots),
+        JSON.stringify(status.failedRoots),
+        status.totalFiles,
+        status.newTracks,
+        status.updatedTracks,
+        status.relinkedTracks,
+        status.missingTracks,
+        status.recoveredTracks,
+        status.errors,
+        message,
+        status.runId,
+      );
+  } catch (err) {
+    logger.warn(`Scan run could not be closed: ${err}`);
+  }
+}
+
+interface ScanRunRow {
+  id: string;
+  started_at: number;
+  finished_at: number | null;
+  status: string;
+  trigger: string;
+  forced: number;
+  roots: string;
+  successful_roots: string | null;
+  failed_roots: string | null;
+  total_files: number;
+  new_tracks: number;
+  updated_tracks: number;
+  relinked_tracks: number;
+  missing_tracks: number;
+  recovered_tracks: number;
+  errors: number;
+  message: string | null;
+}
+
+function parseJson<T>(value: string | null, fallback: T): T {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function toRunSummary(row: ScanRunRow): ScanRunSummary {
+  return {
+    id: row.id,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    status: row.status as ScanRunSummary['status'],
+    trigger: row.trigger,
+    forced: Boolean(row.forced),
+    roots: parseJson<string[]>(row.roots, []),
+    successfulRoots: parseJson<string[]>(row.successful_roots, []),
+    failedRoots: parseJson<ScanRunSummary['failedRoots']>(row.failed_roots, []),
+    totalFiles: row.total_files,
+    newTracks: row.new_tracks,
+    updatedTracks: row.updated_tracks,
+    relinkedTracks: row.relinked_tracks,
+    missingTracks: row.missing_tracks,
+    recoveredTracks: row.recovered_tracks,
+    errors: row.errors,
+    message: row.message,
+  };
+}
+
+/** Most recent runs, newest first. */
+export function listScanRuns(limit = 20): ScanRunSummary[] {
+  const rows = getRawDb()
+    .prepare('SELECT * FROM scan_runs ORDER BY started_at DESC, rowid DESC LIMIT ?')
+    .all(Math.max(1, Math.min(limit, 100))) as ScanRunRow[];
+  return rows.map(toRunSummary);
+}
+
+/** The last run that finished without failing, or null. */
+export function getLastSuccessfulScanRun(): ScanRunSummary | null {
+  const row = getRawDb()
+    .prepare("SELECT * FROM scan_runs WHERE status = 'done' ORDER BY finished_at DESC LIMIT 1")
+    .get() as ScanRunRow | undefined;
+  return row ? toRunSummary(row) : null;
+}
+
+/** Startup: a run the previous process never closed is marked failed. */
+export function closeInterruptedScanRuns(): number {
+  const result = getRawDb()
+    .prepare(
+      "UPDATE scan_runs SET status = 'failed', finished_at = ?, message = 'Interrupted by a server restart' WHERE status = 'running'",
+    )
+    .run(Math.floor(Date.now() / 1000));
+  return result.changes;
 }
 
 interface DirectoryScanResult {
@@ -173,6 +371,7 @@ interface LocalTrackRow {
   file_path: string | null;
   album_id: string;
   artist_id: string;
+  availability: string;
 }
 
 function describeFsError(err: unknown): string {
@@ -211,30 +410,39 @@ async function scanDirectory(dir: string, seenFiles: Set<string>): Promise<Direc
     scanStatus.currentFile = entry.name;
 
     try {
-      // Check if file is already in DB and unchanged
+      let fileStat: Stats | null = null;
+      try {
+        fileStat = await stat(filePath);
+      } catch {
+        // Unreadable stat: process anyway, the parser will report the real error
+      }
+      // Is the file already known at this path, and did it change? Size and
+      // mtime together decide (V06.1); a scan-version bump or a forced scan
+      // re-reads it regardless.
       const existing = getDb().select().from(tracks).where(eq(tracks.filePath, filePath)).get();
       if (existing) {
-        // Check modification time
-        try {
-          const fileStat = await stat(filePath);
-          const fileModTime = Math.floor(fileStat.mtimeMs / 1000);
-          const dbTime = existing.updatedAt ? Math.floor(existing.updatedAt.getTime() / 1000) : 0;
-
-          if (fileModTime <= dbTime) {
-            // File unchanged, skip
-            scanStatus.tracks++;
-            scanStatus.processedFiles++;
-            continue;
-          }
-          scanStatus.updatedTracks++;
-        } catch {
-          // Can't stat, process anyway
+        const wasMissing = existing.availability === 'missing';
+        const unchanged =
+          fileStat !== null &&
+          !forceRescan &&
+          (existing.scanVersion ?? 0) >= SCAN_VERSION &&
+          existing.fileSize === fileStat.size &&
+          existing.fileMtime === Math.floor(fileStat.mtimeMs / 1000);
+        if (unchanged) {
+          if (wasMissing) markAvailable(existing.id);
+          scanStatus.tracks++;
+          scanStatus.processedFiles++;
+          continue;
         }
+        if (wasMissing) scanStatus.recoveredTracks++;
+        else scanStatus.updatedTracks++;
+        await processFile(filePath, fileStat, existing.id);
       } else {
-        scanStatus.newTracks++;
+        const outcome = await processFile(filePath, fileStat, null);
+        if (outcome === 'relinked') scanStatus.relinkedTracks++;
+        else scanStatus.newTracks++;
+        if (outcome === 'doubtful') scanStatus.doubtfulTracks++;
       }
-
-      await processFile(filePath);
       scanStatus.tracks++;
     } catch (err) {
       scanStatus.errors++;
@@ -304,7 +512,30 @@ function pruneEmptyAlbums(): void {
       (db.prepare('SELECT COUNT(*) as c FROM tracks WHERE album_id = ?').get(a.id) as { c: number })
         ?.c ?? 0;
     if (count === 0) {
-      db.prepare("DELETE FROM favorites WHERE item_type = 'album' AND item_id = ?").run(a.id);
+      // A whole album folder that moved gets a new album row (the folder is
+      // part of the edition key). Its favorite follows to the album with the
+      // same artist and title when there is exactly one, instead of vanishing.
+      const heir = db
+        .prepare(
+          `SELECT b.id FROM albums a JOIN albums b
+              ON b.id != a.id AND b.artist_id = a.artist_id AND b.title = a.title COLLATE NOCASE
+           WHERE a.id = ? AND EXISTS (SELECT 1 FROM tracks t WHERE t.album_id = b.id)`,
+        )
+        .all(a.id) as Array<{ id: string }>;
+      if (heir.length === 1) {
+        const exists = db
+          .prepare("SELECT id FROM favorites WHERE item_type = 'album' AND item_id = ?")
+          .get(heir[0].id);
+        if (exists) {
+          db.prepare("DELETE FROM favorites WHERE item_type = 'album' AND item_id = ?").run(a.id);
+        } else {
+          db.prepare(
+            "UPDATE favorites SET item_id = ? WHERE item_type = 'album' AND item_id = ?",
+          ).run(heir[0].id, a.id);
+        }
+      } else {
+        db.prepare("DELETE FROM favorites WHERE item_type = 'album' AND item_id = ?").run(a.id);
+      }
       db.prepare('DELETE FROM albums WHERE id = ?').run(a.id);
       removed++;
     } else {
@@ -314,61 +545,238 @@ function pruneEmptyAlbums(): void {
   if (removed > 0) logger.info(`Pruned ${removed} empty albums`);
 }
 
-async function cleanOrphans(seenFiles: Set<string>, successfulRoots: string[]): Promise<void> {
+function markAvailable(trackId: string): void {
+  getRawDb()
+    .prepare("UPDATE tracks SET availability = 'available', missing_since = NULL WHERE id = ?")
+    .run(trackId);
+  scanStatus.recoveredTracks++;
+}
+
+/**
+ * Files that are no longer at their path, under roots that were fully
+ * readable, become `missing`. Nothing is deleted: the row, its playlist
+ * positions, favorites and history stay until an admin purges (V06.2).
+ */
+function markMissing(seenFiles: Set<string>, successfulRoots: string[]): void {
   const db = getRawDb();
   const allTracks = db
-    .prepare('SELECT id, file_path, album_id, artist_id FROM tracks WHERE source = ?')
+    .prepare('SELECT id, file_path, album_id, artist_id, availability FROM tracks WHERE source = ?')
     .all('local') as LocalTrackRow[];
   const normalizedSeenFiles = new Set(Array.from(seenFiles, normalizeScanPath));
   const normalizedRoots = successfulRoots.map(normalizeScanPath);
 
-  const orphanTrackIds: string[] = [];
-  const affectedAlbumIds = new Set<string>();
-  const affectedArtistIds = new Set<string>();
-
+  const newlyMissing: string[] = [];
+  let stillMissing = 0;
   for (const track of allTracks) {
     const filePath = track.file_path;
     if (!filePath) continue;
     if (!normalizedRoots.some((root) => isPathUnderRoot(filePath, root))) continue;
-
-    if (!normalizedSeenFiles.has(normalizeScanPath(filePath))) {
-      orphanTrackIds.push(track.id);
-      affectedAlbumIds.add(track.album_id);
-      affectedArtistIds.add(track.artist_id);
-    }
+    if (normalizedSeenFiles.has(normalizeScanPath(filePath))) continue;
+    if (track.availability === 'missing') stillMissing++;
+    else newlyMissing.push(track.id);
   }
 
-  if (orphanTrackIds.length === 0) return;
+  if (newlyMissing.length > 0) {
+    const now = Math.floor(Date.now() / 1000);
+    const mark = db.prepare(
+      "UPDATE tracks SET availability = 'missing', missing_since = ? WHERE id = ?",
+    );
+    db.transaction(() => {
+      for (const id of newlyMissing) mark.run(now, id);
+    })();
+    logger.info(
+      `Marked ${newlyMissing.length} track(s) as missing (${stillMissing} were already missing); nothing deleted`,
+    );
+  }
+  scanStatus.missingTracks = newlyMissing.length;
+  scanStatus.removedTracks = newlyMissing.length;
+}
 
-  logger.info(`Cleaning ${orphanTrackIds.length} orphan tracks`);
+export interface MissingTrack {
+  id: string;
+  title: string;
+  artistName: string;
+  albumTitle: string;
+  albumId: string;
+  filePath: string | null;
+  duration: number | null;
+  missingSince: number | null;
+  /** Available tracks that could be the same recording. `strong` = fingerprint match. */
+  candidates: Array<{
+    id: string;
+    title: string;
+    artistName: string;
+    albumTitle: string;
+    filePath: string | null;
+    duration: number | null;
+    strength: 'strong' | 'weak';
+  }>;
+}
 
-  // Delete orphan tracks. foreign_keys=ON means rows in playlist_tracks and
-  // play_history that reference a track BLOCK its deletion (no ON DELETE
-  // CASCADE) — and every played track has history rows — so delete the
-  // referencing rows first inside the same transaction, or the whole cleanup
-  // aborts with a FK error and the scan fails.
+interface MissingRow {
+  id: string;
+  title: string;
+  artist_name: string;
+  album_title: string;
+  album_id: string;
+  file_path: string | null;
+  duration: number | null;
+  missing_since: number | null;
+  fingerprint: string | null;
+}
+
+interface CandidateRow {
+  id: string;
+  title: string;
+  artist_name: string;
+  album_title: string;
+  file_path: string | null;
+  duration: number | null;
+}
+
+/** Missing tracks with their possible matches. Nothing is merged automatically. */
+export function listMissingTracks(limit = 200): MissingTrack[] {
+  const db = getRawDb();
+  const rows = db
+    .prepare(
+      `SELECT id, title, artist_name, album_title, album_id, file_path, duration, missing_since, fingerprint
+         FROM tracks WHERE availability = 'missing' ORDER BY missing_since DESC, title LIMIT ?`,
+    )
+    .all(Math.max(1, Math.min(limit, 1000))) as MissingRow[];
+  const strong = db.prepare(
+    `SELECT id, title, artist_name, album_title, file_path, duration FROM tracks
+      WHERE availability = 'available' AND fingerprint = ? AND id != ? LIMIT 5`,
+  );
+  // Weak: same title and artist, whatever the length. Shown to the admin as a
+  // suggestion only; a different duration is exactly why it is not merged.
+  const weak = db.prepare(
+    `SELECT id, title, artist_name, album_title, file_path, duration FROM tracks
+      WHERE availability = 'available' AND id != ?
+        AND title = ? COLLATE NOCASE AND artist_name = ? COLLATE NOCASE
+      ORDER BY ABS(COALESCE(duration, 0) - COALESCE(?, 0)) LIMIT 5`,
+  );
+  return rows.map((row) => {
+    const strongRows = row.fingerprint
+      ? (strong.all(row.fingerprint, row.id) as CandidateRow[])
+      : [];
+    const strongIds = new Set(strongRows.map((c) => c.id));
+    const weakRows = (
+      weak.all(row.id, row.title, row.artist_name, row.duration) as CandidateRow[]
+    ).filter((c) => !strongIds.has(c.id));
+    const toCandidate = (c: CandidateRow, strength: 'strong' | 'weak') => ({
+      id: c.id,
+      title: c.title,
+      artistName: c.artist_name,
+      albumTitle: c.album_title,
+      filePath: c.file_path,
+      duration: c.duration,
+      strength,
+    });
+    return {
+      id: row.id,
+      title: row.title,
+      artistName: row.artist_name,
+      albumTitle: row.album_title,
+      albumId: row.album_id,
+      filePath: row.file_path,
+      duration: row.duration,
+      missingSince: row.missing_since,
+      candidates: [
+        ...strongRows.map((c) => toCandidate(c, 'strong')),
+        ...weakRows.map((c) => toCandidate(c, 'weak')),
+      ],
+    };
+  });
+}
+
+/**
+ * Admin decided that missing track A is available track B: A's playlist
+ * positions, favorite and history move to B, then A's row goes away.
+ */
+export function relinkMissingTrack(
+  missingId: string,
+  targetId: string,
+): { playlistRefs: number; favorites: number; sessions: number } | null {
+  const db = getRawDb();
+  const missing = db
+    .prepare("SELECT id FROM tracks WHERE id = ? AND availability = 'missing'")
+    .get(missingId);
+  const target = db
+    .prepare("SELECT id FROM tracks WHERE id = ? AND availability = 'available'")
+    .get(targetId);
+  if (!missing || !target || missingId === targetId) return null;
+  let playlistRefs = 0;
+  let favorites = 0;
+  let sessions = 0;
+  db.transaction(() => {
+    playlistRefs = db
+      .prepare('UPDATE playlist_tracks SET track_id = ? WHERE track_id = ?')
+      .run(targetId, missingId).changes;
+    // A favorite for B may already exist; then A's is simply dropped.
+    const hasTargetFavorite = db
+      .prepare("SELECT id FROM favorites WHERE item_type = 'track' AND item_id = ?")
+      .get(targetId);
+    if (hasTargetFavorite) {
+      db.prepare("DELETE FROM favorites WHERE item_type = 'track' AND item_id = ?").run(missingId);
+    } else {
+      favorites = db
+        .prepare("UPDATE favorites SET item_id = ? WHERE item_type = 'track' AND item_id = ?")
+        .run(targetId, missingId).changes;
+    }
+    sessions = db
+      .prepare('UPDATE listening_sessions SET track_id = ? WHERE track_id = ?')
+      .run(targetId, missingId).changes;
+    db.prepare('UPDATE play_history SET track_id = ? WHERE track_id = ?').run(targetId, missingId);
+    db.prepare('DELETE FROM tracks WHERE id = ?').run(missingId);
+  })();
+  pruneEmptyAlbums();
+  logger.info(`Relinked missing track ${missingId} to ${targetId}`);
+  return { playlistRefs, favorites, sessions };
+}
+
+/**
+ * The explicit clean-up: delete missing tracks (all, or the given ids) and
+ * everything that referenced them. History rows keep their snapshot; only
+ * the legacy play_history rows and playlist positions go.
+ */
+export function purgeMissingTracks(ids?: string[]): number {
+  const db = getRawDb();
+  const rows = (
+    ids && ids.length > 0
+      ? db
+          .prepare(
+            `SELECT id, file_path, album_id, artist_id, availability FROM tracks
+              WHERE availability = 'missing' AND id IN (${ids.map(() => '?').join(',')})`,
+          )
+          .all(...ids)
+      : db
+          .prepare(
+            "SELECT id, file_path, album_id, artist_id, availability FROM tracks WHERE availability = 'missing'",
+          )
+          .all()
+  ) as LocalTrackRow[];
+  if (rows.length === 0) return 0;
+
   const deletePlaylistRefs = db.prepare('DELETE FROM playlist_tracks WHERE track_id = ?');
   const deleteHistory = db.prepare('DELETE FROM play_history WHERE track_id = ?');
   const deleteTrackFavorite = db.prepare(
     "DELETE FROM favorites WHERE item_type = 'track' AND item_id = ?",
   );
-  const deleteTracks = db.prepare('DELETE FROM tracks WHERE id = ?');
-  const deleteAll = db.transaction(() => {
-    for (const id of orphanTrackIds) {
-      deletePlaylistRefs.run(id);
-      deleteHistory.run(id);
-      deleteTrackFavorite.run(id);
-      deleteTracks.run(id);
+  const deleteTrack = db.prepare('DELETE FROM tracks WHERE id = ?');
+  db.transaction(() => {
+    for (const row of rows) {
+      deletePlaylistRefs.run(row.id);
+      deleteHistory.run(row.id);
+      deleteTrackFavorite.run(row.id);
+      deleteTrack.run(row.id);
     }
-    // Playlist counts must reflect the rows we just removed
     db.prepare(
       'UPDATE playlists SET track_count = (SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = playlists.id)',
     ).run();
-  });
-  deleteAll();
-  scanStatus.removedTracks = orphanTrackIds.length;
+  })();
 
-  // Clean empty albums
+  const affectedAlbumIds = new Set(rows.map((r) => r.album_id));
+  const affectedArtistIds = new Set(rows.map((r) => r.artist_id));
   for (const albumId of affectedAlbumIds) {
     const count =
       (
@@ -383,8 +791,6 @@ async function cleanOrphans(seenFiles: Set<string>, successfulRoots: string[]): 
       db.prepare('UPDATE albums SET track_count = ? WHERE id = ?').run(count, albumId);
     }
   }
-
-  // Clean empty artists
   for (const artistId of affectedArtistIds) {
     const count =
       (
@@ -397,9 +803,61 @@ async function cleanOrphans(seenFiles: Set<string>, successfulRoots: string[]): 
       db.prepare('DELETE FROM artists WHERE id = ?').run(artistId);
     }
   }
+  logger.info(`Purged ${rows.length} missing track(s)`);
+  return rows.length;
 }
 
-async function processFile(filePath: string): Promise<void> {
+/**
+ * Identity of a recording independent of its path: size and duration are
+ * exact, the tags identify the piece. Same title and artist alone is never
+ * enough (a re-rip, a different edition); the same bytes and length are.
+ */
+export function fingerprintOf(input: {
+  size: number | null;
+  duration: number | undefined;
+  title: string;
+  artistName: string;
+  albumTitle: string;
+  trackNumber: number | null | undefined;
+  discNumber: number | null | undefined;
+}): string {
+  const parts = [
+    input.size ?? '',
+    input.duration !== undefined ? Math.round(input.duration * 1000) : '',
+    input.title.trim().toLowerCase(),
+    input.artistName.trim().toLowerCase(),
+    input.albumTitle.trim().toLowerCase(),
+    input.trackNumber ?? '',
+    input.discNumber ?? '',
+  ];
+  return createHash('sha1').update(parts.join('|')).digest('hex');
+}
+
+/**
+ * A file at a new path: is it a known track that moved? Only when exactly one
+ * track carries the same fingerprint and its old file is really gone. Two
+ * candidates, or the old file still present (a copy), and the file is new.
+ */
+function findMoveCandidate(
+  fingerprint: string,
+  newPath: string,
+): { id: string; albumId: string } | 'doubtful' | null {
+  const rows = getRawDb()
+    .prepare(
+      "SELECT id, file_path, album_id FROM tracks WHERE fingerprint = ? AND source = 'local' AND file_path != ?",
+    )
+    .all(fingerprint, newPath) as Array<{ id: string; file_path: string | null; album_id: string }>;
+  const gone = rows.filter((r) => !r.file_path || !existsSync(r.file_path));
+  if (gone.length === 1) return { id: gone[0].id, albumId: gone[0].album_id };
+  if (gone.length > 1) return 'doubtful';
+  return null;
+}
+
+async function processFile(
+  filePath: string,
+  fileStat: Stats | null,
+  knownTrackId: string | null,
+): Promise<'new' | 'updated' | 'relinked' | 'doubtful'> {
   const metadata = await parseFile(filePath);
   const { common, format } = metadata;
 
@@ -502,9 +960,31 @@ async function processFile(filePath: string): Promise<void> {
   const rgAlbumPeak = (common as { replaygain_album_peak?: { ratio?: number } })
     .replaygain_album_peak?.ratio;
 
-  // Upsert track (insert or update)
+  const fingerprint = fingerprintOf({
+    size: fileStat?.size ?? null,
+    duration: format.duration,
+    title: trackTitle,
+    artistName,
+    albumTitle,
+    trackNumber: common.track?.no,
+    discNumber: common.disk?.no ?? 1,
+  });
+
+  // Upsert track: known at this path → update; unknown → a moved file keeps
+  // its identity (V06.2) when the fingerprint points at exactly one track
+  // whose old file is gone; otherwise it is a new track.
   const db = getDb();
-  const existingTrack = db.select().from(tracks).where(eq(tracks.filePath, filePath)).get();
+  let outcome: 'new' | 'updated' | 'relinked' | 'doubtful' = knownTrackId ? 'updated' : 'new';
+  let targetTrackId = knownTrackId;
+  if (!targetTrackId) {
+    const candidate = findMoveCandidate(fingerprint, filePath);
+    if (candidate === 'doubtful') outcome = 'doubtful';
+    else if (candidate) {
+      targetTrackId = candidate.id;
+      outcome = 'relinked';
+      logger.info(`Relinked moved file to existing track ${candidate.id}: ${filePath}`);
+    }
+  }
   const trackData = {
     title: trackTitle,
     albumId,
@@ -523,12 +1003,18 @@ async function processFile(filePath: string): Promise<void> {
     replayGainTrack: rgTrackGain ?? null,
     replayGainTrackPeak: rgTrackPeak ?? null,
     filePath,
+    fileSize: fileStat?.size ?? null,
+    fileMtime: fileStat ? Math.floor(fileStat.mtimeMs / 1000) : null,
+    fingerprint,
+    scanVersion: SCAN_VERSION,
+    availability: 'available',
+    missingSince: null,
     source: 'local' as const,
     updatedAt: new Date(),
   };
 
-  if (existingTrack) {
-    db.update(tracks).set(trackData).where(eq(tracks.id, existingTrack.id)).run();
+  if (targetTrackId) {
+    db.update(tracks).set(trackData).where(eq(tracks.id, targetTrackId)).run();
   } else {
     db.insert(tracks)
       .values({ id: uuid(), ...trackData })
@@ -567,6 +1053,7 @@ async function processFile(filePath: string): Promise<void> {
     })
     .where(eq(albums.id, albumId))
     .run();
+  return outcome;
 }
 
 function normalizePeople(value: string | string[] | undefined): string[] {

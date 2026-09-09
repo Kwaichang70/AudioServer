@@ -80,11 +80,13 @@ healthRouter.get('/', (_req, res) => {
       tracks: (db.prepare('SELECT COUNT(*) as c FROM tracks').get() as { c: number })?.c ?? 0,
     };
 
-    // Most recent track creation = proxy for "when did the scanner last find something".
-    // Cheaper than tracking scan runs in a dedicated table.
+    // V06.3: the last scan that finished without failing, from scan_runs.
     lastScanAt =
-      (db.prepare('SELECT MAX(created_at) as t FROM tracks').get() as { t: number | null })?.t ??
-      null;
+      (
+        db.prepare("SELECT MAX(finished_at) as t FROM scan_runs WHERE status = 'done'").get() as {
+          t: number | null;
+        }
+      )?.t ?? null;
 
     const totalDuration =
       (db.prepare('SELECT COALESCE(SUM(duration), 0) as d FROM tracks').get() as { d: number })

@@ -18,6 +18,8 @@ interface Track {
   format?: string;
   sampleRate?: number;
   bitDepth?: number;
+  /** V06: 'missing' when the file is no longer where the library saw it. */
+  availability?: 'available' | 'missing';
 }
 
 interface Album {
@@ -216,13 +218,17 @@ export default function AlbumPage() {
         <tbody>
           {tracks.map((track) => {
             const isCurrent = currentTrack?.id === track.id;
+            const missing = track.availability === 'missing';
             return (
               <tr
                 key={track.id}
                 onClick={() => playTrack(track)}
+                title={
+                  missing ? 'File not found on disk: rescan or clean up in Settings' : undefined
+                }
                 className={`cursor-pointer hover:bg-surface-light transition ${
                   isCurrent ? 'text-accent' : ''
-                }`}
+                } ${missing ? 'opacity-50' : ''}`}
               >
                 <td className="py-2.5 text-sm text-gray-500 w-12">
                   {isCurrent && isPlaying ? (
@@ -241,7 +247,14 @@ export default function AlbumPage() {
                     className="w-full rounded text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     aria-label={`Play ${track.title} by ${track.artistName}`}
                   >
-                    <span className="block text-sm font-medium">{track.title}</span>
+                    <span className="block text-sm font-medium">
+                      {track.title}
+                      {missing && (
+                        <span className="ml-2 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-red-300">
+                          missing
+                        </span>
+                      )}
+                    </span>
                     {track.artistName !== album.artistName && (
                       <span className="block text-xs text-gray-500">{track.artistName}</span>
                     )}

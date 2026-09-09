@@ -113,6 +113,13 @@ with a track it cannot play on the speaker (default skip, max 3 in a row);
 `PLAYBACK_RESUME_ON_RESTART=true` restarts the current track after a server
 restart when the speaker is idle (default: restore the queue, wait for a tap).
 
+Library changes (`docs/architecture.md`, "Library preservation"): a moved or
+renamed file keeps its track, playlists, favorites and history when its
+signature (size, length, tags) matches exactly one known track whose old file
+is gone; a file that disappeared is marked missing, never deleted, until an
+admin clicks "Clean up missing" in Settings. `WATCH_LIBRARY=true` rescans a
+few seconds after files change; every scan is recorded and shown in Settings.
+
 Listening history and scrobbling (`docs/architecture.md`, "Listening
 sessions"): a listen counts once at least half the track, or four minutes,
 was actually heard; pauses, seeks and skips do not count. Last.fm and

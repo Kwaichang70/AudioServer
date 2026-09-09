@@ -2,7 +2,17 @@ import { Router, type Response } from 'express';
 import { getDb, getRawDb } from '../db/index.js';
 import { artists, albums, tracks } from '../db/schema.js';
 import { desc, eq, like, or, sql } from 'drizzle-orm';
-import { scanLibrary, getScanStatus } from '../services/scanner.js';
+import {
+  scanLibrary,
+  getScanStatus,
+  listScanRuns,
+  getLastSuccessfulScanRun,
+  listMissingTracks,
+  relinkMissingTrack,
+  purgeMissingTracks,
+} from '../services/scanner.js';
+import { z } from 'zod';
+import { validate } from '../utils/validate.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { requireAdmin } from '../middleware/auth.js';
@@ -225,7 +235,7 @@ libraryRouter.get('/tracks', (req, res) => {
       format, sample_rate as sampleRate, bit_depth as bitDepth,
       file_path as filePath, cover_url as coverUrl,
       replay_gain_track as replayGainTrack, replay_gain_track_peak as replayGainTrackPeak,
-      source, created_at as createdAt, updated_at as updatedAt
+      source, availability, created_at as createdAt, updated_at as updatedAt
     FROM tracks
     ORDER BY album_id COLLATE NOCASE, disc_number, track_number, title COLLATE NOCASE
     LIMIT ? OFFSET ?
@@ -247,7 +257,9 @@ libraryRouter.get('/tracks/:id/stream', (req, res) => {
   const db = getDb();
   const track = db.select().from(tracks).where(eq(tracks.id, req.params.id)).get();
   if (!track || !track.filePath) return res.status(404).json({ error: 'Track not found' });
-  if (!existsSync(track.filePath)) return res.status(404).json({ error: 'File not found on disk' });
+  if (track.availability === 'missing' || !existsSync(track.filePath)) {
+    return res.status(404).json({ error: 'File not found on disk', code: 'TrackMissing' });
+  }
 
   const ext = extname(track.filePath).toLowerCase();
   const mimeTypes: Record<string, string> = {
@@ -431,24 +443,82 @@ libraryRouter.get('/search', (req, res) => {
 
 // ─── Scan ────────────────────────────────────────────────────────
 
-libraryRouter.post('/scan', requireAdmin, (_req, res) => {
+libraryRouter.post('/scan', requireAdmin, (req, res) => {
   const status = getScanStatus();
   if (status.isScanning) {
     res.json({ data: status, message: 'Scan already in progress' });
     return;
   }
-  // Start scan in background, respond immediately. Catch rejections — an
-  // unhandled one would crash the whole process.
-  logger.info('Library scan requested');
-  scanLibrary(config.musicLibraryPaths).catch((err) =>
+  // ?force=true re-reads every file even when size and mtime are unchanged
+  // (new metadata rules, repaired tags). Start in background, respond at
+  // once; catch rejections so a crash never takes the process down.
+  const force = req.query.force === 'true' || req.query.force === '1';
+  logger.info(`Library scan requested${force ? ' (forced)' : ''}`);
+  scanLibrary(config.musicLibraryPaths, { force, trigger: 'manual' }).catch((err) =>
     logger.error(`Library scan crashed: ${err}`),
   );
-  res.json({ data: getScanStatus(), message: 'Scan started' });
+  res.json({ data: getScanStatus(), message: force ? 'Forced scan started' : 'Scan started' });
 });
 
 libraryRouter.get('/scan/status', (_req, res) => {
-  res.json({ data: getScanStatus() });
+  res.json({
+    data: getScanStatus(),
+    lastSuccessfulRun: getLastSuccessfulScanRun(),
+    configuredRoots: config.musicLibraryPaths,
+  });
 });
+
+// Scan history (V06.3): what was scanned, what happened, when.
+libraryRouter.get('/scan/runs', (req, res) => {
+  const limit = parseInt(String(req.query.limit ?? '20'), 10) || 20;
+  res.json({ data: listScanRuns(limit) });
+});
+
+// ─── Missing files (V06.2) ────────────────────────────────────────
+
+// Tracks whose file disappeared, with candidate matches. Never merged automatically.
+libraryRouter.get('/missing', (req, res) => {
+  const limit = parseInt(String(req.query.limit ?? '200'), 10) || 200;
+  const data = listMissingTracks(limit);
+  const total =
+    (
+      getRawDb()
+        .prepare("SELECT COUNT(*) as c FROM tracks WHERE availability = 'missing'")
+        .get() as {
+        c: number;
+      }
+    )?.c ?? 0;
+  res.json({ data, meta: { total } });
+});
+
+// Admin says: missing track A is available track B.
+libraryRouter.post(
+  '/missing/:id/relink',
+  requireAdmin,
+  validate({ body: z.object({ targetTrackId: z.string().min(1).max(128) }) }),
+  (req, res) => {
+    const result = relinkMissingTrack(String(req.params.id), req.body.targetTrackId);
+    if (!result) {
+      res.status(404).json({
+        error: 'NotFound',
+        message: 'Missing track or available target not found',
+      });
+      return;
+    }
+    res.json({ data: result });
+  },
+);
+
+// The explicit clean-up: delete missing tracks (all, or the listed ids).
+libraryRouter.post(
+  '/missing/purge',
+  requireAdmin,
+  validate({ body: z.object({ ids: z.array(z.string().min(1).max(128)).max(5000).optional() }) }),
+  (req, res) => {
+    const purged = purgeMissingTracks(req.body.ids);
+    res.json({ data: { purged } });
+  },
+);
 
 // ─── Cover Art Fetch ─────────────────────────────────────────────
 

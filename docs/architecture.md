@@ -219,6 +219,40 @@ time).
   column and the SQL `DEFAULT (unixepoch())` never fired. New favorites,
   playlists and library rows get a UTC time.
 
+**Library preservation (V06).** A track's row id is its identity; the file
+path is only where it lives now (`services/scanner.ts`).
+
+- Every scanned file stores `file_size`, `file_mtime`, a `fingerprint`
+  (sha1 of size, duration in ms, title, artist, album, track and disc
+  number) and the `scan_version` that processed it. Unchanged size + mtime
+  means the file is skipped; a bump of `SCAN_VERSION` or `POST
+/api/library/scan?force=true` re-reads everything once.
+- A file at a new path is the same track when exactly one row has the same
+  fingerprint and that row's old file is gone: the row is relinked (path,
+  size, mtime updated), so playlists, favorites and history follow. Two such
+  rows, or the old file still present, and the file is new; the case is
+  counted as doubtful and left to the admin. Same title and artist alone is
+  never a match. An album folder that moves gets a new album row (the folder
+  is part of the edition key) and its favorite follows when the heir is
+  unambiguous.
+- Files that vanished under a fully readable root become
+  `availability = 'missing'` with `missing_since`; nothing is deleted. Roots
+  or subdirectories that could not be read never make their music missing.
+  Missing tracks stay in albums and playlists (dimmed, streaming answers
+  404 `TrackMissing`), come back automatically when the file reappears, and
+  are listed with candidates by `GET /api/library/missing` (`strong` =
+  fingerprint, `weak` = title + artist). `POST /missing/:id/relink` moves a
+  missing track's user data to a chosen available track;
+  `POST /missing/purge` is the one explicit deletion.
+- `scan_runs` records every scan: roots, readable roots, failed roots with
+  the directories that failed, counts (new, updated, relinked, missing,
+  recovered, errors), trigger, forced, timestamps, outcome. `GET
+/api/library/scan/runs` lists them, `/scan/status` carries the last
+  successful run and the configured roots, `/api/health` derives
+  `lastScanAt` from it, and Settings shows it with a "Clean up missing"
+  action. A run interrupted by a restart is closed as failed at startup.
+- `WATCH_LIBRARY` reaches the container through `docker-compose.yml`.
+
 **Auth surface.** Three hooks: `attachUser` (always-on, never fails —
 resolves the Bearer token to a revocable session row and populates
 `req.userId` / `req.sessionId` / `req.userRole`), `requireAuth` (gates every

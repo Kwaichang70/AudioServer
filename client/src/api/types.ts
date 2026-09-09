@@ -100,6 +100,62 @@ export interface ScanStatus {
   successfulRoots: string[];
   failedRoots: Array<{ path: string; error: string; failedDirs: string[] }>;
   orphanCleanupSkipped: boolean;
+  // V06: files are marked missing instead of deleted; moved files keep their id.
+  relinkedTracks?: number;
+  missingTracks?: number;
+  recoveredTracks?: number;
+  doubtfulTracks?: number;
+  runId?: string | null;
+  forced?: boolean;
+  startedAt?: number | null;
+  finishedAt?: number | null;
+}
+
+export interface ScanRun {
+  id: string;
+  startedAt: number;
+  finishedAt: number | null;
+  status: 'running' | 'done' | 'failed';
+  trigger: string;
+  forced: boolean;
+  roots: string[];
+  successfulRoots: string[];
+  failedRoots: Array<{ path: string; error: string; failedDirs: string[] }>;
+  totalFiles: number;
+  newTracks: number;
+  updatedTracks: number;
+  relinkedTracks: number;
+  missingTracks: number;
+  recoveredTracks: number;
+  errors: number;
+  message: string | null;
+}
+
+export interface ScanStatusResponse extends ApiResponse<ScanStatus> {
+  lastSuccessfulRun?: ScanRun | null;
+  configuredRoots?: string[];
+}
+
+export interface MissingTrackCandidate {
+  id: string;
+  title: string;
+  artistName: string;
+  albumTitle: string;
+  filePath: string | null;
+  duration: number | null;
+  strength: 'strong' | 'weak';
+}
+
+export interface MissingTrack {
+  id: string;
+  title: string;
+  artistName: string;
+  albumTitle: string;
+  albumId: string;
+  filePath: string | null;
+  duration: number | null;
+  missingSince: number | null;
+  candidates: MissingTrackCandidate[];
 }
 
 export type DevicesResponse = ApiResponse<OutputDevice[]>;

@@ -263,7 +263,7 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 | V03    | Correcte wachtrij en herstel tussen clients        | V01–V02                           | Uitgevoerd in code (8 sep 2026); wacht op NAS-acceptatie |
 | V04    | Zelfstandige lokale/Qobuz-playback op server       | V03                               | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
 | V05    | Betrouwbare luistergegevens en tijdstempels        | V03–V04                           | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
-| V06    | Bibliotheekwijzigingen zonder verlies van relaties | V01, V05                          | Gepland                                                  |
+| V06    | Bibliotheekwijzigingen zonder verlies van relaties | V01, V05                          | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
 | V07    | Betere zoekresultaten, edities en bronkeuze        | V04, V06                          | Gepland                                                  |
 | V08    | Mobiele afronding, onboarding en offline shell     | V02–V07                           | Gepland                                                  |
 | V09    | Persoonlijke muziekomgevingen                      | V02, V05–V06                      | Optioneel vervolg                                        |
@@ -389,17 +389,21 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 **Doel:** muziekbestanden kunnen veranderen zonder stil verlies van gebruikersgegevens.  
 **Bevindingen:** B07, B14.
 
-- [ ] **V06.1 · 2 dagen:** bronlocatie en trackidentiteit scheiden; mtime/bestandsgrootte expliciet opslaan. Scanversie of force-rescan toevoegen voor nieuwe metadataregels.
-- [ ] **V06.2 · 2,5 dag:** verplaatsingen veilig herkennen en ontbrekende items markeren; herstel/koppelactie voor twijfelgevallen. History en playlists behouden als een bestand verdwijnt.
-- [ ] **V06.3 · 1,5 dag:** scan_runs met start/einde, roots, fouten en tellingen opslaan; UI toont ontbrekende roots en laatst geslaagde scan. Watcherconfiguratie ook via Compose doorgeven.
-- [ ] **V06.4 · 2 dagen:** echte migratie van een oudere databasestructuur, UNC-/NAS-foutscenario's en terugzetten van back-up testen.
+- [x] **V06.1 · 2 dagen:** bronlocatie en trackidentiteit scheiden; mtime/bestandsgrootte expliciet opslaan. Scanversie of force-rescan toevoegen voor nieuwe metadataregels.
+      _Gedaan:_ de rij-id is de identiteit, `file_path` alleen de huidige locatie. Nieuwe kolommen `file_size`, `file_mtime`, `fingerprint` (sha1 van grootte, duur in ms, titel, artiest, album, track- en discnummer), `scan_version`, `availability`, `missing_since` als idempotente ALTER-backfills plus migratie `0005_library_identity` (schemaversie 6). Onveranderd = zelfde grootte én mtime; `SCAN_VERSION`-bump of `POST /api/library/scan?force=true` (“Full rescan” in Settings) leest alles eenmalig opnieuw.
+- [x] **V06.2 · 2,5 dag:** verplaatsingen veilig herkennen en ontbrekende items markeren; herstel/koppelactie voor twijfelgevallen. History en playlists behouden als een bestand verdwijnt.
+      _Gedaan:_ een bestand op een nieuw pad wordt aan een bestaande track gekoppeld als precies één rij dezelfde vingerafdruk heeft én het oude bestand weg is; playlists, favorieten en geschiedenis volgen de id. Twee kandidaten of een oud bestand dat er nog staat: nieuw, geteld als twijfelgeval. Zelfde titel/artiest is nooit bewijs. Verdwenen bestanden onder een leesbare root worden `missing` (met tijdstip), niets wordt verwijderd; onleesbare roots of submappen markeren niets; teruggekomen bestanden herstellen vanzelf. `GET /api/library/missing` met sterke/zwakke kandidaten, `POST /missing/:id/relink`, `POST /missing/purge` (admin, de enige verwijdering). Stream van een ontbrekend bestand geeft 404 `TrackMissing`; albumpagina toont het gedimd met label. Albumfavoriet volgt een verplaatste albummap bij een eenduidige erfgenaam.
+- [x] **V06.3 · 1,5 dag:** scan*runs met start/einde, roots, fouten en tellingen opslaan; UI toont ontbrekende roots en laatst geslaagde scan. Watcherconfiguratie ook via Compose doorgeven.
+      \_Gedaan:* tabel `scan_runs` (roots, geslaagde en mislukte roots met mislukte mappen, tellingen nieuw/gewijzigd/verplaatst/ontbrekend/hersteld/fouten, trigger, geforceerd, tijden, uitkomst). `GET /api/library/scan/runs`, `/scan/status` met laatste geslaagde run en geconfigureerde roots, `/api/health.lastScanAt` uit echte runs (niet meer `MAX(created_at)`). Onderbroken runs worden bij start als mislukt gesloten. Settings toont “Last successful scan”, onbereikbare roots, ontbrekende bestanden met koppelknop en “Clean up missing”. `WATCH_LIBRARY` via `docker-compose.yml` en `.env.example`; watcher-scans dragen trigger `watcher`.
+- [x] **V06.4 · 2 dagen:** echte migratie van een oudere databasestructuur, UNC-/NAS-foutscenario's en terugzetten van back-up testen.
+      _Gedaan:_ `legacy-db-migration.test.ts` bouwt de structuur van de eerste releases na (geen Drizzle-journal, `users` zonder rol, `tracks` zonder identiteitskolommen, history zonder tijd, UNC-pad `//diskstation/...`) met data en controleert na `initDatabase` schemaversie 6, alle kolommen en tabellen, behoud van bibliotheek/account/favorieten/playlist, gekopieerde geschiedenis zonder verzonnen tijden en een tweede start zonder herhaling. Scannertests dekken onbereikbare root, onleesbare submap (permissies), ontbrekend-in-plaats-van-verwijderd, purge, verplaatsing met behoud van id, twijfelgevallen, herstel, skip/force/versie, scan-runs. Back-up terugzetten blijft gedekt door `db-backup.test.ts`; de bestaande restore-test leest ook luistersessies terug.
 
 **Acceptatie:**
 
-- Verplaatsen/hernoemen van een aantoonbaar identiek bestand behoudt favorieten, playlistposities en geschiedenis.
-- Twijfelachtige matches worden niet automatisch samengevoegd.
-- Onbereikbare root of submap veroorzaakt geen verlies van bestaande items.
-- Een echt verwijderd bestand blijft herkenbaar als niet beschikbaar totdat een expliciete opschoonactie volgt.
+- Verplaatsen/hernoemen van een aantoonbaar identiek bestand behoudt favorieten, playlistposities en geschiedenis. _Gehaald: test “a moved file keeps its identity” (vingerafdrukmatch, oud bestand weg)._
+- Twijfelachtige matches worden niet automatisch samengevoegd. _Gehaald: zelfde titel met andere duur blijft nieuw (zwakke kandidaat), twee identieke kandidaten blijven aan de admin (test)._
+- Onbereikbare root of submap veroorzaakt geen verlies van bestaande items. _Gehaald: tests met onbereikbare root en met onleesbare submap; niets wordt gemarkeerd of verwijderd._
+- Een echt verwijderd bestand blijft herkenbaar als niet beschikbaar totdat een expliciete opschoonactie volgt. _Gehaald: `availability = 'missing'` tot `POST /missing/purge`; UI toont het gedimd met “missing” (test)._
 - Een volledig geslaagde scan zonder nieuwe bestanden actualiseert de scandatum.
 - Beschadigde metadata blokkeert de scan niet blijvend; annuleren of herstarten heeft een gedocumenteerd gedrag.
 
@@ -697,6 +701,18 @@ Zelfde branch en omgeving als V01–V03.
 **Wacht op acceptatie (NAS):** een album op Sonos/DLNA laten spelen en daarna in Last.fm/ListenBrainz één inzending per nummer zien, met de starttijd als tijdstip; een nummer na 10 s overslaan en controleren dat het niet in de geschiedenis staat; een nummer pauzeren, tien minuten wachten, hervatten en controleren dat de geluisterde tijd niet is gegroeid (`GET /api/history/tracks` → `listened_ms`); een herstart tijdens weergave en kijken of de sessie doorloopt zonder dubbele scrobble.
 
 **Beslismoment na V05:** V06 (bibliotheekbehoud) kan starten; de nieuwe tabel heeft geen foreign key naar `tracks`, dus verplaatsingsscenario’s uit V06 raken de geschiedenis niet meer.
+
+### V06 — 9 september 2026
+
+**Uitgevoerd:** V06.1–V06.4 volledig in code; scannertest herschreven (12 scenario's), migratietest voor een oude databasestructuur, 270 servertests, 95 clienttests, lint/typecheck/build groen.
+
+**Ontwerpkeuzes:** de vingerafdruk is opzettelijk goedkoop (grootte, duur, tags) in plaats van een volledige bestandshash: geen extra I/O op de NAS, en in combinatie met “oud bestand is weg” en “precies één kandidaat” sterk genoeg om een verplaatsing te bewijzen. Alles wat onzeker is, blijft nieuw én zichtbaar als twijfelgeval. “Ontbrekend” is een toestand, geen verwijdering: de scanner verwijdert niets meer, alleen `purge` doet dat. `play_history` (legacy) wordt bij purge wel opgeruimd omdat die tabel nog een foreign key naar `tracks` heeft; de nieuwe luistersessies hebben die niet en blijven staan.
+
+**Gedragswijzigingen voor de gebruiker:** na een verplaatsing van een map blijven favorieten, playlists en geschiedenis staan. Verwijderde bestanden verdwijnen niet stilzwijgend maar staan gedimd met “missing” in het album en in Settings met een opschoonknop. Een eerste scan na de update leest elk bestand eenmalig opnieuw (scanversie 2) om grootte, mtime en vingerafdruk te vullen; op de NAS kan dat even duren.
+
+**Wacht op acceptatie (NAS):** één album map hernoemen op de NAS, scannen, en controleren dat favoriet, playlistpositie en geschiedenis blijven; een bestand tijdelijk verplaatsen buiten de bibliotheek en terugzetten (missing → hersteld); een SMB-share offline halen tijdens een scan (root onbereikbaar, niets gemarkeerd); duur van de eerste geforceerde scan noteren.
+
+**Beslismoment na V06:** V07 (zoeken, edities, bronkeuze) kan starten; de vingerafdruk en editiesleutel zijn de basis voor editieherkenning.
 
 ## Bronverwijzingen naar de onderzochte code
 
