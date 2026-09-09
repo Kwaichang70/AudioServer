@@ -120,6 +120,14 @@ is gone; a file that disappeared is marked missing, never deleted, until an
 admin clicks "Clean up missing" in Settings. `WATCH_LIBRARY=true` rescans a
 few seconds after files change; every scan is recorded and shown in Settings.
 
+Web app (`docs/architecture.md`, "Web app shell"): the service worker caches
+one build's shell, so a release never mixes old HTML with new assets; an
+update shows "A new version is ready, reload now" and takes over only then.
+Offline, a cached shell or a plain offline page appears; music is not cached
+for offline listening. Settings → About shows version and build ids, and an
+admin can copy a redacted diagnostics document (no tokens, passwords or full
+paths) to paste into an issue.
+
 Search (`docs/architecture.md`, "Search"): results from every source are
 merged per recording, with live, remastered and radio-edit versions kept
 apart and each source's own id remembered, so "play from Qobuz" plays the

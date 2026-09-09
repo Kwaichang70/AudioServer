@@ -9,6 +9,7 @@ import { saveTokens } from '../services/tokenstore.js';
 import {
   createSession,
   listUserSessions,
+  renewSession,
   revokeSession,
   revokeUserSessions,
 } from '../services/sessions.js';
@@ -189,6 +190,20 @@ authRouter.get('/me', (req, res) => {
     | { id: string; username: string; role: string }
     | undefined;
   res.json({ data: user ? { ...user, sessionId: req.sessionId } : null });
+});
+
+// Sliding renewal (V08.4): the client calls this when its token nears expiry.
+authRouter.post('/refresh', (req, res) => {
+  if (!req.sessionId) {
+    res.status(401).json({ error: 'Unauthorized', message: 'No session to renew' });
+    return;
+  }
+  const renewed = renewSession(req.sessionId);
+  if (!renewed) {
+    res.status(401).json({ error: 'Unauthorized', message: 'Session is no longer valid' });
+    return;
+  }
+  res.json({ data: { token: renewed.token, expiresAt: renewed.expiresAt } });
 });
 
 authRouter.get('/sessions', (req, res) => {

@@ -466,6 +466,28 @@ export const openApiSpec = {
         },
       },
     },
+    '/auth/refresh': {
+      post: {
+        tags: ['Auth'],
+        summary:
+          'Sliding renewal: a fresh token and a new 30-day horizon for the current session (V08.4)',
+        responses: {
+          200: { description: '{ token, expiresAt }' },
+          401: { description: 'Session revoked or expired' },
+        },
+      },
+    },
+    '/health/diagnostics': {
+      get: {
+        tags: ['Health'],
+        summary:
+          'Admin diagnostics export: versions, schema, scan and playback state, provider status, recent warnings. Redacted: no tokens, passwords or full paths.',
+        responses: {
+          200: { description: 'Diagnostics document' },
+          403: { description: 'Admin only' },
+        },
+      },
+    },
     '/providers/search': {
       get: {
         tags: ['Search'],

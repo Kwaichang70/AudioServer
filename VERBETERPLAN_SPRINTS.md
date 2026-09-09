@@ -265,7 +265,7 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 | V05    | Betrouwbare luistergegevens en tijdstempels        | V03–V04                           | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
 | V06    | Bibliotheekwijzigingen zonder verlies van relaties | V01, V05                          | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
 | V07    | Betere zoekresultaten, edities en bronkeuze        | V04, V06                          | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
-| V08    | Mobiele afronding, onboarding en offline shell     | V02–V07                           | Gepland                                                  |
+| V08    | Mobiele afronding, onboarding en offline shell     | V02–V07                           | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
 | V09    | Persoonlijke muziekomgevingen                      | V02, V05–V06                      | Optioneel vervolg                                        |
 | V10    | Onafhankelijke wachtrij per zone                   | V03–V04, V09                      | Optioneel vervolg                                        |
 | V11    | Audio-inzicht en geverifieerde trackovergangen     | V04; V10 als zones worden gebouwd | Optioneel vervolg                                        |
@@ -434,19 +434,23 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 **Doel:** de app is dagelijks bruikbaar op telefoon/tablet en herstelt begrijpelijk van netwerk- en updateproblemen.  
 **Bevindingen:** B02, B13; afronding basisroute.
 
-- [ ] **V08.1 · 2 dagen:** versievaste shellcache, offlinepagina en veilige updateflow; cache alleen eigen resources en begrens artworkopslag.
-- [ ] **V08.2 · 2 dagen:** begeleide eerste ervaring: bibliotheekstatus, bronverbinding en gekozen uitvoer met korte fout-/herstelmeldingen.
-- [ ] **V08.3 · 2 dagen:** visuele en toegankelijkheidstest van zoeken → album → wachtrij → uitvoer → instellingen; labels, focus, contrast en touchbediening herstellen waar nodig.
-- [ ] **V08.4 · 2 dagen:** browseracceptatie op Android/Chrome en iOS/Safari, achtergrond/voorgrond, tokenvernieuwing en twee opeenvolgende releases; beknopte beheerdiagnostiek toevoegen.
+- [x] **V08.1 · 2 dagen:** versievaste shellcache, offlinepagina en veilige updateflow; cache alleen eigen resources en begrens artworkopslag.
+      _Gedaan:_ service worker wordt bij de build gegenereerd uit `client/sw/sw.template.js` met build-id en de exacte assetlijst; shellcache `audioserver-shell-<id>` per build, navigatie network-first met shell- en daarna `offline.html`-fallback, assets cache-first, API/socket nooit onderschept, covers zonder token als sleutel en begrensd op 400, alleen `audioserver-*`-caches worden verwijderd. Nieuwe worker wacht op `SKIP_WAITING`; banner “A new version is ready, reload now”; één reload via `controllerchange`. Offlinebanner belooft geen offline muziek. Dev-worker is network-only.
+- [x] **V08.2 · 2 dagen:** begeleide eerste ervaring: bibliotheekstatus, bronverbinding en gekozen uitvoer met korte fout-/herstelmeldingen.
+      _Gedaan:_ `GettingStarted` op Home: bibliotheek (tracks, laatste scan, onleesbare roots met “Existing music was kept”), streamingbronnen (geconfigureerd vs. aangemeld), uitvoer (gekozen speaker bereikbaar of niet, aantal gevonden speakers), elk met één volgende stap. Verbergbaar; komt terug zolang de bibliotheek leeg is.
+- [x] **V08.3 · 2 dagen:** visuele en toegankelijkheidstest van zoeken → album → wachtrij → uitvoer → instellingen; labels, focus, contrast en touchbediening herstellen waar nodig.
+      _Gedaan:_ loginvelden met labels en `role=alert`, hamburger met `aria-label`/`aria-expanded`/`aria-controls`, `nav aria-label`, 44 px tapdoelen op navigatie, wachtrij (verwijderknop zichtbaar op touch), banners en uitloggen, zichtbare focusringen. Geweigerde `play()`-promise (autoplay) zet `isPlaying` op false en toont “Press play to start”; de playknop probeert opnieuw. Zoekpagina (V07) en NowPlayingBar hadden al labels op alle knoppen. Visuele controle op echte telefoon is NAS-acceptatie.
+- [x] **V08.4 · 2 dagen:** browseracceptatie op Android/Chrome en iOS/Safari, achtergrond/voorgrond, tokenvernieuwing en twee opeenvolgende releases; beknopte beheerdiagnostiek toevoegen.
+      _Gedaan:_ terug naar voorgrond → `playback:sync` of reconnect; `POST /api/auth/refresh` met glijdende 30 dagen, client vernieuwt bij minder dan een week resterend; `GET /api/health/diagnostics` (admin) met versies, schema, tellingen, laatste scan, playbackstatus, providerstatus en laatste 50 waarschuwingen uit een logbuffer, geredigeerd (tokens, wachtwoorden, paden); `/api/health` met `version` en `buildId`; Settings → About met “Copy diagnostics”. Dockerfile geeft `VCS_REF` door aan clientbuild en server. Browseracceptatie op Android/iOS en twee opeenvolgende releases zijn NAS-acceptatie.
 
 **Acceptatie:**
 
-- Na één succesvol bezoek blijft bij verbroken netwerk een bruikbare app-shell of uitleg beschikbaar, zonder onbehandelde service-workerfout.
-- Een nieuwe release veroorzaakt geen witte pagina door oude HTML/nieuwe assets.
-- Offline status belooft geen offline audiocache; lopende NAS-playback wordt bij reconnect correct weergegeven.
-- Aanmelding, playback en wachtrij zijn met toetsenbord en schermlezerlabels te bedienen; essentiële mobiele knoppen hebben voldoende aanraakruimte.
-- Een geweigerde browser-playpromise/autoplay leidt tot een herhaalactie, niet tot een vals “speelt”-signaal.
-- Diagnostische export bevat versie en fout-/scanstatus, maar geen tokens, wachtwoorden of onnodige persoonlijke paden.
+- Na één succesvol bezoek blijft bij verbroken netwerk een bruikbare app-shell of uitleg beschikbaar, zonder onbehandelde service-workerfout. _Gehaald in code: precache van shell + assets, fallback naar shell/offline.html/503 (test `sw-template.test.ts`); bevestigen op de NAS met vliegtuigmodus._
+- Een nieuwe release veroorzaakt geen witte pagina door oude HTML/nieuwe assets. _Gehaald in code: shellcache per build-id, wachtende worker; bevestigen met twee opeenvolgende NAS-releases._
+- Offline status belooft geen offline audiocache; lopende NAS-playback wordt bij reconnect correct weergegeven. _Gehaald: offlinebanner tekst; `playback:sync` bij terugkeer naar voorgrond (V03-snapshot)._
+- Aanmelding, playback en wachtrij zijn met toetsenbord en schermlezerlabels te bedienen; essentiële mobiele knoppen hebben voldoende aanraakruimte. _Gehaald in code: labels, alert, 44 px doelen (tests `login-page.test.tsx`, bestaande NowPlayingBar-tests); schermlezercontrole op telefoon is NAS-acceptatie._
+- Een geweigerde browser-playpromise/autoplay leidt tot een herhaalactie, niet tot een vals “speelt”-signaal. _Gehaald: `startPlayback` vangt de afwijzing, `playbackBlocked` + toast, playknop probeert opnieuw (test in `useAudio.test.tsx`)._
+- Diagnostische export bevat versie en fout-/scanstatus, maar geen tokens, wachtwoorden of onnodige persoonlijke paden. _Gehaald: test controleert dat een echt token, een `token=`-geheim, een wachtwoord en `/volume1/music/...` niet in de export voorkomen._
 
 ### V09 — Persoonlijke profielen
 
@@ -731,6 +735,18 @@ Zelfde branch en omgeving als V01–V03.
 **Wacht op acceptatie (NAS):** een nummer zoeken dat lokaal én op Qobuz staat en met “▶ qobuz” de Qobuz-versie starten; een live-versie zoeken (bijv. “(Live)”) en controleren dat studio en live apart staan; Qobuz uitloggen en zoeken: lokale treffers direct, melding “qobuz: not connected”.
 
 **Beslismoment na V07:** V08 (mobiel, onboarding, offline shell) kan starten.
+
+### V08 — 9 september 2026
+
+**Uitgevoerd:** V08.1–V08.4 in code; 288 servertests, 113 clienttests, lint/typecheck/build groen.
+
+**Ontwerpkeuzes:** de service worker wordt gegenereerd, niet met de hand bijgehouden: de assetlijst en het build-id komen uit dezelfde Vite-build als de HTML, waardoor shell en assets per definitie bij elkaar horen. Updates nemen nooit zelf over; de gebruiker herlaadt wanneer het uitkomt. De offlinebanner zegt precies wat nog werkt (speakers via de NAS) en belooft geen offline muziek. Diagnostiek is een geredigeerd JSON-document dat in een issue geplakt kan worden; redactie is getest met een echt token en een echt pad. Tokenvernieuwing is glijdend (30 dagen, vernieuwen bij < 7 dagen), zodat een telefoon die wekelijks opent nooit uitlogt.
+
+**Gedragswijzigingen voor de gebruiker:** eerste bezoek op Home toont “Getting started” met drie stappen; bij een nieuwe release verschijnt een banner met “Reload now” in plaats van een stille wissel; zonder netwerk een gele banner en, bij herladen, een offlinepagina; Settings → About toont versie en build-id’s en (admin) “Copy diagnostics”.
+
+**Wacht op acceptatie (NAS):** Android/Chrome en iOS/Safari: app openen, vliegtuigmodus aan, pagina herladen (shell of offlinepagina, geen fout), vliegtuigmodus uit (banner verdwijnt, wachtrij klopt); telefoon een nacht laten slapen en de app openen (geen uitloggen, playbackstatus klopt); twee opeenvolgende releases uitrollen en de updatebanner zien zonder witte pagina; schermlezer (TalkBack/VoiceOver) door login → zoeken → album → wachtrij; “Copy diagnostics” en de inhoud controleren op geheimen.
+
+**Beslismoment na V08:** de basisroute (V01–V08) is in code af. V09 (persoonlijke profielen) kan starten; volgens §9 eerst NAS-acceptatie van V03/V04 (tablet dicht, album blijft spelen) afronden voordat V11 (grotere audio-uitbreiding) start.
 
 ## Bronverwijzingen naar de onderzochte code
 

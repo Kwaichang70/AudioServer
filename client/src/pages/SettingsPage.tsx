@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext.js';
 import { DEVICE_POLL_INTERVAL, STORAGE_KEYS } from '../constants.js';
 import { useSocket, type LibraryScanProgress } from '../hooks/useSocket.js';
 import type { MissingTrack, MissingTrackCandidate, ScanRun } from '../api/types.js';
+import { useServiceWorkerState } from '../sw/register.js';
 
 interface ProviderStatus {
   available: boolean;
@@ -159,6 +160,9 @@ export default function SettingsPage() {
   const applyScanStatusRef = useRef<((s: LibraryScanProgress) => void) | null>(null);
 
   const [lanAddress, setLanAddress] = useState<string | null>(null);
+  const [health, setHealth] = useState<{ version?: string; buildId?: string } | null>(null);
+  const [diagnosticsText, setDiagnosticsText] = useState('');
+  const { buildId: swBuildId } = useServiceWorkerState();
   useEffect(() => {
     loadStatus();
     loadLibraryHealth();
@@ -166,6 +170,7 @@ export default function SettingsPage() {
       .getHealth()
       .then((d) => {
         if (d.lanAddress) setLanAddress(d.lanAddress);
+        setHealth({ version: d.version, buildId: d.buildId });
       })
       .catch(() => {});
   }, [loadLibraryHealth]);
@@ -335,6 +340,56 @@ export default function SettingsPage() {
           </div>
         </section>
       )}
+
+      {/* About & diagnostics (V08.4) */}
+      <section className="mb-10" data-testid="about-section">
+        <h3 className="text-lg font-semibold mb-4 text-gray-300">About</h3>
+        <div className="bg-surface-light rounded-lg p-4 text-sm space-y-2">
+          <p className="text-gray-400">
+            AudioServer {health?.version ?? '…'}{' '}
+            <span className="text-gray-600">
+              server build {health?.buildId ?? '…'} · app build {__BUILD_ID__}
+              {swBuildId && swBuildId !== __BUILD_ID__ ? ` · cached shell ${swBuildId}` : ''}
+            </span>
+          </p>
+          {isAdmin && (
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const res = await api.getDiagnostics();
+                    const text = JSON.stringify(res.data, null, 2);
+                    try {
+                      await navigator.clipboard.writeText(text);
+                      toast('Diagnostics copied to the clipboard', 'success');
+                    } catch {
+                      setDiagnosticsText(text);
+                    }
+                  } catch (err) {
+                    toast(getErrorMessage(err, 'Diagnostics failed'), 'error');
+                  }
+                }}
+                className="min-h-[44px] px-4 text-sm bg-surface rounded border border-white/10 hover:bg-surface-dark transition"
+              >
+                Copy diagnostics
+              </button>
+              <span className="text-xs text-gray-500">
+                Versions, scan and playback state, recent warnings. No tokens, passwords or full
+                file paths.
+              </span>
+            </div>
+          )}
+          {diagnosticsText && (
+            <textarea
+              readOnly
+              value={diagnosticsText}
+              aria-label="Diagnostics"
+              className="w-full h-48 text-xs font-mono bg-surface-dark border border-white/10 rounded p-2"
+            />
+          )}
+        </div>
+      </section>
 
       {/* Library (admin) */}
       {isAdmin && (

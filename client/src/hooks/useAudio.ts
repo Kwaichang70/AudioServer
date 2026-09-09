@@ -6,6 +6,12 @@ import { setProgress, resetProgress } from '../context/ProgressStore.js';
 // fields (isPlaying, volume) that consumers tend to read directly.
 interface AudioState {
   isPlaying: boolean;
+  /**
+   * The browser refused to start audio (autoplay policy, or a decode/network
+   * error) after we asked it to. The UI turns this into "press play again"
+   * instead of showing a playing state that is not true (V08.3).
+   */
+  playbackBlocked: 'autoplay' | 'error' | null;
   volume: number;
 }
 
@@ -45,13 +51,22 @@ function isSameOriginUrl(url: string): boolean {
   }
 }
 
+function classifyPlayError(err: unknown): 'autoplay' | 'error' {
+  const name = (err as { name?: string } | null)?.name;
+  return name === 'NotAllowedError' ? 'autoplay' : 'error';
+}
+
 export function useAudio() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const nextAudioRef = useRef<HTMLAudioElement | null>(null);
   const onEndedRef = useRef<(() => void) | null>(null);
   const crossfadeDurationRef = useRef(0); // 0 = gapless, >0 = crossfade seconds
   const crossfadeFiredRef = useRef<WeakSet<HTMLAudioElement>>(new WeakSet());
-  const [state, setState] = useState<AudioState>({ isPlaying: false, volume: 0.7 });
+  const [state, setState] = useState<AudioState>({
+    isPlaying: false,
+    volume: 0.7,
+    playbackBlocked: null,
+  });
   const volumeRef = useRef(0.7);
 
   // ─── Web Audio + ReplayGain ────────────────────────────────────
@@ -212,6 +227,26 @@ export function useAudio() {
     [],
   );
 
+  /**
+   * `HTMLMediaElement.play()` returns a promise that rejects when the browser
+   * blocks autoplay (NotAllowedError) or cannot play the source. An
+   * unhandled rejection used to leave isPlaying=true with silent speakers.
+   */
+  const startPlayback = useCallback((element: HTMLAudioElement): void => {
+    let result: Promise<void> | undefined;
+    try {
+      result = element.play() as Promise<void> | undefined;
+    } catch (err) {
+      setState((s) => ({ ...s, isPlaying: false, playbackBlocked: classifyPlayError(err) }));
+      return;
+    }
+    if (result && typeof result.catch === 'function') {
+      result.catch((err: unknown) => {
+        setState((s) => ({ ...s, isPlaying: false, playbackBlocked: classifyPlayError(err) }));
+      });
+    }
+  }, []);
+
   const play = useCallback(
     (url: string) => {
       let audio = audioRef.current;
@@ -257,7 +292,7 @@ export function useAudio() {
         } else {
           newAudio.volume = 0;
         }
-        newAudio.play();
+        startPlayback(newAudio);
         fadeVia(newAudio, 0, volumeRef.current * computeReplayGainAmp(), fadeMs);
 
         audioRef.current = newAudio;
@@ -268,12 +303,12 @@ export function useAudio() {
         audio.src = url;
         if (audioCtxRef.current && sameOrigin) attachGain(audio);
         applyVolume(audio);
-        audio.play();
+        startPlayback(audio);
       }
 
-      setState((s) => ({ ...s, isPlaying: true }));
+      setState((s) => ({ ...s, isPlaying: true, playbackBlocked: null }));
     },
-    [applyVolume, attachGain, attachListeners, computeReplayGainAmp, fadeVia],
+    [applyVolume, attachGain, attachListeners, computeReplayGainAmp, fadeVia, startPlayback],
   );
 
   const preloadNext = useCallback(
@@ -300,9 +335,9 @@ export function useAudio() {
 
   const resume = useCallback(() => {
     audioCtxRef.current?.resume().catch(() => {});
-    audioRef.current?.play();
-    setState((s) => ({ ...s, isPlaying: true }));
-  }, []);
+    if (audioRef.current) startPlayback(audioRef.current);
+    setState((s) => ({ ...s, isPlaying: true, playbackBlocked: null }));
+  }, [startPlayback]);
 
   const setVolume = useCallback(
     (v: number) => {

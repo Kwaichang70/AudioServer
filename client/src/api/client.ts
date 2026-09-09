@@ -348,6 +348,12 @@ export const api = {
     fetchApi('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
   logout: (): Promise<OkResponse> => fetchApi('/auth/logout', { method: 'POST' }),
   getMe: (): Promise<ApiResponse<UserAccount | null>> => fetchApi('/auth/me'),
+  /** Sliding renewal of the current session's token (V08.4). */
+  refreshSession: (): Promise<ApiResponse<{ token: string; expiresAt: number }>> =>
+    fetchApi('/auth/refresh', { method: 'POST' }),
+  /** Admin: redacted diagnostics document (versions, scan and playback state, recent warnings). */
+  getDiagnostics: (): Promise<ApiResponse<Record<string, unknown>>> =>
+    fetchApi('/health/diagnostics'),
   getSessions: (): Promise<ApiResponse<SessionInfo[]>> => fetchApi('/auth/sessions'),
   revokeSession: (id: string): Promise<ApiResponse<{ ok: boolean; current: boolean }>> =>
     fetchApi(`/auth/sessions/${id}`, { method: 'DELETE' }),

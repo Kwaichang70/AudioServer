@@ -58,43 +58,63 @@ export default function LoginPage({ mode, onAuth }: Props) {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <label htmlFor="login-username" className="sr-only">
+            Username
+          </label>
           <input
+            id="login-username"
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             placeholder="Username"
             autoComplete="username"
             className={inputClass}
+            aria-invalid={error ? true : undefined}
             required
           />
+          <label htmlFor="login-password" className="sr-only">
+            {isSetup ? 'Password (8+ characters)' : 'Password'}
+          </label>
           <input
+            id="login-password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder={isSetup ? 'Password (8+ characters)' : 'Password'}
             autoComplete={isSetup ? 'new-password' : 'current-password'}
             className={inputClass}
+            aria-invalid={error ? true : undefined}
             required
             minLength={isSetup ? 8 : 1}
           />
           {isSetup && (
-            <input
-              type="text"
-              value={setupCode}
-              onChange={(e) => setSetupCode(e.target.value.toUpperCase())}
-              placeholder="Setup code (e.g. 3F9A-C21B)"
-              autoComplete="one-time-code"
-              className={`${inputClass} font-mono tracking-wider`}
-              required
-            />
+            <>
+              <label htmlFor="login-setup-code" className="sr-only">
+                Setup code
+              </label>
+              <input
+                id="login-setup-code"
+                type="text"
+                value={setupCode}
+                onChange={(e) => setSetupCode(e.target.value.toUpperCase())}
+                placeholder="Setup code (e.g. 3F9A-C21B)"
+                autoComplete="one-time-code"
+                className={`${inputClass} font-mono tracking-wider`}
+                required
+              />
+            </>
           )}
 
-          {error && <p className="text-sm text-red-400">{error}</p>}
+          {error && (
+            <p className="text-sm text-red-400" role="alert">
+              {error}
+            </p>
+          )}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 bg-accent rounded font-medium hover:bg-accent-hover transition disabled:opacity-50"
+            className="w-full min-h-[44px] py-2.5 bg-accent rounded font-medium hover:bg-accent-hover transition disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
           >
             {loading ? '...' : isSetup ? 'Create admin account' : 'Sign In'}
           </button>

@@ -4,6 +4,48 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## V08 — Usable on a phone, honest when the network is not (verbeterplan sprint 8)
+
+**Service worker and updates** (`client/sw/sw.template.js`, `client/vite.config.ts`)
+
+- Build-time generated worker with a shell cache pinned to one build: no
+  more old-HTML/new-assets white page after a release.
+- Updates wait: "A new version of AudioServer is ready, reload now"; the
+  new worker takes over only on that reload.
+- Offline navigation gets the cached shell or `offline.html`; API and
+  socket traffic is never intercepted; covers capped at 400 under a
+  token-free key; only `audioserver-*` caches are deleted.
+- Offline banner that says what still works (speakers driven by the NAS)
+  and does not promise offline music.
+
+**Guided first experience** (`client/src/components/GettingStarted.tsx`)
+
+- Home shows library, streaming sources and output with real status and one
+  next step each, including unreadable music folders and an unreachable
+  speaker. Dismissable; returns while the library is empty.
+
+**Accessibility and touch**
+
+- Login fields labelled, error announced; hamburger labelled with
+  `aria-expanded`; 44 px targets on navigation, queue and banners; focus
+  rings. A refused `play()` promise becomes "press play to start" instead
+  of a false playing state.
+
+**Background, tokens, diagnostics**
+
+- Back to the foreground: snapshot resync or reconnect; token renewed when
+  under a week is left (`POST /api/auth/refresh`, sliding 30 days).
+- `GET /api/health/diagnostics` (admin): versions, schema, counts, last
+  scan, playback state, provider status, last 50 warnings, all redacted.
+  `/api/health` carries `version` and `buildId`; Settings → About shows
+  version, server/app/cached-shell build ids and "Copy diagnostics".
+- Dockerfile passes `VCS_REF` into the client build and the running server.
+
+**Tests**: service-worker template (precache, own caches only, API
+passthrough, offline fallbacks, cover cap, SKIP_WAITING), banners, getting
+started, login accessibility, autoplay rejection, jwt helper, session
+refresh, diagnostics redaction (288 server, 113 client).
+
 ## V07 — Find the right version, know what can play (verbeterplan sprint 7)
 
 **Edition-aware, Unicode-safe search merge** (`server/src/providers/registry.ts`)

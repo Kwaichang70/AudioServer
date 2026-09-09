@@ -10,6 +10,8 @@ export const STORAGE_KEYS = {
   theme: 'audioserver_theme',
   /** Per-tab id (sessionStorage) that identifies this client to the playback session. */
   clientId: 'audioserver_client_id',
+  /** Getting-started card on Home hidden by the user (V08.2); returns when the library is empty. */
+  onboardingDismissed: 'audioserver_onboarding_dismissed',
 } as const;
 
 export const DEFAULT_LIBRARY_PAGE_SIZE = 60;

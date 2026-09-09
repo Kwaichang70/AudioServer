@@ -1,9 +1,28 @@
 import { Router } from 'express';
+import { readFileSync } from 'fs';
 import { getRawDb, getSchemaVersion, SCHEMA_VERSION } from '../db/index.js';
 import { providers } from '../providers/registry.js';
 import { getLibrespotState } from '../services/librespot.js';
 import { config } from '../config.js';
 import { getLanAddress } from '../utils/network.js';
+import { requireAdmin } from '../middleware/auth.js';
+import { getRecentLog } from '../logger.js';
+import { getLastSuccessfulScanRun, getScanStatus, listMissingTracks } from '../services/scanner.js';
+import { playbackService } from '../services/playback.js';
+import { getAllCapabilities } from '../services/playback-resolver.js';
+
+/** Package version and the git revision the image was built from (Dockerfile VCS_REF). */
+export const APP_VERSION: string = (() => {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+    ) as { version?: string };
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
+export const BUILD_ID: string = process.env.VCS_REF || process.env.BUILD_ID || 'local';
 
 export const healthRouter = Router();
 
@@ -144,6 +163,8 @@ healthRouter.get('/', (_req, res) => {
   // monitors and the Docker HEALTHCHECK only look at the code).
   res.status(status === 'ok' ? 200 : 503).json({
     status,
+    version: APP_VERSION,
+    buildId: BUILD_ID,
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
     lanAddress: getLanAddress(),
@@ -162,6 +183,102 @@ healthRouter.get('/', (_req, res) => {
     memory: {
       rss: Math.round(memUsage.rss / 1024 / 1024),
       heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024),
+    },
+  });
+});
+
+// ─── Admin diagnostics (V08.4) ───────────────────────────────────
+//
+// One JSON document an operator can paste into an issue: versions, schema,
+// scan state, playback state, provider configuration, recent warnings.
+// Deliberately without secrets or personal paths: no tokens, no passwords,
+// no session ids, file paths reduced to their last segment.
+
+function lastSegment(path: string | null | undefined): string | null {
+  if (!path) return null;
+  const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : path;
+}
+
+/** Strip anything that looks like a path or token from a log message. */
+export function redactMessage(message: string): string {
+  return message
+    .replace(/(?:Bearer\s+)?[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}/g, '[token]')
+    .replace(/(token|secret|password|key)=([^\s&"']+)/gi, '$1=[redacted]')
+    .replace(/(?:[A-Za-z]:)?(?:\/[^\s/'"]+){2,}\/([^\s/'"]+)/g, '…/$1');
+}
+
+healthRouter.get('/diagnostics', requireAdmin, (_req, res) => {
+  const db = getRawDb();
+  const count = (sql: string): number => {
+    try {
+      return (db.prepare(sql).get() as { c: number })?.c ?? 0;
+    } catch {
+      return -1;
+    }
+  };
+  const lastRun = getLastSuccessfulScanRun();
+  const scan = getScanStatus();
+  const snapshot = playbackService.getSnapshot();
+  const providerStatus = providers.getAllProviders().map((p) => ({
+    type: p.type,
+    available: p.isAvailable,
+  }));
+  res.json({
+    data: {
+      generatedAt: new Date().toISOString(),
+      app: { version: APP_VERSION, buildId: BUILD_ID, node: process.version, env: config.nodeEnv },
+      db: { schemaVersion: getSchemaVersion(), expectedSchemaVersion: SCHEMA_VERSION },
+      counts: {
+        users: count('SELECT COUNT(*) as c FROM users'),
+        tracks: count('SELECT COUNT(*) as c FROM tracks'),
+        missingTracks: count("SELECT COUNT(*) as c FROM tracks WHERE availability = 'missing'"),
+        albums: count('SELECT COUNT(*) as c FROM albums'),
+        listeningSessions: count('SELECT COUNT(*) as c FROM listening_sessions'),
+        scrobblePending: count("SELECT COUNT(*) as c FROM scrobble_queue WHERE status = 'pending'"),
+        scrobbleFailed: count("SELECT COUNT(*) as c FROM scrobble_queue WHERE status = 'failed'"),
+      },
+      library: {
+        roots: config.musicLibraryPaths.map(lastSegment),
+        scanning: scan.isScanning,
+        lastSuccessfulScan: lastRun
+          ? {
+              finishedAt: lastRun.finishedAt,
+              totalFiles: lastRun.totalFiles,
+              newTracks: lastRun.newTracks,
+              relinkedTracks: lastRun.relinkedTracks,
+              missingTracks: lastRun.missingTracks,
+              errors: lastRun.errors,
+              failedRoots: lastRun.failedRoots.map((r) => ({
+                path: lastSegment(r.path),
+                error: redactMessage(r.error),
+              })),
+            }
+          : null,
+        missingExamples: listMissingTracks(5).map((m) => ({
+          title: m.title,
+          artist: m.artistName,
+          file: lastSegment(m.filePath),
+        })),
+      },
+      playback: {
+        state: snapshot.state.state,
+        deviceId: snapshot.controller?.deviceId ?? null,
+        serverManaged: snapshot.controller?.serverManaged ?? false,
+        queueLength: snapshot.queue.length,
+        revision: snapshot.revision,
+        dispatch: snapshot.dispatch
+          ? { state: snapshot.dispatch.state, code: snapshot.dispatch.code ?? null }
+          : null,
+      },
+      providers: providerStatus,
+      capabilities: getAllCapabilities().map((c) => ({
+        source: c.source,
+        serverDispatch: c.serverDispatch,
+        browser: c.browser,
+        reason: c.reason ?? null,
+      })),
+      recentLog: getRecentLog().map((e) => ({ ...e, message: redactMessage(e.message) })),
     },
   });
 });

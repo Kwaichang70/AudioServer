@@ -48,4 +48,32 @@ describe('useAudio', () => {
     rerender();
     expect(result.current).toBe(updatedApi);
   });
+
+  it('turns a refused play() promise into a retryable blocked state, never a false "playing"', async () => {
+    class BlockedAudio extends FakeAudio {
+      play = vi.fn(() => {
+        const err = new Error('play() failed because the user did not interact');
+        err.name = 'NotAllowedError';
+        return Promise.reject(err);
+      });
+    }
+    vi.stubGlobal('Audio', BlockedAudio);
+    const { result } = renderHook(() => useAudio());
+
+    await act(async () => {
+      result.current.play('/api/library/tracks/track-1/stream');
+      await Promise.resolve();
+    });
+    expect(result.current.isPlaying).toBe(false);
+    expect(result.current.playbackBlocked).toBe('autoplay');
+
+    // The person presses play again: the state is cleared and play() retried.
+    await act(async () => {
+      result.current.resume();
+      await Promise.resolve();
+    });
+    expect(result.current.isPlaying).toBe(false);
+    expect(result.current.playbackBlocked).toBe('autoplay');
+    expect(BlockedAudio.prototype.play).toBeUndefined();
+  });
 });

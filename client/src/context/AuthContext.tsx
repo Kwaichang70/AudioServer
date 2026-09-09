@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { api, clearStreamToken, ensureStreamToken, onApiError } from '../api/client.js';
 import type { UserAccount } from '../api/types.js';
 import { STORAGE_KEYS } from '../constants.js';
+import { shouldRenewToken } from '../utils/jwt.js';
 
 /**
  * Single source of truth for "who is signed in" (V02.3).
@@ -44,6 +45,18 @@ function clearLocalSession() {
   clearStreamToken();
 }
 
+/**
+ * Sliding renewal (V08.4): a phone that opens the app every week never hits
+ * the 30-day hard expiry. Renewed only when less than a week is left, so the
+ * server sees one refresh per week at most.
+ */
+async function maybeRenewToken(): Promise<void> {
+  const token = localStorage.getItem(STORAGE_KEYS.authToken);
+  if (!shouldRenewToken(token)) return;
+  const renewed = await api.refreshSession();
+  if (renewed.data?.token) localStorage.setItem(STORAGE_KEYS.authToken, renewed.data.token);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [user, setUser] = useState<UserAccount | null>(null);
@@ -66,6 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(me.data);
         setStatus('authenticated');
         ensureStreamToken().catch(() => {});
+        maybeRenewToken().catch(() => {});
         return;
       }
     } catch {
@@ -79,6 +93,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Back to the foreground after a long sleep (phone in a pocket): renew the
+  // token when it is about to expire. Playback state is resynced by the
+  // socket layer (useSocket) at the same moment.
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') maybeRenewToken().catch(() => {});
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [status]);
 
   const forceSignOut = useCallback(() => {
     clearLocalSession();

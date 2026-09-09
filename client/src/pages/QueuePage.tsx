@@ -53,8 +53,9 @@ export default function QueuePage() {
           </p>
         </div>
         <button
+          type="button"
           onClick={clearQueue}
-          className="px-4 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-red-400 hover:text-red-400 transition"
+          className="min-h-[44px] px-4 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-red-400 hover:text-red-400 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           Clear queue
         </button>
@@ -106,7 +107,8 @@ export default function QueuePage() {
                     e.stopPropagation();
                     removeFromQueue(idx);
                   }}
-                  className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-gray-500 hover:text-red-400 text-sm px-1 shrink-0 transition"
+                  type="button"
+                  className="opacity-60 md:opacity-0 group-hover:opacity-100 focus:opacity-100 min-h-[44px] min-w-[44px] inline-flex items-center justify-center text-gray-400 hover:text-red-400 text-lg shrink-0 transition rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   title="Remove from queue"
                   aria-label={`Remove ${item.title} from queue`}
                 >

@@ -902,6 +902,18 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     return () => audio.setOnEnded(null);
   }, [audio, playNext]);
 
+  // V08.3: a refused play() promise becomes a visible "press play" prompt,
+  // never a playing state that is not true. The play button retries.
+  useEffect(() => {
+    if (!audio.playbackBlocked) return;
+    toastRef.current(
+      audio.playbackBlocked === 'autoplay'
+        ? 'The browser blocked playback. Press play to start.'
+        : 'This track could not be played in the browser. Press play to try again.',
+      'info',
+    );
+  }, [audio.playbackBlocked]);
+
   const isPlaying =
     selectedDeviceId === 'browser'
       ? // Spotify-in-browser is driven by the SDK, not the <audio> element.

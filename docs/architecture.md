@@ -284,6 +284,42 @@ duration, quality}` per source, so a different source is played with its
   class; on the Synology itself (container, 50 000 tracks) p95 is 41–51 ms.
   Both are far under the 300 ms target, so no virtual table was added.
 
+**Web app shell (V08).** The service worker is generated at build time
+from `client/sw/sw.template.js` (Vite plugin in `client/vite.config.ts`),
+with the build id and the exact list of hashed assets of that build.
+
+- The shell cache is pinned to one build (`audioserver-shell-<id>`): its
+  `index.html` only references the assets cached next to it, so a release
+  can never produce the old-HTML/new-assets white page. Navigation is
+  network-first with the cached shell as fallback, then `offline.html`;
+  hashed assets are cache-first; API and socket traffic is never
+  intercepted; covers are cached under a token-free key and capped at 400.
+  Only `audioserver-*` caches are ever deleted.
+- A new worker waits. The app shows "A new version is ready, reload now"
+  (`AppStatusBanners`); only then does it send `SKIP_WAITING`, and the
+  `controllerchange` that follows reloads once. Dev serves a network-only
+  worker (`client/public/sw.js`).
+- Offline shows an honest banner: speakers driven by the NAS keep playing;
+  nothing here promises offline music. On return to the foreground the
+  socket asks for a fresh snapshot (`playback:sync`) or reconnects, and
+  the auth layer renews a token that has less than a week left
+  (`POST /api/auth/refresh`, sliding 30-day sessions).
+- Getting started (Home): library (scan state, unreadable roots), streaming
+  sources (configured vs signed in) and output (chosen speaker reachable or
+  not), each with one next step. Dismissable; returns while the library is
+  empty.
+- Accessibility: labelled login fields with an announced error, a labelled
+  hamburger with `aria-expanded`, 44 px touch targets on navigation, queue
+  and banner actions, visible focus rings. A refused `play()` promise
+  (autoplay policy) clears the playing state and prompts "press play";
+  the play button retries.
+- Diagnostics: `GET /api/health/diagnostics` (admin) returns versions
+  (`package.json`, `VCS_REF` build id), schema, counts, last scan, playback
+  state, provider status and the last 50 warnings/errors kept in memory by
+  the logger, with tokens, secrets and paths redacted. `/api/health` carries
+  `version` and `buildId`; Settings → About shows them next to the app and
+  cached-shell build ids and offers "Copy diagnostics".
+
 **Auth surface.** Three hooks: `attachUser` (always-on, never fails —
 resolves the Bearer token to a revocable session row and populates
 `req.userId` / `req.sessionId` / `req.userRole`), `requireAuth` (gates every

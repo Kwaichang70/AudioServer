@@ -521,6 +521,8 @@ export interface FetchStatus {
 }
 
 export interface HealthResponse {
+  version?: string;
+  buildId?: string;
   status: 'ok' | 'degraded';
   uptime: number;
   timestamp: string;

@@ -87,6 +87,27 @@ export function createSession(
   return { sessionId, token, expiresAt };
 }
 
+/**
+ * Sliding renewal (V08.4): a valid session gets a fresh token and a new
+ * 30-day horizon, so a phone that opens the app every week never hits the
+ * hard expiry. Revoked or expired sessions are not revived.
+ */
+export function renewSession(
+  sessionId: string,
+): { sessionId: string; token: string; expiresAt: number } | null {
+  const row = loadValidSession(sessionId);
+  if (!row) return null;
+  const now = Date.now();
+  const expiresAt = now + SESSION_TTL_MS;
+  getRawDb()
+    .prepare('UPDATE sessions SET expires_at = ?, last_seen_at = ? WHERE id = ?')
+    .run(expiresAt, now, sessionId);
+  const token = jwt.sign({ userId: row.user_id, sid: sessionId }, config.jwtSecret, {
+    expiresIn: Math.floor(SESSION_TTL_MS / 1000),
+  });
+  return { sessionId, token, expiresAt };
+}
+
 function loadValidSession(sessionId: string): SessionRow | null {
   const row = getRawDb()
     .prepare(

@@ -4,6 +4,7 @@ import NowPlayingBar from './NowPlayingBar.js';
 import { AudioProvider } from '../context/AudioContext.js';
 import { KeyboardShortcuts } from './KeyboardShortcuts.js';
 import { useAuth } from '../context/AuthContext.js';
+import AppStatusBanners from './AppStatusBanners.js';
 
 const NowPlayingFull = lazy(() => import('./NowPlayingFull.js'));
 
@@ -40,11 +41,12 @@ export default function Layout() {
   return (
     <AudioProvider>
       <div className="flex flex-col h-screen bg-surface-dark">
+        <AppStatusBanners />
         {/* Top nav */}
         <header className="flex items-center justify-between px-4 md:px-6 py-3 bg-surface border-b border-white/10">
           <div className="flex items-center gap-6">
             <h1 className="text-xl font-bold text-accent tracking-wide">AudioServer</h1>
-            <nav className="hidden md:flex gap-1">
+            <nav className="hidden md:flex gap-1" aria-label="Main">
               {navItems.map((item) => (
                 <NavLink
                   key={item.to}
@@ -65,9 +67,11 @@ export default function Layout() {
           <div className="flex items-center gap-3">
             {user && (
               <button
+                type="button"
                 onClick={() => signOut()}
                 title={`Signed in as ${user.username}. Click to sign out.`}
-                className="hidden md:inline-flex items-center gap-2 text-xs text-gray-400 hover:text-white transition"
+                aria-label={`Sign out ${user.username}`}
+                className="hidden md:inline-flex items-center gap-2 min-h-[44px] text-xs text-gray-400 hover:text-white transition rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 <span className="max-w-[10rem] truncate">{user.username}</span>
                 <span className="px-2 py-0.5 rounded border border-white/10">Sign out</span>
@@ -75,17 +79,25 @@ export default function Layout() {
             )}
             {/* Mobile hamburger */}
             <button
+              type="button"
               onClick={() => setMenuOpen(!menuOpen)}
-              className="md:hidden text-gray-400 hover:text-white text-xl"
+              aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={menuOpen}
+              aria-controls="mobile-menu"
+              className="md:hidden min-h-[44px] min-w-[44px] inline-flex items-center justify-center text-gray-400 hover:text-white text-xl rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-              {menuOpen ? '\u2715' : '\u2630'}
+              <span aria-hidden="true">{menuOpen ? '\u2715' : '\u2630'}</span>
             </button>
           </div>
         </header>
 
         {/* Mobile menu */}
         {menuOpen && (
-          <nav className="md:hidden bg-surface border-b border-white/10 px-4 py-2 flex flex-wrap gap-2">
+          <nav
+            id="mobile-menu"
+            aria-label="Main"
+            className="md:hidden bg-surface border-b border-white/10 px-4 py-2 flex flex-wrap gap-2"
+          >
             {navItems.map((item) => (
               <NavLink
                 key={item.to}
@@ -93,7 +105,7 @@ export default function Layout() {
                 end={item.to === '/'}
                 onClick={() => setMenuOpen(false)}
                 className={({ isActive }) =>
-                  `px-3 py-1.5 rounded text-sm transition ${
+                  `inline-flex items-center min-h-[44px] px-3 py-1.5 rounded text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                     isActive ? 'bg-accent text-white' : 'text-gray-400 hover:text-white'
                   }`
                 }
@@ -103,8 +115,9 @@ export default function Layout() {
             ))}
             {user && (
               <button
+                type="button"
                 onClick={() => signOut()}
-                className="px-3 py-1 rounded text-sm text-gray-400 hover:text-white transition"
+                className="inline-flex items-center min-h-[44px] px-3 py-1 rounded text-sm text-gray-400 hover:text-white transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 Sign out ({user.username})
               </button>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
+import GettingStarted from '../components/GettingStarted.js';
 
 interface Stats {
   artists: number;
@@ -93,6 +94,9 @@ export default function HomePage() {
           </div>
         )}
       </section>
+
+      {/* Guided first experience (V08.2) */}
+      <GettingStarted />
 
       {/* Recently Added */}
       {recentlyAdded.length > 0 && (

@@ -20,6 +20,8 @@ export default tseslint.config(
       // Service worker uses Worker globals (self, caches, Response, etc.)
       // It's plain JS and not subject to our TypeScript rules.
       'client/public/sw.js',
+      // Same for the build-time template of the production worker (V08.1).
+      'client/sw/sw.template.js',
     ],
   },
   js.configs.recommended,

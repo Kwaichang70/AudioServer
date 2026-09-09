@@ -37,6 +37,8 @@ RUN npm ci
 # .dockerignore excludes them too; this is the belt-and-braces for contexts
 # where an old cache was rsynced in (the NAS overlay deploy).
 RUN find . -name '*.tsbuildinfo' -not -path './node_modules/*' -delete
+ARG VCS_REF=unknown
+ENV VITE_BUILD_ID=${VCS_REF}
 RUN npm run build --workspace=shared
 RUN npm run build --workspace=client
 
@@ -54,6 +56,8 @@ FROM ${NODE_IMAGE}
 ARG BUILD_DATE=unknown
 ARG VCS_REF=unknown
 ARG VERSION=0.1.0
+# The running server reports the revision in /api/health (V08.4 diagnostics).
+ENV VCS_REF=${VCS_REF}
 
 LABEL org.opencontainers.image.title="AudioServer" \
       org.opencontainers.image.description="Self-hosted music streamer with local library, Qobuz playback, and multi-room output" \

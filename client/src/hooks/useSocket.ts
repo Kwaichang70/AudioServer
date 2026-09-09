@@ -150,6 +150,21 @@ export function useSocket(): UseSocketReturn {
     socketRef.current?.emit('playback:sync');
   }, []);
 
+  // Foreground again (V08.4): the phone may have missed every event while
+  // asleep. Ask for a fresh snapshot instead of trusting stale state; a
+  // socket that dropped meanwhile reconnects on its own and gets one too.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      const s = socketRef.current;
+      if (!s) return;
+      if (s.connected) s.emit('playback:sync');
+      else s.connect();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
+
   return useMemo(
     () => ({
       connected,

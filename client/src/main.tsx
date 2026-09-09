@@ -5,14 +5,12 @@ import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { ToastProvider } from './components/Toast.js';
 import { AuthProvider } from './context/AuthContext.js';
 import App from './App.js';
+import { registerServiceWorker } from './sw/register.js';
 import './index.css';
 
-// Register service worker for PWA
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
-  });
-}
+// Service worker: versioned shell cache with a "reload when you want" update
+// flow (V08.1). The app runs fine without it.
+registerServiceWorker();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
