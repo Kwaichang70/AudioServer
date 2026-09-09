@@ -245,7 +245,10 @@ describe('PlaybackService session (V03)', () => {
     service.setQueue([trackOne, trackTwo, trackOne], 0, tabA, 'browser');
     const items = service.getQueue();
     service.playItem(items[2].itemId, tabA);
-    expect(service.getSnapshot().controller).toEqual({ clientId: 'tab-a', deviceId: 'browser' });
+    expect(service.getSnapshot().controller).toMatchObject({
+      clientId: 'tab-a',
+      deviceId: 'browser',
+    });
 
     const restarted = new PlaybackService();
     restarted.initialize();

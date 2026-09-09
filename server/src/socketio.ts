@@ -105,6 +105,15 @@ export function initSocketIO(httpServer: HttpServer) {
   return io;
 }
 
+/** Is a browser tab with this client id currently connected? (Spotify needs one.) */
+export function isClientConnected(clientId: string | null | undefined): boolean {
+  if (!io || !clientId) return false;
+  for (const socket of io.sockets.sockets.values()) {
+    if (socket.data.clientId === clientId) return true;
+  }
+  return false;
+}
+
 /** Close every socket bound to one of the given sessions. Returns how many were closed. */
 export function disconnectSessions(sessionIds: string[]): number {
   if (!io || sessionIds.length === 0) return 0;

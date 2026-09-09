@@ -75,7 +75,62 @@ interface SpotifySearchResponse {
 }
 
 interface SpotifyPlaylistTracksResponse {
-  items?: Array<{ track?: SpotifyTrackResponse | null }>;
+  /** `/playlists/{id}/items` (2026) wraps the track as `item`; `/tracks` as `track`. */
+  items?: Array<{ track?: SpotifyTrackResponse | null; item?: SpotifyTrackResponse | null }>;
+}
+
+export type SpotifyErrorCode =
+  | 'spotify_not_authenticated'
+  | 'spotify_rate_limited'
+  | 'spotify_forbidden'
+  | 'spotify_not_found'
+  | 'spotify_api_error';
+
+/** Typed Spotify failure so routes can answer 401/403/429 instead of a generic 500. */
+export class SpotifyProviderError extends Error {
+  constructor(
+    readonly code: SpotifyErrorCode,
+    message: string,
+    readonly statusCode: number,
+    readonly retryAfterSeconds?: number,
+  ) {
+    super(message);
+    this.name = 'SpotifyProviderError';
+  }
+}
+
+function spotifyErrorFor(status: number, body: string, retryAfter?: number): SpotifyProviderError {
+  const detail = body.slice(0, 160);
+  if (status === 429) {
+    return new SpotifyProviderError(
+      'spotify_rate_limited',
+      `Spotify is rate-limiting this app; try again in ${retryAfter ?? 5}s`,
+      429,
+      retryAfter,
+    );
+  }
+  if (status === 401) {
+    return new SpotifyProviderError(
+      'spotify_not_authenticated',
+      'Spotify session expired; reconnect Spotify in Settings',
+      401,
+    );
+  }
+  if (status === 403) {
+    return new SpotifyProviderError(
+      'spotify_forbidden',
+      `Spotify refused this request (Premium required, or the app is in Development Mode and this account is not allow-listed): ${detail}`,
+      403,
+    );
+  }
+  if (status === 404) {
+    return new SpotifyProviderError('spotify_not_found', `Spotify: not found: ${detail}`, 404);
+  }
+  return new SpotifyProviderError(
+    'spotify_api_error',
+    `Spotify API error: ${status} ${detail}`,
+    502,
+  );
 }
 
 export interface SpotifyConnectDevice {
@@ -331,19 +386,24 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
 
   private async apiRequest<T>(path: string): Promise<T> {
     if (Date.now() < this.rateLimitedUntil) {
-      throw new Error('Spotify API error: 429 (cooling down)');
+      throw new SpotifyProviderError(
+        'spotify_rate_limited',
+        'Spotify is rate-limiting this app (cooling down)',
+        429,
+        Math.ceil((this.rateLimitedUntil - Date.now()) / 1000),
+      );
     }
     const headers = await this.getHeaders();
     const url = `${SPOTIFY_API_URL}${path}`;
     const res = await fetch(url, { headers });
     if (res.status === 429) {
       this.noteRateLimit(res);
-      throw new Error('Spotify API error: 429 Too many requests');
+      throw spotifyErrorFor(429, '', Math.ceil((this.rateLimitedUntil - Date.now()) / 1000));
     }
     if (!res.ok) {
       const text = await res.text();
       logger.error(`Spotify API ${res.status}: ${url} → ${text.slice(0, 200)}`);
-      throw new Error(`Spotify API error: ${res.status} ${text.slice(0, 100)}`);
+      throw spotifyErrorFor(res.status, text);
     }
     return (await res.json()) as T;
   }
@@ -361,7 +421,11 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     if (!res.ok) {
       if (res.status === 429) this.noteRateLimit(res);
       const text = await res.text();
-      throw new Error(`Spotify API error: ${res.status} ${text}`);
+      throw spotifyErrorFor(
+        res.status,
+        text,
+        Math.ceil((this.rateLimitedUntil - Date.now()) / 1000),
+      );
     }
   }
 
@@ -375,7 +439,11 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     if (!res.ok) {
       if (res.status === 429) this.noteRateLimit(res);
       const text = await res.text();
-      throw new Error(`Spotify API error: ${res.status} ${text}`);
+      throw spotifyErrorFor(
+        res.status,
+        text,
+        Math.ceil((this.rateLimitedUntil - Date.now()) / 1000),
+      );
     }
   }
 
@@ -575,20 +643,36 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     }
   }
 
+  /**
+   * Playlist contents. Spotify's February 2026 change moved this to
+   * `/playlists/{id}/items` (entries wrap the track as `item`); apps still on
+   * the old mode keep `/tracks`. Try the new endpoint first and fall back on
+   * 404/403 so both app modes work; remember which one worked.
+   */
+  private playlistItemsPath: 'items' | 'tracks' = 'items';
+
   async getPlaylistTracks(playlistId: string): Promise<Track[]> {
     if (!this.auth.isAuthenticated) return [];
+    const spotifyId = playlistId.replace('spotify:', '');
+    const load = (kind: 'items' | 'tracks') =>
+      this.apiRequest<SpotifyPlaylistTracksResponse>(`/playlists/${spotifyId}/${kind}?limit=100`);
+    let data: SpotifyPlaylistTracksResponse;
     try {
-      const spotifyId = playlistId.replace('spotify:', '');
-      const data = await this.apiRequest<SpotifyPlaylistTracksResponse>(
-        `/playlists/${spotifyId}/tracks?limit=100`,
-      );
-      return (data.items || [])
-        .map((item) => item.track)
-        .filter((track): track is SpotifyTrackResponse => Boolean(track))
-        .map((track) => this.mapTrack(track));
-    } catch {
-      return [];
+      data = await load(this.playlistItemsPath);
+    } catch (err) {
+      const status = err instanceof SpotifyProviderError ? err.statusCode : 0;
+      if (this.playlistItemsPath === 'items' && (status === 404 || status === 403)) {
+        logger.info('Spotify: /playlists/{id}/items unavailable, falling back to /tracks');
+        this.playlistItemsPath = 'tracks';
+        data = await load('tracks');
+      } else {
+        throw err;
+      }
     }
+    return (data.items || [])
+      .map((entry) => entry.item ?? entry.track)
+      .filter((track): track is SpotifyTrackResponse => Boolean(track))
+      .map((track) => this.mapTrack(track));
   }
 
   // ─── Mappers ─────────────────────────────────────────────────

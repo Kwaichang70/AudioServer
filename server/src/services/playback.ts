@@ -3,6 +3,7 @@ import { getRawDb } from '../db/index.js';
 import { logger } from '../logger.js';
 import type { NowPlaying, Track } from '@audioserver/shared';
 import type {
+  DispatchStatus,
   PlaybackOrigin,
   PlaybackQueueEntry,
   PlaybackSnapshot,
@@ -54,6 +55,10 @@ interface PersistedState {
   volume: number;
   shuffle: boolean;
   repeat: 'off' | 'all' | 'one';
+  /** Account that handed the queue to the server (V04.3). */
+  ownerUserId: string | null;
+  /** True while the NAS drives the active device itself. */
+  serverManaged: boolean;
 }
 
 export type QueueEntry = PlaybackQueueEntry;
@@ -68,6 +73,8 @@ interface PlaybackStateRow {
   volume: number | null;
   shuffle: number | boolean | null;
   repeat: string | null;
+  owner_user_id: string | null;
+  server_managed: number | boolean | null;
 }
 
 interface QueueItemRow {
@@ -101,8 +108,18 @@ interface TrackRow {
  * continues while the tablet sleeps.
  */
 export interface PlaybackHooks {
-  onAdvance?: (deviceId: string, track: TrackInfo) => void;
+  onAdvance?: (deviceId: string, track: TrackInfo, itemId: string | null) => void;
   onIdle?: (deviceId: string) => void;
+}
+
+/** What initialize() found on disk; the server player reconciles it with the device. */
+export interface PersistedSessionInfo {
+  deviceId: string;
+  state: 'playing' | 'paused' | 'stopped';
+  trackId: string | null;
+  queueItemId: string | null;
+  ownerUserId: string | null;
+  serverManaged: boolean;
 }
 
 export interface PlaybackEventSink {
@@ -139,6 +156,7 @@ export class PlaybackService {
   private controllerClientId: string | null = null;
   /** Recently applied command ids → the snapshot they produced (retry safety). */
   private appliedCommands = new Map<string, PlaybackSnapshot>();
+  private dispatch: DispatchStatus = idleDispatch();
 
   constructor() {
     this.state = this.defaultState();
@@ -164,6 +182,8 @@ export class PlaybackService {
       volume: 50,
       shuffle: false,
       repeat: 'off',
+      ownerUserId: null,
+      serverManaged: false,
     };
   }
 
@@ -192,8 +212,11 @@ export class PlaybackService {
           volume: row.volume ?? 50,
           shuffle: !!row.shuffle,
           repeat: this.normalizeRepeat(row.repeat),
+          ownerUserId: row.owner_user_id ?? null,
+          serverManaged: !!row.server_managed,
         };
       }
+      this.dispatch = idleDispatch();
 
       const queueRows = db
         .prepare('SELECT * FROM queue_items ORDER BY position ASC')
@@ -252,6 +275,69 @@ export class PlaybackService {
     return this.state.queueItemId;
   }
 
+  getPersistedSessionInfo(): PersistedSessionInfo {
+    return {
+      deviceId: this.state.deviceId,
+      state: this.state.state,
+      trackId: this.state.trackId,
+      queueItemId: this.state.queueItemId,
+      ownerUserId: this.state.ownerUserId,
+      serverManaged: this.state.serverManaged,
+    };
+  }
+
+  getCurrentTrack(): TrackInfo | null {
+    return this.currentTrack;
+  }
+
+  /** The NAS takes (or releases) control of the active device. Persisted for restart recovery. */
+  setServerManaged(managed: boolean, ownerUserId?: string | null): void {
+    const changed =
+      this.state.serverManaged !== managed ||
+      (ownerUserId !== undefined && this.state.ownerUserId !== ownerUserId);
+    this.state.serverManaged = managed;
+    if (ownerUserId !== undefined) this.state.ownerUserId = ownerUserId;
+    if (!changed) return;
+    this.persistState();
+    this.emitState(SERVER_ORIGIN);
+  }
+
+  getDispatch(): DispatchStatus {
+    return { ...this.dispatch };
+  }
+
+  /** Server-side player reports progress of handing a track to the device. */
+  setDispatch(update: Partial<DispatchStatus> & { state: DispatchStatus['state'] }): void {
+    this.dispatch = {
+      deviceId: this.state.deviceId,
+      itemId: this.state.queueItemId,
+      trackId: this.state.trackId,
+      attempts: 0,
+      ...update,
+      updatedAt: Date.now(),
+    };
+    try {
+      this.sink?.emit('playback:dispatch', this.getDispatch());
+    } catch (err) {
+      logger.debug(`PlaybackService: emit dispatch failed: ${err}`);
+    }
+  }
+
+  /**
+   * The device could not (or no longer) play: the session must not keep a
+   * fictitious "playing". Stops without advancing and without touching the
+   * queue, so a later play/next picks up where it was.
+   */
+  markPlaybackFailed(message: string, code?: string): void {
+    this.setDispatch({ state: 'error', message, code, attempts: this.dispatch.attempts });
+    if (this.state.state !== 'stopped') {
+      this.state.state = 'stopped';
+      this.bump();
+      this.persistState();
+    }
+    this.emitState(SERVER_ORIGIN);
+  }
+
   getSnapshot(): PlaybackSnapshot {
     return {
       revision: this.state.revision,
@@ -261,7 +347,12 @@ export class PlaybackService {
       state: this.getState(),
       shuffle: this.state.shuffle,
       repeat: this.state.repeat,
-      controller: { clientId: this.controllerClientId, deviceId: this.state.deviceId },
+      controller: {
+        clientId: this.controllerClientId,
+        deviceId: this.state.deviceId,
+        serverManaged: this.state.serverManaged,
+      },
+      dispatch: this.getDispatch(),
     };
   }
 
@@ -334,7 +425,7 @@ export class PlaybackService {
     const track = this.queueEntryToTrackInfo(this.queue[index]);
     this.play(track, deviceId, itemId, origin);
     this.emitTrackChanged(track, origin);
-    this.hooks.onAdvance?.(this.state.deviceId, track);
+    this.hooks.onAdvance?.(this.state.deviceId, track, this.state.queueItemId);
     return track;
   }
 
@@ -557,7 +648,7 @@ export class PlaybackService {
       if (this.state.repeat === 'one' && this.currentTrack) {
         this.play(this.currentTrack, undefined, undefined, origin);
         this.emitTrackChanged(this.currentTrack, origin);
-        this.hooks.onAdvance?.(this.state.deviceId, this.currentTrack);
+        this.hooks.onAdvance?.(this.state.deviceId, this.currentTrack, this.state.queueItemId);
         return this.currentTrack;
       }
       this.finishQueue(origin);
@@ -573,7 +664,7 @@ export class PlaybackService {
       if (track) {
         this.play(track, undefined, current?.itemId, origin);
         this.emitTrackChanged(track, origin);
-        this.hooks.onAdvance?.(this.state.deviceId, track);
+        this.hooks.onAdvance?.(this.state.deviceId, track, this.state.queueItemId);
         return track;
       }
       return null;
@@ -615,7 +706,7 @@ export class PlaybackService {
     const track = this.queueEntryToTrackInfo(entry);
     this.play(track, undefined, entry.itemId, origin);
     this.emitTrackChanged(track, origin);
-    this.hooks.onAdvance?.(this.state.deviceId, track);
+    this.hooks.onAdvance?.(this.state.deviceId, track, this.state.queueItemId);
     return track;
   }
 
@@ -732,8 +823,8 @@ export class PlaybackService {
       const db = getRawDb();
       db.prepare(
         `
-        INSERT OR REPLACE INTO playback_state (id, device_id, track_id, queue_item_id, revision, state, position, volume, shuffle, repeat, updated_at)
-        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+        INSERT OR REPLACE INTO playback_state (id, device_id, track_id, queue_item_id, revision, state, position, volume, shuffle, repeat, owner_user_id, server_managed, updated_at)
+        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
       `,
       ).run(
         this.state.deviceId,
@@ -745,6 +836,8 @@ export class PlaybackService {
         this.state.volume,
         this.state.shuffle ? 1 : 0,
         this.state.repeat,
+        this.state.ownerUserId,
+        this.state.serverManaged ? 1 : 0,
       );
     } catch (err) {
       logger.warn(`PlaybackService: persist state failed: ${err}`);
@@ -827,6 +920,17 @@ export class PlaybackService {
       logger.debug(`PlaybackService: emit track-changed failed: ${err}`);
     }
   }
+}
+
+function idleDispatch(): DispatchStatus {
+  return {
+    state: 'idle',
+    deviceId: null,
+    itemId: null,
+    trackId: null,
+    attempts: 0,
+    updatedAt: Date.now(),
+  };
 }
 
 function parseMetadata(raw: string | null): Record<string, unknown> | undefined {

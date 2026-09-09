@@ -8,6 +8,7 @@ import {
   stopServerPlayback,
 } from '../services/server-player.js';
 import { validate } from '../utils/validate.js';
+import { getAllCapabilities } from '../services/playback-resolver.js';
 
 export const playbackRouter = Router();
 
@@ -126,6 +127,12 @@ function syncServerPlayer(req: Request, deviceId: string | undefined) {
 // ─── Reads ───────────────────────────────────────────────────────
 
 playbackRouter.get('/session', (_req, res) => sendSnapshot(res));
+
+// What each source can do right now (server dispatch / browser / external
+// player), so the client stops guessing from id prefixes (V04.1).
+playbackRouter.get('/capabilities', (_req, res) => {
+  res.json({ data: getAllCapabilities() });
+});
 
 playbackRouter.get('/now-playing', (_req, res) => {
   res.json({ data: playbackService.getState() });

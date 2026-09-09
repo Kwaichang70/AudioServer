@@ -25,6 +25,7 @@ import type {
   PlaybackQueueResponse,
   PlaybackSnapshotResponse,
   PlaybackStateResponse,
+  SourceCapabilities,
   QueueCommandOptions,
   PlaylistImportMeta,
   ProviderAuthResult,
@@ -350,6 +351,8 @@ export const api = {
   getNowPlaying: (): Promise<PlaybackStateResponse> => fetchApi('/playback/now-playing'),
   getQueue: (): Promise<PlaybackQueueResponse> => fetchApi('/playback/queue'),
   getPlaybackSession: (): Promise<PlaybackSnapshotResponse> => fetchApi('/playback/session'),
+  getPlaybackCapabilities: (): Promise<ApiResponse<SourceCapabilities[]>> =>
+    fetchApi('/playback/capabilities'),
   addToQueue: (
     track: Partial<Track> | object,
     options: QueueCommandOptions = {},

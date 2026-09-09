@@ -28,7 +28,7 @@ import { autoStartLibrespot, stopLibrespot } from './services/librespot.js';
 import { playbackService } from './services/playback.js';
 import { startWatcher, stopWatcher } from './services/watcher.js';
 import { deviceMonitor } from './services/device-monitor.js';
-import { initServerPlayer } from './services/server-player.js';
+import { initServerPlayer, reconcileAfterRestart } from './services/server-player.js';
 import { globalLimiter } from './middleware/rateLimiter.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { attachUser, requireAuth } from './middleware/auth.js';
@@ -199,11 +199,17 @@ async function main() {
   // Server-driven playback: pushes the next queue track to DLNA/Sonos devices
   // itself, so albums keep playing when every client (tablet) is asleep.
   initServerPlayer();
+  // A queue survives a restart; whether the speaker is still playing it is
+  // checked, not assumed (V04.3). Runs after listen() so readiness is not
+  // delayed by a slow renderer.
+  const reconcile = () =>
+    reconcileAfterRestart().catch((err) => logger.warn(`ServerPlayer: reconcile failed: ${err}`));
   startWatcher();
   scrobbler.start();
   autoStartLibrespot().catch(() => {});
 
   httpServer.listen(config.port, '0.0.0.0', () => {
+    void reconcile();
     logger.info(`AudioServer running on http://0.0.0.0:${config.port}`);
     logger.info(`Music library paths: ${config.musicLibraryPaths.join(', ')}`);
     logger.info(`Environment: ${config.nodeEnv}`);

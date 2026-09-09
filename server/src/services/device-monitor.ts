@@ -28,6 +28,12 @@ interface DeviceMonitorDependencies {
   getIO: () => DeviceMonitorIo;
   playback: PlaybackStateSync;
   logger: Pick<typeof logger, 'info' | 'debug'>;
+  /** Called once when a pinned (server-driven) device stays unreachable and polling gives up. */
+  onUnreachable?: (deviceId: string, errors: number) => void;
+  /** Milliseconds between polls (tests shorten it). */
+  pollIntervalMs?: number;
+  /** A single status request slower than this counts as a failure. */
+  pollTimeoutMs?: number;
 }
 
 const defaultDependencies: DeviceMonitorDependencies = {
@@ -53,8 +59,20 @@ export class DeviceMonitor {
   // applies to devices that are not pinned.
   private pinnedDevices = new Set<string>();
   private consecutiveErrors = new Map<string, number>();
+  // Polls that have not returned yet. A slow renderer must not pile up
+  // overlapping requests (V04.3); the next tick simply waits.
+  private inFlight = new Set<string>();
 
   constructor(private deps: DeviceMonitorDependencies = defaultDependencies) {}
+
+  /** Hook up the server player after construction (avoids an import cycle). */
+  setUnreachableHandler(handler: (deviceId: string, errors: number) => void): void {
+    this.deps = { ...this.deps, onUnreachable: handler };
+  }
+
+  isPinned(deviceId: string): boolean {
+    return this.pinnedDevices.has(deviceId);
+  }
 
   /** Start monitoring a device (called when a client subscribes) */
   subscribe(deviceId: string): void {
@@ -137,28 +155,38 @@ export class DeviceMonitor {
     this.deps.logger.info(`DeviceMonitor: start polling ${deviceId}`);
     this.consecutiveErrors.set(deviceId, 0);
 
-    const interval = setInterval(async () => {
-      try {
-        await this.pollDeviceOnce(deviceId);
-        this.consecutiveErrors.set(deviceId, 0);
-      } catch {
-        // Pinned devices (server-driven playback) tolerate transient failures
-        // — one Wi-Fi hiccup must not kill the engine that advances the queue
-        // overnight. Unpinned monitoring keeps the old fail-fast behavior.
-        const errors = (this.consecutiveErrors.get(deviceId) || 0) + 1;
-        this.consecutiveErrors.set(deviceId, errors);
-        const limit = this.pinnedDevices.has(deviceId) ? 10 : 1;
-        if (errors >= limit) {
-          this.deps.logger.debug(
-            `DeviceMonitor: ${deviceId} unreachable (${errors}x), stopping poll`,
-          );
-          this.pinnedDevices.delete(deviceId);
-          this.stopPolling(deviceId);
-        }
-      }
-    }, 2000);
+    const interval = setInterval(() => void this.tick(deviceId), this.deps.pollIntervalMs ?? 2000);
 
     this.pollingIntervals.set(deviceId, interval);
+  }
+
+  /** One poll cycle; never overlaps with a previous one for the same device. */
+  async tick(deviceId: string): Promise<void> {
+    if (this.inFlight.has(deviceId)) return;
+    this.inFlight.add(deviceId);
+    try {
+      await withTimeout(this.pollDeviceOnce(deviceId), this.deps.pollTimeoutMs ?? 5000);
+      this.consecutiveErrors.set(deviceId, 0);
+    } catch {
+      // Pinned devices (server-driven playback) tolerate transient failures
+      // — one Wi-Fi hiccup must not kill the engine that advances the queue
+      // overnight. Unpinned monitoring keeps the old fail-fast behavior.
+      const errors = (this.consecutiveErrors.get(deviceId) || 0) + 1;
+      this.consecutiveErrors.set(deviceId, errors);
+      const pinned = this.pinnedDevices.has(deviceId);
+      const limit = pinned ? 10 : 1;
+      if (errors >= limit) {
+        this.deps.logger.debug(
+          `DeviceMonitor: ${deviceId} unreachable (${errors}x), stopping poll`,
+        );
+        this.pinnedDevices.delete(deviceId);
+        this.stopPolling(deviceId);
+        // Long outage: the session must not stay "playing" on a dead device.
+        if (pinned) this.deps.onUnreachable?.(deviceId, errors);
+      }
+    } finally {
+      this.inFlight.delete(deviceId);
+    }
   }
 
   private stopPolling(deviceId: string): void {
@@ -228,6 +256,22 @@ export class DeviceMonitor {
 }
 
 export const deviceMonitor = new DeviceMonitor();
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`device status timed out after ${ms}ms`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
 
 function isAtEnd(update: DevicePlaybackUpdate): boolean {
   return update.duration > 0 && update.position >= Math.max(0, update.duration - 2);

@@ -4,6 +4,44 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## V04 — The NAS plays local and Qobuz on its own (verbeterplan sprint 4)
+
+**One resolver** (`server/src/services/playback-resolver.ts`,
+`GET /api/playback/capabilities`)
+
+- Per source: can the server hand it to a speaker, can a browser play it, is
+  it an external player (Spotify Connect), does the url expire. Local →
+  LAN url with a fresh `system` token and mime type; Qobuz → freshly signed
+  CDN url; radio → station stream; Spotify → external player only; Tidal →
+  no full playback.
+
+**Server dispatch with status and policy**
+
+- `dispatch()` resolves a fresh url on every attempt (an expired Qobuz url
+  is replaced, not retried), sends with a 20 s timeout, at most two attempts,
+  and reports `snapshot.dispatch` (`loading`/`playing`/`client`/`skipped`/
+  `error`) through `playback:dispatch`; the app shows skips and errors.
+- `PLAYBACK_UNPLAYABLE_POLICY=skip|stop`: skip (default) moves on, at most
+  three in a row, then stops with a visible error. Spotify on a speaker is
+  left to the connected controlling tab; with nobody connected it counts as
+  unplayable.
+
+**Ownership, restart, polling**
+
+- Migration `0003_session_owner` (schema version 4): `owner_user_id`,
+  `server_managed`. After a restart the server asks the speaker: still
+  playing → keeps driving it; idle → session stopped with reason;
+  `PLAYBACK_RESUME_ON_RESTART=true` re-sends the current item.
+- Device monitor: no overlapping polls per device, 5 s status timeout; a
+  pinned device that stays unreachable stops the session instead of leaving
+  a fictitious "playing".
+
+**Spotify**
+
+- Playlist contents via `/playlists/{id}/items` (February 2026 change) with
+  fallback to `/tracks`; typed `SpotifyProviderError` so routes answer 429
+  (+ `Retry-After`), 403 (Premium / Development Mode) and 401 instead of 500.
+
 ## V03 — One playback session (verbeterplan sprint 3)
 
 The queue now lives on the server for every output, including the browser;

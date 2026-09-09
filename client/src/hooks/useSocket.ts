@@ -4,6 +4,7 @@ import { SOCKET_RECONNECT_ATTEMPTS, SOCKET_RECONNECT_DELAY, STORAGE_KEYS } from 
 import { SESSION_LOST_EVENT } from '../context/AuthContext.js';
 import { getClientId } from '../api/client.js';
 import type {
+  DispatchStatus,
   PlaybackQueueEvent,
   PlaybackSnapshot,
   PlaybackStateEvent,
@@ -39,6 +40,7 @@ interface ServerToClientEvents {
   'playback:queue': (event: PlaybackQueueEvent) => void;
   'playback:state': (event: PlaybackStateEvent) => void;
   'playback:track-changed': (event: PlaybackTrackChangedEvent) => void;
+  'playback:dispatch': (status: DispatchStatus) => void;
   'device:playback-update': (update: DevicePlaybackUpdate) => void;
   'library:scan-progress': (progress: LibraryScanProgress) => void;
   'session:revoked': () => void;
@@ -58,6 +60,8 @@ interface UseSocketReturn {
   queueEvent: PlaybackQueueEvent | null;
   stateEvent: PlaybackStateEvent | null;
   trackChanged: PlaybackTrackChangedEvent | null;
+  /** Server-side dispatch progress/errors for the active device. */
+  dispatch: DispatchStatus | null;
   scanProgress: LibraryScanProgress | null;
   subscribeDevice: (deviceId: string) => void;
   unsubscribeDevice: (deviceId: string) => void;
@@ -72,6 +76,7 @@ export function useSocket(): UseSocketReturn {
   const [queueEvent, setQueueEvent] = useState<PlaybackQueueEvent | null>(null);
   const [stateEvent, setStateEvent] = useState<PlaybackStateEvent | null>(null);
   const [trackChanged, setTrackChanged] = useState<PlaybackTrackChangedEvent | null>(null);
+  const [dispatch, setDispatch] = useState<DispatchStatus | null>(null);
   const [scanProgress, setScanProgress] = useState<LibraryScanProgress | null>(null);
   const subscribedDeviceRef = useRef<string | null>(null);
 
@@ -110,6 +115,7 @@ export function useSocket(): UseSocketReturn {
     socket.on('playback:queue', setQueueEvent);
     socket.on('playback:state', setStateEvent);
     socket.on('playback:track-changed', setTrackChanged);
+    socket.on('playback:dispatch', setDispatch);
     socket.on('library:scan-progress', setScanProgress);
 
     return () => {
@@ -147,6 +153,7 @@ export function useSocket(): UseSocketReturn {
       queueEvent,
       stateEvent,
       trackChanged,
+      dispatch,
       scanProgress,
       subscribeDevice,
       unsubscribeDevice,
@@ -159,6 +166,7 @@ export function useSocket(): UseSocketReturn {
       queueEvent,
       stateEvent,
       trackChanged,
+      dispatch,
       scanProgress,
       subscribeDevice,
       unsubscribeDevice,

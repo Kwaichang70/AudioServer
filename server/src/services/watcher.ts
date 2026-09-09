@@ -5,7 +5,15 @@ import { logger } from '../logger.js';
 import { scanLibrary } from './scanner.js';
 
 const SUPPORTED_EXTENSIONS = new Set([
-  '.flac', '.mp3', '.m4a', '.aac', '.ogg', '.opus', '.wav', '.wma', '.aiff',
+  '.flac',
+  '.mp3',
+  '.m4a',
+  '.aac',
+  '.ogg',
+  '.opus',
+  '.wav',
+  '.wma',
+  '.aiff',
 ]);
 
 let watchers: FSWatcher[] = [];

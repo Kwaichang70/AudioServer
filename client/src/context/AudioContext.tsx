@@ -584,6 +584,27 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     }
   }, [socket.trackChanged, clientId, startTrack]);
 
+  // Server-side dispatch status (V04.2): what the NAS is doing with the
+  // current item on the speaker. Errors and skips are the user's business;
+  // "loading"/"playing" only drive the spinner on this tab.
+  const handledDispatchRef = useRef<object | null>(null);
+  useEffect(() => {
+    const d = socket.dispatch;
+    if (!d || d === handledDispatchRef.current) return;
+    handledDispatchRef.current = d;
+    if (d.deviceId && d.deviceId !== selectedDeviceRef.current) return;
+    if (d.state === 'loading') setIsLoading(true);
+    if (d.state === 'playing' || d.state === 'idle' || d.state === 'client') setIsLoading(false);
+    if (d.state === 'skipped') {
+      setIsLoading(false);
+      toastRef.current(`Skipped a track the NAS cannot play: ${d.message ?? d.code ?? ''}`, 'info');
+    }
+    if (d.state === 'error') {
+      setIsLoading(false);
+      toastRef.current(`Playback stopped: ${d.message ?? d.code ?? 'device error'}`, 'error');
+    }
+  }, [socket.dispatch]);
+
   // Mirror playNext in a ref so the Spotify-SDK state effect can call the
   // latest version without re-subscribing on every queue change.
   const playNextRef = useRef(playNext);

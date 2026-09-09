@@ -44,6 +44,13 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).optional(),
   LOG_FORMAT: z.enum(['text', 'json']).optional(),
 
+  // Server-driven playback policy (V04)
+  PLAYBACK_UNPLAYABLE_POLICY: z.enum(['skip', 'stop']).default('skip'),
+  PLAYBACK_RESUME_ON_RESTART: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true'),
+
   // Optional device hints
   DLNA_DEVICES: z.string().optional(),
   VOLUMIO_DEVICES: z.string().optional(),
@@ -128,6 +135,9 @@ export function validateConfig(): void {
   console.log(`  DLNA devices: ${env.DLNA_DEVICES || 'auto-discover'}`);
   console.log(`  Volumio devices: ${env.VOLUMIO_DEVICES || 'none'}`);
   console.log(`  Watcher: ${config.watchLibrary ? 'enabled' : 'disabled'}`);
+  console.log(
+    `  Server playback: unplayable=${env.PLAYBACK_UNPLAYABLE_POLICY}, resume on restart=${env.PLAYBACK_RESUME_ON_RESTART ? 'yes' : 'no'}`,
+  );
   console.log('');
 
   // Warn (don't fail) on inaccessible music paths so a misconfigured share

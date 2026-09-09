@@ -2,7 +2,7 @@
 
 **Datum:** 7 september 2026  
 **Onderzochte versie:** commit cd3f094, lokale werkmap AudioServer  
-**Status:** analyse afgerond; V01–V03 uitgevoerd op 8 september 2026 (zie §11), V04–V12 nog te plannen.  
+**Status:** analyse afgerond; V01–V03 uitgevoerd op 8 september 2026 en V04 op 9 september 2026 (zie §11), V05–V12 nog te plannen.  
 **Doel:** een betrouwbare muziekserver voor de NAS, met een voorspelbare bediening op telefoon/tablet en goede ondersteuning voor lokale muziek en externe bronnen.
 
 ## 1. Advies en afbakening
@@ -261,7 +261,7 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 | V01    | Herhaalbare, beter beveiligde releasebasis         | Geen                              | Uitgevoerd in code (8 sep 2026); wacht op NAS-acceptatie |
 | V02    | Betrouwbare setup, aanmelding en beheerrechten     | V01                               | Uitgevoerd in code (8 sep 2026); wacht op NAS-acceptatie |
 | V03    | Correcte wachtrij en herstel tussen clients        | V01–V02                           | Uitgevoerd in code (8 sep 2026); wacht op NAS-acceptatie |
-| V04    | Zelfstandige lokale/Qobuz-playback op server       | V03                               | Gepland                                                  |
+| V04    | Zelfstandige lokale/Qobuz-playback op server       | V03                               | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
 | V05    | Betrouwbare luistergegevens en tijdstempels        | V03–V04                           | Gepland                                                  |
 | V06    | Bibliotheekwijzigingen zonder verlies van relaties | V01, V05                          | Gepland                                                  |
 | V07    | Betere zoekresultaten, edities en bronkeuze        | V04, V06                          | Gepland                                                  |
@@ -344,19 +344,23 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 **Doel:** muziek blijft doorspelen wanneer alle bedienende clients slapen.  
 **Bevindingen:** B05, B09.
 
-- [ ] **V04.1 · 2 dagen:** gedeeld playbackcontract voor bron, provider-item-ID, tijdelijke URL en capabilities; gebruik één resolver voor lokale bestanden en Qobuz.
-- [ ] **V04.2 · 2 dagen:** serverdispatch met verse URL per track, consistente metadata en duidelijke loading/playing/error-status na apparaatbevestiging.
-- [ ] **V04.3 · 2 dagen:** sessie-eigenaar opslaan, herstart/reconnect reconciliëren met apparaatstatus, timeouts en begrensde retries. Polling mag niet overlappen; langdurige uitval vereist een herstelpad.
-- [ ] **V04.4 · 2 dagen:** Spotify-contractcontrole inclusief playlistitems/403/429, browser- en providerfouten zichtbaar maken; geautomatiseerde plus echte apparaatacceptatie.
+- [x] **V04.1 · 2 dagen:** gedeeld playbackcontract voor bron, provider-item-ID, tijdelijke URL en capabilities; gebruik één resolver voor lokale bestanden en Qobuz.
+      _Gedaan:_ `services/playback-resolver.ts` met per bron `serverDispatch`, `browser`, `externalPlayer`, `ephemeralUrl` en reden; `resolveForDevice()` levert per aanroep een verse URL (lokaal: LAN-URL met nieuw `system`-token en mimetype; Qobuz: nieuw gesigneerde CDN-URL met `expiresAt`; radio: stationstream) plus consistente metadata. Spotify geeft `external_player_only`, Tidal `unsupported_source`. `GET /api/playback/capabilities` voor de client.
+- [x] **V04.2 · 2 dagen:** serverdispatch met verse URL per track, consistente metadata en duidelijke loading/playing/error-status na apparaatbevestiging.
+      _Gedaan:_ `server-player.dispatch()` resolvet per poging opnieuw, stuurt met timeout (20 s) naar het apparaat, probeert maximaal twee keer en legt de uitkomst vast als `snapshot.dispatch` (`loading` → `playing` | `client` | `skipped` | `error`) met event `playback:dispatch`; de client toont skips en fouten als melding. Beleid voor onafspeelbare nummers: `PLAYBACK_UNPLAYABLE_POLICY=skip` (standaard, maximaal 3 achter elkaar, daarna stop met fout) of `stop`. Spotify op een speaker wordt aan de verbonden controller-tab gelaten; zonder verbonden tab telt het als onafspeelbaar.
+- [x] **V04.3 · 2 dagen:** sessie-eigenaar opslaan, herstart/reconnect reconciliëren met apparaatstatus, timeouts en begrensde retries. Polling mag niet overlappen; langdurige uitval vereist een herstelpad.
+      _Gedaan:_ migratie `0003_session_owner` (schemaversie 4): `owner_user_id`, `server_managed`. `reconcileAfterRestart()` vraagt na een herstart de speaker om zijn status: speelt nog → sessie blijft servergestuurd; idle → sessie gestopt met zichtbare reden (`restart`); alleen `PLAYBACK_RESUME_ON_RESTART=true` stuurt het actuele nummer opnieuw. Apparaatmonitor: geen overlappende polls per apparaat, statusverzoek time-out 5 s, en bij tien mislukte polls op een vastgezet apparaat meldt hij dit aan de serverspeler, die de sessie stopt in plaats van “playing” te blijven tonen.
+- [x] **V04.4 · 2 dagen:** Spotify-contractcontrole inclusief playlistitems/403/429, browser- en providerfouten zichtbaar maken; geautomatiseerde plus echte apparaatacceptatie.
+      _Gedaan:_ playlistinhoud via `/playlists/{id}/items` (februari 2026-vorm, `item`) met terugval naar `/tracks` bij 404/403, onthouden per proces; `SpotifyProviderError` met codes `spotify_rate_limited` (429 + `Retry-After`), `spotify_forbidden` (403, noemt Premium/Development Mode), `spotify_not_authenticated`; provider-routes geven die status door in plaats van 500. Contract- en routetests toegevoegd. Echte apparaatacceptatie (30 minuten, drie overgangen, Qobuz op speaker) moet op de NAS gebeuren.
 
 **Acceptatie:**
 
-- Een lokale en een gemengde lokaal/Qobuz-wachtrij spelen minimaal 30 minuten en drie overgangen door terwijl alle clients zijn gesloten.
-- Een verlopen Qobuz-URL wordt opnieuw opgelost; ontbrekende rechten stoppen of slaan over volgens een expliciet, zichtbaar beleid.
-- Bij apparaatuitval wordt geen fictieve “playing”-status vastgehouden en geen nummer onbeperkt opnieuw geprobeerd.
-- Een serverherstart herstelt de queue en herkent de uitvoerstatus; autoplay gebeurt alleen volgens vooraf gekozen herstelinstelling.
-- Spotify blijft via SDK/Connect werken; Tidal verschijnt niet als volledige playbackbron.
-- Als een apparaat directe Qobuz-HTTPS-URLs weigert, krijgt het die capability niet. Een providerproxy/transcoder wordt dan een afzonderlijke proef met beperkte scope.
+- Een lokale en een gemengde lokaal/Qobuz-wachtrij spelen minimaal 30 minuten en drie overgangen door terwijl alle clients zijn gesloten. _Open: hardwaretest op de NAS (Sonos/DLNA + Qobuz-account). In code bewezen: dispatch van lokaal en Qobuz via één pad, servergestuurde advance zonder client (`server-player.test.ts`)._
+- Een verlopen Qobuz-URL wordt opnieuw opgelost; ontbrekende rechten stoppen of slaan over volgens een expliciet, zichtbaar beleid. _Gehaald: tweede poging resolvet opnieuw (test “re-resolves (new url)”); beleid `skip`/`stop` met limiet, zichtbaar via `playback:dispatch` en toast._
+- Bij apparaatuitval wordt geen fictieve “playing”-status vastgehouden en geen nummer onbeperkt opnieuw geprobeerd. _Gehaald: maximaal twee pogingen met timeout; monitor meldt onbereikbaarheid na tien polls en de sessie gaat naar `stopped` met `device_unreachable`._
+- Een serverherstart herstelt de queue en herkent de uitvoerstatus; autoplay gebeurt alleen volgens vooraf gekozen herstelinstelling. _Gehaald: `reconcileAfterRestart()`-tests voor speler-speelt-nog, idle (gestopt, wachtrij intact) en `PLAYBACK_RESUME_ON_RESTART`._
+- Spotify blijft via SDK/Connect werken; Tidal verschijnt niet als volledige playbackbron. _Gehaald: capabilities `spotify.externalPlayer = spotify-connect`, `tidal.browser = false`; de serverspeler laat Spotify aan de controller-tab._
+- Als een apparaat directe Qobuz-HTTPS-URLs weigert, krijgt het die capability niet. Een providerproxy/transcoder wordt dan een afzonderlijke proef met beperkte scope. _Open: te bepalen op de NAS per speaker; bij weigering valt het beleid nu terug op skip/stop met zichtbare reden. Een proxy is niet gebouwd (E06)._
 
 ### V05 — Tijdstempels, geschiedenis en scrobbling herstellen
 
@@ -646,9 +650,35 @@ Zelfde branch en omgeving als V01/V02.
 
 **Gedragswijzigingen voor de gebruiker:** shuffle/repeat gelden nu voor de hele huishoudsessie (server), niet per tab; een tweede tab of telefoon toont dezelfde wachtrij en volgt wijzigingen live, maar speelt niet vanzelf mee; na de update de app één keer herladen (oude pagina krijgt de melding).
 
+**Uitrol op de NAS (8 september 2026, avond):** `master` fast-forward naar 42fa0c0; archief via `scp -O` (Synology heeft SFTP uit); back-up van de oude database via de SQLite-backup-API in de oude container (het script `db:backup` bestond daar nog niet); image gebouwd, `/api/health/ready` gaf `schemaVersion: 3`. Bevinding: de NAS-installatie had nog nooit een account (de oude versie liet zonder account alles toe), dus het setupscherm verscheen en de admin is met de setupcode aangemaakt. Eerste keer dat een echte database door de migraties 0001–0002 en de versiecontrole ging: zonder fouten.
+
 **Wacht op acceptatie (NAS):** album op Sonos/DLNA starten vanaf tablet, tablet dicht, tweede apparaat opent de wachtrij en verwijdert een nummer; Qobuz-track in gemengde wachtrij op extern apparaat (controller-tab speelt); scenario met twee tabs op dezelfde browser-output.
 
 **Beslismoment na V04** blijft; V04 (NAS speelt lokaal én Qobuz zelfstandig) kan starten.
+
+### V04 — 9 september 2026
+
+Zelfde branch en omgeving als V01–V03.
+
+| Controle                     | Na V03                                         | Na V04                                                                                |
+| ---------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Servertests                  | 212 tests, 28 bestanden                        | 242 tests, 31 bestanden (resolver, serverspeler, herstart, monitor, Spotify-contract) |
+| Clienttests                  | 94 tests, 18 bestanden                         | 94 tests, 18 bestanden                                                                |
+| Lint / typecheck / build     | groen                                          | groen                                                                                 |
+| Bronresolutie voor apparaten | alleen lokaal, verspreid over client en server | één resolver: lokaal, Qobuz (verse URL), radio; Spotify/Tidal expliciet uitgesloten   |
+| Dispatchstatus               | alleen logregels                               | `snapshot.dispatch` + `playback:dispatch`, toasts bij skip/fout                       |
+| Onafspeelbaar nummer         | wachtrij viel stil                             | `skip` (max 3) of `stop`, zichtbaar                                                   |
+| Apparaat onbereikbaar        | sessie bleef “playing”                         | sessie gestopt met `device_unreachable`                                               |
+| Herstart                     | wachtrij hersteld, status aangenomen           | speaker bevraagd; alleen met instelling opnieuw starten                               |
+| Polling                      | kon overlappen, geen time-out                  | één poll per apparaat tegelijk, 5 s time-out                                          |
+| Spotify-fouten               | 500 met tekst                                  | 429 + Retry-After, 403 met reden, 401                                                 |
+| Schemaversie                 | 3                                              | 4 (`owner_user_id`, `server_managed`)                                                 |
+
+**Nieuwe instellingen:** `PLAYBACK_UNPLAYABLE_POLICY` (skip/stop) en `PLAYBACK_RESUME_ON_RESTART` (true/false) in `.env`, `docker-compose.yml` en `.env.example`.
+
+**Wacht op acceptatie (NAS):** de 30-minutentest met drie overgangen op Sonos/DLNA zonder clients, eerst lokaal, daarna gemengd lokaal/Qobuz (vereist ingelogd Qobuz-account op de NAS); controleren of de speaker directe Qobuz-HTTPS-URL’s accepteert; een herstart tijdens weergave (`docker-compose restart`) en kijken of de sessie “speelt nog” meldt; Spotify-playlist openen om te zien welk endpoint de app-modus gebruikt (logregel “falling back to /tracks”).
+
+**Beslismoment na V04:** de gebruikstest “tablet dicht, album blijft spelen” is nu de eerste NAS-taak. Zolang die niet is gedaan, geen grotere audio-uitbreiding (V11) starten; V05 (luistergegevens) hangt er niet van af en kan door.
 
 ## Bronverwijzingen naar de onderzochte code
 

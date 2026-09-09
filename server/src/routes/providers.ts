@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { providers } from '../providers/registry.js';
 import { QobuzProviderError } from '../providers/qobuz.js';
+import { SpotifyProviderError } from '../providers/spotify.js';
 import { logger } from '../logger.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { validate } from '../utils/validate.js';
@@ -36,6 +37,24 @@ function sendQobuzError(res: import('express').Response, err: unknown): void {
   res.status(500).json({ error: 'qobuz_stream_unavailable', message: String(err) });
 }
 
+/**
+ * Provider failures reach the browser with the status and reason the user
+ * can act on (reconnect, wait for the rate limit, Premium) instead of a
+ * generic 500 (V04.4).
+ */
+function sendProviderError(res: import('express').Response, err: unknown): void {
+  if (err instanceof SpotifyProviderError) {
+    if (err.retryAfterSeconds) res.setHeader('Retry-After', String(err.retryAfterSeconds));
+    res.status(err.statusCode).json({ error: err.code, message: err.message });
+    return;
+  }
+  if (err instanceof QobuzProviderError) {
+    res.status(err.statusCode).json({ error: err.code, message: err.message });
+    return;
+  }
+  res.status(500).json({ error: 'ProviderError', message: String(err) });
+}
+
 // ─── Unified search across all active providers ──────────────────
 
 providersRouter.get('/search', async (req, res) => {
@@ -48,7 +67,7 @@ providersRouter.get('/search', async (req, res) => {
     const results = await providers.searchAll(q);
     res.json({ data: results });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -114,7 +133,7 @@ providersRouter.post(
       res.json({ data: { authenticated: true } });
     } catch (err) {
       logger.error(`Tidal auth callback failed: ${err}`);
-      res.status(500).json({ error: String(err) });
+      sendProviderError(res, err);
     }
   },
 );
@@ -130,7 +149,7 @@ providersRouter.get('/tidal/albums/:id', async (req, res) => {
     const album = await tidal.getAlbum(req.params.id);
     res.json({ data: album });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -139,7 +158,7 @@ providersRouter.get('/tidal/albums/:id/tracks', async (req, res) => {
     const tracks = await tidal.getAlbumTracks(req.params.id);
     res.json({ data: tracks, meta: { total: tracks.length } });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -158,7 +177,7 @@ providersRouter.get('/tidal/playlists', async (_req, res) => {
     const playlists = await tidal.getPlaylists();
     res.json({ data: playlists });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -167,7 +186,7 @@ providersRouter.get('/tidal/playlists/:id/tracks', async (req, res) => {
     const tracks = await tidal.getPlaylistTracks(req.params.id);
     res.json({ data: tracks, meta: { total: tracks.length } });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -177,7 +196,7 @@ providersRouter.get('/tidal/favorites/albums', async (_req, res) => {
     const albums = await tidal.getFavoriteAlbums();
     res.json({ data: albums });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -186,7 +205,7 @@ providersRouter.get('/tidal/favorites/tracks', async (_req, res) => {
     const tracks = await tidal.getFavoriteTracks();
     res.json({ data: tracks });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -195,7 +214,7 @@ providersRouter.get('/tidal/favorites/artists', async (_req, res) => {
     const artists = await tidal.getFavoriteArtists();
     res.json({ data: artists });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -208,7 +227,7 @@ providersRouter.get('/tidal/search', async (req, res) => {
   try {
     res.json({ data: await tidal.search(q) });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -252,7 +271,7 @@ providersRouter.post(
       res.json({ data: { authenticated: true } });
     } catch (err) {
       logger.error(`Spotify auth callback failed: ${err}`);
-      res.status(500).json({ error: String(err) });
+      sendProviderError(res, err);
     }
   },
 );
@@ -271,7 +290,7 @@ providersRouter.get('/spotify/search', async (req, res) => {
   try {
     res.json({ data: await spotify.search(q) });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -310,7 +329,7 @@ providersRouter.get('/qobuz/albums/:id', async (req, res) => {
     const album = await qobuz.getAlbum(req.params.id);
     res.json({ data: album });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -319,7 +338,7 @@ providersRouter.get('/qobuz/albums/:id/tracks', async (req, res) => {
     const tracks = await qobuz.getAlbumTracks(req.params.id);
     res.json({ data: tracks, meta: { total: tracks.length } });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -342,7 +361,7 @@ providersRouter.get('/qobuz/search', async (req, res) => {
   try {
     res.json({ data: await qobuz.search(q) });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -362,7 +381,7 @@ providersRouter.get('/spotify/token', async (_req, res) => {
     const token = await spotify.getWebPlaybackToken();
     res.json({ data: token });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -374,6 +393,12 @@ providersRouter.get('/spotify/connect/devices', async (_req, res) => {
     const devices = await spotify.getConnectDevices();
     res.json({ data: devices });
   } catch (err) {
+    // A rate limit or a Premium/Development-Mode refusal is something the
+    // user can act on; only unknown failures degrade to "no devices".
+    if (err instanceof SpotifyProviderError) {
+      sendProviderError(res, err);
+      return;
+    }
     logger.warn(`spotify connect/devices unavailable: ${String(err)}`);
     res.json({ data: [] });
   }
@@ -419,7 +444,7 @@ providersRouter.post('/spotify/connect/pause', async (req, res) => {
     await spotify.connectPause(req.body.deviceId);
     res.json({ data: { ok: true } });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -428,7 +453,7 @@ providersRouter.post('/spotify/connect/resume', async (req, res) => {
     await spotify.connectResume(req.body.deviceId);
     res.json({ data: { ok: true } });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -437,7 +462,7 @@ providersRouter.post('/spotify/connect/next', async (req, res) => {
     await spotify.connectNext(req.body.deviceId);
     res.json({ data: { ok: true } });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -446,7 +471,7 @@ providersRouter.post('/spotify/connect/previous', async (req, res) => {
     await spotify.connectPrevious(req.body.deviceId);
     res.json({ data: { ok: true } });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -455,7 +480,7 @@ providersRouter.post('/spotify/connect/volume', async (req, res) => {
     await spotify.connectSetVolume(req.body.volume, req.body.deviceId);
     res.json({ data: { ok: true } });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -464,7 +489,7 @@ providersRouter.post('/spotify/connect/transfer', async (req, res) => {
     await spotify.connectTransferPlayback(req.body.deviceId);
     res.json({ data: { ok: true } });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -474,7 +499,7 @@ providersRouter.get('/spotify/albums/:id', async (req, res) => {
     const album = await spotify.getAlbum(req.params.id);
     res.json({ data: album });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -483,7 +508,7 @@ providersRouter.get('/spotify/albums/:id/tracks', async (req, res) => {
     const tracks = await spotify.getAlbumTracks(req.params.id);
     res.json({ data: tracks, meta: { total: tracks.length } });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -493,7 +518,7 @@ providersRouter.get('/spotify/albums', async (_req, res) => {
     const result = await spotify.getAlbums();
     res.json({ data: result.items, meta: { total: result.total } });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });
 
@@ -503,6 +528,6 @@ providersRouter.get('/spotify/playlists', async (_req, res) => {
     const playlists = await spotify.getPlaylists();
     res.json({ data: playlists });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    sendProviderError(res, err);
   }
 });

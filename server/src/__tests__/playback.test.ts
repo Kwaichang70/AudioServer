@@ -243,7 +243,7 @@ describe('Session snapshot and identity', () => {
       deviceId: 'browser',
     });
     expect(set.queueIndex).toBe(0);
-    expect(set.controller).toEqual({ clientId: 'tab-a', deviceId: 'browser' });
+    expect(set.controller).toMatchObject({ clientId: 'tab-a', deviceId: 'browser' });
 
     const visited: number[] = [];
     let snap = set;

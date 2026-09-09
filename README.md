@@ -107,6 +107,12 @@ JWT_SECRET=replace-with-openssl-rand-hex-32
 Optional: `SETUP_CODE=...` fixes the first-run setup code instead of generating
 one (only used while no account exists).
 
+Server-driven playback on speakers (`docs/architecture.md`, "Server-driven
+playback"): `PLAYBACK_UNPLAYABLE_POLICY=skip|stop` decides what the NAS does
+with a track it cannot play on the speaker (default skip, max 3 in a row);
+`PLAYBACK_RESUME_ON_RESTART=true` restarts the current track after a server
+restart when the speaker is idle (default: restore the queue, wait for a tap).
+
 Recommended logging:
 
 ```env

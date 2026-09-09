@@ -33,6 +33,22 @@ export interface PlaybackOrigin {
   server?: boolean;
 }
 
+/**
+ * What the SERVER-side player is doing with the current item on the active
+ * device (V04.2). `client` means a connected browser tab has to play it
+ * (Spotify); `skipped` means the unplayable-policy moved on.
+ */
+export interface DispatchStatus {
+  state: 'idle' | 'loading' | 'playing' | 'client' | 'skipped' | 'error';
+  deviceId: string | null;
+  itemId: string | null;
+  trackId: string | null;
+  code?: string;
+  message?: string;
+  attempts: number;
+  updatedAt: number;
+}
+
 export interface PlaybackSnapshot {
   revision: number;
   queue: PlaybackQueueEntry[];
@@ -41,7 +57,8 @@ export interface PlaybackSnapshot {
   state: NowPlaying;
   shuffle: boolean;
   repeat: 'off' | 'all' | 'one';
-  controller: { clientId: string | null; deviceId: string };
+  controller: { clientId: string | null; deviceId: string; serverManaged: boolean };
+  dispatch: DispatchStatus;
 }
 
 export interface PlaybackStateEvent extends NowPlaying {
@@ -84,6 +101,7 @@ export interface ServerToClientEvents {
   'playback:state': (state: PlaybackStateEvent) => void;
   'playback:queue': (queue: PlaybackQueueEvent) => void;
   'playback:track-changed': (event: PlaybackTrackChangedEvent) => void;
+  'playback:dispatch': (status: DispatchStatus) => void;
   'device:playback-update': (update: DevicePlaybackUpdate) => void;
   'device:discovered': (device: { id: string; name: string; type: string }) => void;
   'device:lost': (device: { id: string; name: string }) => void;

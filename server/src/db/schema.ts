@@ -155,6 +155,10 @@ export const playbackState = sqliteTable('playback_state', {
   volume: integer('volume').default(50),
   shuffle: integer('shuffle', { mode: 'boolean' }).default(false),
   repeat: text('repeat').default('off'), // off, all, one
+  /** Account that handed the queue to the server (V04.3); informational, dispatch uses a system token. */
+  ownerUserId: text('owner_user_id'),
+  /** True while the NAS itself drives the active device (DLNA/Sonos/Volumio). */
+  serverManaged: integer('server_managed', { mode: 'boolean' }).default(false),
   updatedAt: integer('updated_at', { mode: 'timestamp' }),
 });
 

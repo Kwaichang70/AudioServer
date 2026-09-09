@@ -154,6 +154,33 @@ queue; every client mirrors it. The contract, enforced by
   injected as an event sink (`setEventSink`) and device dispatch via hooks,
   so the module loads in any import order (`__tests__/playback-imports.test.ts`).
 
+**Server-driven playback (V04).** For DLNA/Sonos/Volumio the NAS itself
+plays the queue (`services/server-player.ts`), so albums continue while every
+tablet sleeps:
+
+- `services/playback-resolver.ts` is the one place that knows what each
+  source can do (`GET /api/playback/capabilities`): local files → LAN url
+  with a fresh `system` stream token; Qobuz → freshly signed CDN url per
+  play; radio → station url; Spotify → external player only (SDK/Connect);
+  Tidal → no full playback.
+- `dispatch()` resolves, hands the url to the renderer with a timeout,
+  retries once with a _new_ url (an expired Qobuz url is replaced, not
+  retried) and records the outcome as `snapshot.dispatch`
+  (`loading` → `playing` | `client` | `skipped` | `error`), pushed as
+  `playback:dispatch`. The UI shows skips and errors as toasts.
+- Unplayable policy (`PLAYBACK_UNPLAYABLE_POLICY`): `skip` (default) moves
+  on, at most 3 in a row, then stops with an error; `stop` stops at once.
+  Spotify on a speaker is left to the controlling tab when one is connected,
+  otherwise it counts as unplayable.
+- Ownership (`owner_user_id`, `server_managed`) is persisted. After a
+  restart `reconcileAfterRestart()` asks the speaker: still playing → keep
+  driving it; idle → session stopped with a visible reason; only
+  `PLAYBACK_RESUME_ON_RESTART=true` re-sends the current item.
+- The device monitor never overlaps polls of one device, times a status
+  request out at 5 s, and when a pinned device stays unreachable it tells the
+  server player, which stops the session instead of keeping a fictitious
+  "playing".
+
 **Auth surface.** Three hooks: `attachUser` (always-on, never fails —
 resolves the Bearer token to a revocable session row and populates
 `req.userId` / `req.sessionId` / `req.userRole`), `requireAuth` (gates every

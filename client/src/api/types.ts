@@ -154,6 +154,27 @@ export interface PlaybackOrigin {
   server?: boolean;
 }
 
+/** What the server-side player is doing with the current item on the active device. */
+export interface DispatchStatus {
+  state: 'idle' | 'loading' | 'playing' | 'client' | 'skipped' | 'error';
+  deviceId: string | null;
+  itemId: string | null;
+  trackId: string | null;
+  code?: string;
+  message?: string;
+  attempts: number;
+  updatedAt: number;
+}
+
+export interface SourceCapabilities {
+  source: 'local' | 'qobuz' | 'spotify' | 'tidal' | 'radio';
+  serverDispatch: boolean;
+  browser: boolean;
+  externalPlayer: 'spotify-connect' | null;
+  ephemeralUrl: boolean;
+  reason?: string;
+}
+
 /** Authoritative session state returned by every queue command and pushed on connect. */
 export interface PlaybackSnapshot {
   revision: number;
@@ -163,7 +184,8 @@ export interface PlaybackSnapshot {
   state: NowPlaying;
   shuffle: boolean;
   repeat: 'off' | 'all' | 'one';
-  controller: { clientId: string | null; deviceId: string };
+  controller: { clientId: string | null; deviceId: string; serverManaged?: boolean };
+  dispatch?: DispatchStatus;
 }
 
 export interface PlaybackQueueEvent {

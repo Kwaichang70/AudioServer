@@ -4,7 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { getRawDb, initDatabase } from '../db/index.js';
 import { saveTokens } from '../services/tokenstore.js';
-import { SpotifyProvider } from '../providers/spotify.js';
+import { SpotifyProvider, SpotifyProviderError } from '../providers/spotify.js';
 import { TidalProvider } from '../providers/tidal.js';
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -391,5 +391,116 @@ describe('external provider response contracts', () => {
       albumTitle: 'Blue Train',
       duration: 548,
     });
+  });
+});
+
+describe('Spotify contract changes (V04.4)', () => {
+  let tmp: string | null = null;
+
+  beforeEach(async () => {
+    tmp = mkdtempSync(join(tmpdir(), 'audioserver-spotify-contract-'));
+    await initDatabase(join(tmp, 'test.db'));
+    vi.stubEnv('SPOTIFY_CLIENT_ID', 'spotify-client');
+    vi.stubEnv('SPOTIFY_CLIENT_SECRET', 'spotify-secret');
+    saveTokens('spotify', {
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      expiresAt: Date.now() + 3_600_000,
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    try {
+      getRawDb().close();
+    } catch {
+      // ignore
+    }
+    if (tmp) rmSync(tmp, { recursive: true, force: true });
+    tmp = null;
+  });
+
+  const track = (id: string, name: string) => ({
+    id,
+    name,
+    artists: [{ id: 'artist-1', name: 'Artist' }],
+    album: { id: 'album-1', name: 'Album', images: [] },
+    duration_ms: 1000,
+  });
+
+  it('reads playlist contents from /playlists/{id}/items (February 2026 shape)', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/playlists/pl-1/items')) {
+        return jsonResponse({ items: [{ item: track('t1', 'One') }, { item: null }] });
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = new SpotifyProvider();
+    await provider.initialize();
+
+    const tracks = await provider.getPlaylistTracks('spotify:pl-1');
+    expect(tracks.map((t) => t.title)).toEqual(['One']);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/playlists/pl-1/items?limit=100');
+  });
+
+  it('falls back to /tracks when /items is not available for this app mode', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes('/items')) return jsonResponse({ error: { status: 404 } }, 404);
+      if (url.includes('/playlists/pl-1/tracks')) {
+        return jsonResponse({ items: [{ track: track('t2', 'Two') }] });
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = new SpotifyProvider();
+    await provider.initialize();
+
+    expect((await provider.getPlaylistTracks('spotify:pl-1')).map((t) => t.title)).toEqual(['Two']);
+    // The provider remembers the working endpoint: no second probe of /items.
+    await provider.getPlaylistTracks('spotify:pl-1');
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls.filter((u) => u.includes('/items'))).toHaveLength(1);
+    expect(urls.filter((u) => u.includes('/tracks'))).toHaveLength(2);
+  });
+
+  it('turns 429 into a typed rate-limit error with Retry-After and cools down', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response('{"error":{"status":429}}', {
+          status: 429,
+          headers: { 'Retry-After': '7', 'Content-Type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = new SpotifyProvider();
+    await provider.initialize();
+
+    const err = await provider.getConnectDevices().catch((e) => e);
+    expect(err).toBeInstanceOf(SpotifyProviderError);
+    expect(err.code).toBe('spotify_rate_limited');
+    expect(err.statusCode).toBe(429);
+    expect(err.retryAfterSeconds).toBe(7);
+
+    // During the cooldown no request goes out at all.
+    const again = await provider.getConnectDevices().catch((e) => e);
+    expect(again.code).toBe('spotify_rate_limited');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('turns 403 into a forbidden error that names the likely cause', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ error: { status: 403, message: 'Premium required' } }, 403)),
+    );
+    const provider = new SpotifyProvider();
+    await provider.initialize();
+    const err = await provider.getConnectDevices().catch((e) => e);
+    expect(err.code).toBe('spotify_forbidden');
+    expect(err.statusCode).toBe(403);
+    expect(err.message).toMatch(/Premium required/);
   });
 });
