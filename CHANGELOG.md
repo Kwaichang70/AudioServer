@@ -4,6 +4,30 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Bugfix — A speaker that reports nothing (NAS, 9 Sept 2026)
+
+**The queue only moved when you pressed next**
+(`server/src/services/playback.ts`, `server/src/services/device-monitor.ts`)
+
+- DLNA and Sonos renderers may answer `NOT_IMPLEMENTED` for RelTime and
+  `0:00:00` for TrackDuration — and one on this network does. The app then
+  shows 0:00 / 0:00 and every rule that asked "is the position near the
+  duration?" was blind, so the album never advanced on its own.
+- The server now times the track itself: confirmed playing time for the
+  current item, paused when the transport pauses. A stop after roughly a
+  full track is the end of the track (the queue advances); a stop well
+  before it is somebody pressing stop (the queue stays put).
+- A renderer that never reports the stop either — it just keeps saying
+  PLAYING — is handled too: while the device gives no position of its own
+  and our clock passes the track's length by ten seconds, the queue moves
+  on. A device that does report a position is never cut short this way.
+- Unchanged polls used to be dropped to keep the socket quiet; they now
+  reach the session (without emitting), because a silent renderer's status
+  never changes and that is exactly when the queue would hang.
+- The monitor keeps the best duration it has seen (a `0` no longer erases
+  it) and reports the furthest position it saw on a stop instead of the
+  0:00 the renderer resets to.
+
 ## V09 — Eén collectie, ieder zijn eigen luistergeschiedenis (verbeterplan sprint 9)
 
 **Eigendom en migratie** (`server/src/db/index.ts`, `server/src/db/schema.ts`)

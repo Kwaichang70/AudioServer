@@ -167,6 +167,15 @@ export class StaleRevisionError extends Error {
 
 const COMMAND_MEMORY = 200;
 
+/**
+ * How close to the end of a track counts as "it finished". Two poll
+ * intervals plus a margin: a stop inside this window is the track ending,
+ * earlier than that is somebody pressing stop.
+ */
+const END_GRACE_SECONDS = 8;
+/** How far past the end a silent renderer may claim to be playing. */
+const END_OVERRUN_SECONDS = 10;
+
 export class PlaybackService {
   private state: PersistedState;
   private queue: QueueEntry[] = [];
@@ -178,6 +187,17 @@ export class PlaybackService {
   private controllerClientId: string | null = null;
   /** Recently applied command ids → the snapshot they produced (retry safety). */
   private appliedCommands = new Map<string, PlaybackSnapshot>();
+  /**
+   * Our own clock for the current item (V09 fix, 9 Sept 2026). Renderers are
+   * not obliged to tell us where they are: a Sonos or DLNA device may answer
+   * `NOT_IMPLEMENTED` for RelTime and `0:00:00` for TrackDuration, and then
+   * every position-based rule is blind — the album stops after one track and
+   * only "next" moves it on. The server knows the track's length from the
+   * library, so it times the track itself: `playedMs` is confirmed playing
+   * time, `playingSince` the moment the transport last became playing.
+   */
+  private playedMs = 0;
+  private playingSince: number | null = null;
   private dispatch: DispatchStatus = idleDispatch();
 
   constructor() {
@@ -203,6 +223,73 @@ export class PlaybackService {
       state,
       this.currentTrack ? { track: this.currentTrack, ctx: this.listeningCtx() } : null,
     );
+  }
+
+  /** Confirmed playing time for the current item, in seconds. */
+  private playedSeconds(): number {
+    const running = this.playingSince ? Date.now() - this.playingSince : 0;
+    return (this.playedMs + running) / 1000;
+  }
+
+  /** Start the clock for a fresh item. */
+  private startClock(playing: boolean): void {
+    this.playedMs = 0;
+    this.playingSince = playing ? Date.now() : null;
+  }
+
+  /** Follow the transport with the clock: only playing time counts. */
+  private clockFollows(state: 'playing' | 'paused' | 'stopped'): void {
+    if (state === 'playing') {
+      if (this.playingSince === null) this.playingSince = Date.now();
+      return;
+    }
+    if (this.playingSince !== null) {
+      this.playedMs += Date.now() - this.playingSince;
+      this.playingSince = null;
+    }
+  }
+
+  /**
+   * Did the current track run to its end? True when the device's own
+   * position says so, or — for a renderer that reports no position at all —
+   * when we have timed a full track's worth of playing time. The grace
+   * covers the poll interval and a renderer whose duration is a second or
+   * two short of the library's.
+   */
+  private trackRanOut(): boolean {
+    const duration = this.currentTrack?.duration;
+    if (!duration) return false;
+    if (this.state.position >= duration - END_GRACE_SECONDS) return true;
+    return this.playedSeconds() >= duration - END_GRACE_SECONDS;
+  }
+
+  /**
+   * A renderer that reports neither a position nor an end — it just keeps
+   * saying PLAYING — would hang the queue forever. Our own clock knows the
+   * track is over. Only trusted while the device gives us no position of its
+   * own, so a device that does report one is never cut short.
+   */
+  private overranSilently(position: number): boolean {
+    if (position > 1) return false;
+    const duration = this.currentTrack?.duration;
+    if (!duration || this.playedSeconds() < duration + END_OVERRUN_SECONDS) return false;
+    logger.info(
+      `PlaybackService: ${this.state.deviceId} still reports playing ${Math.round(this.playedSeconds())}s into a ${Math.round(duration)}s track and gives no position; advancing`,
+    );
+    return true;
+  }
+
+  /**
+   * A poll that carried no news (V09 fix). The monitor skips unchanged
+   * samples to keep the socket quiet, but a silent renderer's status never
+   * changes — and that is exactly when the queue would hang. Nothing is
+   * emitted here; only the overrun rule can act.
+   */
+  noteIdlePoll(deviceId: string, state: 'playing' | 'paused' | 'stopped', position: number): void {
+    if (deviceId !== this.state.deviceId) return;
+    if (state !== 'playing' || this.state.state !== 'playing') return;
+    this.clockFollows('playing');
+    if (this.overranSilently(position)) this.advance(SERVER_ORIGIN);
   }
 
   setHooks(hooks: PlaybackHooks): void {
@@ -425,11 +512,13 @@ export class PlaybackService {
     const wasState = this.state.state;
     if (updates.state !== undefined) this.state.state = updates.state;
     if (updates.position !== undefined) this.state.position = updates.position;
-    if (
-      updates.state === 'stopped' &&
-      (updates.ended ||
-        (this.currentTrack?.duration && this.state.position >= this.currentTrack.duration - 2))
-    ) {
+    if (updates.state !== undefined) this.clockFollows(updates.state);
+
+    if (updates.state === 'stopped' && (updates.ended || this.trackRanOut())) {
+      this.advance(SERVER_ORIGIN);
+      return;
+    }
+    if (updates.state === 'playing' && this.overranSilently(this.state.position)) {
       this.advance(SERVER_ORIGIN);
       return;
     }
@@ -462,6 +551,7 @@ export class PlaybackService {
     this.state.trackId = track.id;
     this.state.state = 'playing';
     this.state.position = 0;
+    this.startClock(true);
     if (deviceId) this.setDevice(deviceId, origin);
     const byItem = itemId ? this.queue.findIndex((item) => item.itemId === itemId) : -1;
     if (byItem >= 0) {
@@ -483,6 +573,7 @@ export class PlaybackService {
   progress(position: number): void {
     if (this.state.state !== 'playing') return;
     if (Number.isFinite(position) && position >= 0) this.state.position = position;
+    this.clockFollows('playing');
     this.notifyTransport('playing');
   }
 
@@ -500,6 +591,7 @@ export class PlaybackService {
 
   pause(origin: PlaybackOrigin = SERVER_ORIGIN): void {
     this.state.state = 'paused';
+    this.clockFollows('paused');
     this.bump();
     this.persistState();
     this.emitState(origin);
@@ -508,6 +600,7 @@ export class PlaybackService {
 
   resume(origin: PlaybackOrigin = SERVER_ORIGIN): void {
     this.state.state = 'playing';
+    this.clockFollows('playing');
     this.bump();
     this.persistState();
     this.emitState(origin);
@@ -523,6 +616,7 @@ export class PlaybackService {
   stop(origin: PlaybackOrigin = SERVER_ORIGIN): void {
     this.state.state = 'stopped';
     this.state.position = 0;
+    this.clockFollows('stopped');
     this.bump();
     this.persistState();
     this.emitState(origin);

@@ -24,6 +24,8 @@ interface PlaybackStateSync {
     /** The device stopped because the track finished, not because someone stopped it. */
     ended?: boolean;
   }): void;
+  /** A poll that carried no news; only the silent-renderer rule cares (V09 fix). */
+  noteIdlePoll?(deviceId: string, state: 'playing' | 'paused' | 'stopped', position: number): void;
   /** The device the household session is bound to; other monitored devices only feed the UI. */
   getActiveDeviceId?(): string;
   /** How far the server got handing the current item to the device (V04). */
@@ -240,7 +242,13 @@ export class DeviceMonitor {
       last.duration !== update.duration ||
       last.volume !== update.volume;
 
-    if (!changed) return;
+    if (!changed) {
+      // A renderer that answers "PLAYING, 0:00 of 0:00" for the whole album
+      // never produces a change; the session times the track itself and needs
+      // to hear that the device is still saying the same thing.
+      this.deps.playback.noteIdlePoll?.(deviceId, update.state, update.position);
+      return;
+    }
 
     this.lastStates.set(deviceId, update);
     this.deps.getIO().emit('device:playback-update', update);
@@ -295,6 +303,15 @@ export class DeviceMonitor {
         return;
       }
       this.playingPeaks.delete(update.deviceId);
+      // Not the end as far as we can tell — but hand over the furthest
+      // position we saw rather than the 0:00 the renderer resets to, so the
+      // session can still judge it against the track's real length.
+      this.deps.playback.setState({
+        deviceId: update.deviceId,
+        state: 'stopped',
+        position: Math.max(update.position, heard?.position ?? 0),
+      });
+      return;
     }
 
     this.deps.playback.setState({
@@ -309,12 +326,16 @@ export class DeviceMonitor {
     const peak = this.playingPeaks.get(update.deviceId);
     // A different duration, or a position that jumped backwards, means a new
     // track (or a seek): start counting again instead of carrying the old
-    // track's end position into the next one.
+    // track's end position into the next one. A duration of 0 says nothing —
+    // renderers answer 0:00:00 while they are still working it out — so it
+    // never counts as "a different track" and never erases what we knew.
     const sameTrack =
-      peak && peak.duration === update.duration && update.position + 5 >= peak.position;
+      peak &&
+      (update.duration === 0 || peak.duration === update.duration) &&
+      update.position + 5 >= peak.position;
     this.playingPeaks.set(update.deviceId, {
       position: sameTrack ? Math.max(peak.position, update.position) : update.position,
-      duration: update.duration,
+      duration: sameTrack ? peak.duration || update.duration : update.duration,
       at: Date.now(),
     });
   }

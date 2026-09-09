@@ -427,3 +427,127 @@ describe('an album keeps playing on an external device', () => {
     expect(playbackService.getSnapshot().queueIndex).toBe(0);
   });
 });
+
+/**
+ * A renderer that tells us nothing. Sonos and DLNA devices are allowed to
+ * answer `NOT_IMPLEMENTED` for RelTime and `0:00:00` for TrackDuration, and
+ * some do: the app then shows 0:00 / 0:00 and every position-based rule is
+ * blind. Danny hit exactly this on 9 Sept 2026 — the queue sat at 7/11 and
+ * only "next" moved it on. The server times the track itself.
+ */
+describe('a speaker that reports no position and no duration', () => {
+  let tmp: string;
+  let played: string[];
+  let monitor: DeviceMonitor;
+  let statuses: DevicePlaybackStatus[];
+
+  const silent = (state: DevicePlaybackStatus['state']): DevicePlaybackStatus => ({
+    state,
+    position: 0,
+    duration: 0,
+    volume: 30,
+  });
+
+  const poll = async () => {
+    await monitor.pollDeviceOnce('speaker');
+    await new Promise((r) => setTimeout(r, 5));
+  };
+
+  beforeEach(async () => {
+    tmp = mkdtempSync(join(tmpdir(), 'audioserver-silent-'));
+    await initDatabase(join(tmp, 'test.db'));
+    playbackService.initialize();
+    played = [];
+    statuses = [];
+    configureServerPlayer({
+      play: (async (_deviceId: string, url: string) => {
+        played.push(url);
+      }) as never,
+      resolve: (async (track: { id: string; title: string }) =>
+        resolvedFor(track, played.length + 1)) as never,
+      isClientConnected: () => false,
+      timeoutMs: 200,
+      maxAttempts: 1,
+      policy: 'stop',
+    });
+    resetServerPlayerForTests();
+    initServerPlayer();
+    monitor = new DeviceMonitor({
+      getDevices: async () => [],
+      getPlaybackState: async () => {
+        const next = statuses.shift();
+        if (!next) throw new Error('no status queued');
+        return next;
+      },
+      getIO: () => ({ emit: () => true }),
+      playback: playbackService,
+      logger: { info: vi.fn(), debug: vi.fn() },
+    });
+  });
+
+  afterEach(() => {
+    monitor.stopAll();
+    stopServerPlayback();
+    resetServerPlayerForTests();
+    closeDatabase();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  /** Tracks are 100 s (see local()); pretend that much playing time passed. */
+  const pretendTrackPlayed = (seconds: number) => {
+    const real = Date.now;
+    const shifted = real() + seconds * 1000;
+    vi.spyOn(Date, 'now').mockImplementation(() => shifted);
+  };
+
+  it('advances when it stops after a full track has played', async () => {
+    playbackService.setQueue([local('a'), local('b')], 0, tabA, 'speaker');
+    startServerPlayback('user-1', 'speaker');
+    playbackService.playItem(playbackService.getCurrentItemId()!, tabA, 'speaker');
+    await new Promise((r) => setTimeout(r, 5));
+    expect(played).toEqual(['http://nas/stream/a?n=1']);
+
+    statuses = [silent('playing'), silent('stopped')];
+    await poll();
+    pretendTrackPlayed(99);
+    await poll();
+
+    expect(played).toEqual(['http://nas/stream/a?n=1', 'http://nas/stream/b?n=2']);
+    expect(playbackService.getCurrentTrack()?.id).toBe('b');
+    vi.restoreAllMocks();
+  });
+
+  it('advances when it never even reports the stop', async () => {
+    playbackService.setQueue([local('a'), local('b')], 0, tabA, 'speaker');
+    startServerPlayback('user-1', 'speaker');
+    playbackService.playItem(playbackService.getCurrentItemId()!, tabA, 'speaker');
+    await new Promise((r) => setTimeout(r, 5));
+
+    // Same status forever: PLAYING, 0:00 of 0:00.
+    statuses = [silent('playing'), silent('playing'), silent('playing')];
+    await poll();
+    pretendTrackPlayed(115); // a 100 s track plus the overrun margin
+    await poll();
+
+    expect(playbackService.getCurrentTrack()?.id).toBe('b');
+    expect(played).toEqual(['http://nas/stream/a?n=1', 'http://nas/stream/b?n=2']);
+    vi.restoreAllMocks();
+  });
+
+  it('does not advance when it stops early — that is somebody pressing stop', async () => {
+    playbackService.setQueue([local('a'), local('b')], 0, tabA, 'speaker');
+    startServerPlayback('user-1', 'speaker');
+    playbackService.playItem(playbackService.getCurrentItemId()!, tabA, 'speaker');
+    await new Promise((r) => setTimeout(r, 5));
+
+    statuses = [silent('playing'), silent('stopped')];
+    await poll();
+    pretendTrackPlayed(12); // 12 s into a 100 s track
+    await poll();
+
+    expect(played).toEqual(['http://nas/stream/a?n=1']);
+    expect(playbackService.getState().state).toBe('stopped');
+    expect(playbackService.getSnapshot().queueIndex).toBe(0);
+    vi.restoreAllMocks();
+  });
+});

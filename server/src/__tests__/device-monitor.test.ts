@@ -137,10 +137,12 @@ describe('DeviceMonitor realtime sync', () => {
     await monitor.pollDeviceOnce('device-1');
     await monitor.pollDeviceOnce('device-1');
 
+    // No `ended`, and the furthest position we actually saw — not the 0:00
+    // the renderer resets to — so the session can judge it for itself.
     expect(setState).toHaveBeenLastCalledWith({
       deviceId: 'device-1',
       state: 'stopped',
-      position: 0,
+      position: 20,
     });
   });
 
@@ -196,7 +198,7 @@ describe('DeviceMonitor realtime sync', () => {
     expect(setState).toHaveBeenLastCalledWith({
       deviceId: 'device-1',
       state: 'stopped',
-      position: 0,
+      position: 3,
     });
   });
 
