@@ -1,7 +1,7 @@
 import { Router, type Response } from 'express';
 import { getDb, getRawDb } from '../db/index.js';
 import { artists, albums, tracks } from '../db/schema.js';
-import { desc, eq, like, or, sql } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import {
   scanLibrary,
   getScanStatus,
@@ -13,6 +13,7 @@ import {
 } from '../services/scanner.js';
 import { z } from 'zod';
 import { validate } from '../utils/validate.js';
+import { searchLocal } from '../services/local-search.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { requireAdmin } from '../middleware/auth.js';
@@ -409,36 +410,13 @@ libraryRouter.get('/search', (req, res) => {
   const query = ((req.query.q as string) || '').trim();
   const limit = Math.min(50, parseInt(req.query.limit as string) || 20);
   if (!query) return res.json({ data: { artists: [], albums: [], tracks: [] } });
-
-  const db = getDb();
-  const pattern = `%${query}%`;
-
-  const matchedArtists = db
-    .select()
-    .from(artists)
-    .where(like(artists.name, pattern))
-    .limit(limit)
-    .all();
-  const matchedAlbums = db
-    .select()
-    .from(albums)
-    .where(like(albums.title, pattern))
-    .limit(limit)
-    .all();
-  const matchedTracks = db
-    .select()
-    .from(tracks)
-    .where(or(like(tracks.title, pattern), like(tracks.artistName, pattern)))
-    .limit(limit)
-    .all();
-
-  res.json({
-    data: {
-      artists: matchedArtists,
-      albums: matchedAlbums,
-      tracks: matchedTracks,
-    },
-  });
+  const quality =
+    req.query.quality === 'lossless' || req.query.quality === 'hires'
+      ? req.query.quality
+      : undefined;
+  const format =
+    typeof req.query.format === 'string' && req.query.format ? req.query.format : undefined;
+  res.json({ data: searchLocal(query, { limit, quality, format }) });
 });
 
 // ─── Scan ────────────────────────────────────────────────────────

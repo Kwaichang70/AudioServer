@@ -82,6 +82,7 @@ interface QobuzTrackResponse {
   artist?: QobuzArtistSummaryResponse;
   track_number?: number;
   duration?: number;
+  version?: string;
   maximum_sampling_rate?: number;
   maximum_bit_depth?: number;
 }
@@ -692,6 +693,7 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
       artistName: data.performer?.name || data.artist?.name || 'Unknown',
       trackNumber: data.track_number,
       duration: data.duration,
+      version: data.version || undefined,
       sampleRate: data.maximum_sampling_rate ? data.maximum_sampling_rate * 1000 : undefined,
       bitDepth: data.maximum_bit_depth,
       source: 'qobuz',

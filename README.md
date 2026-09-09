@@ -120,6 +120,14 @@ is gone; a file that disappeared is marked missing, never deleted, until an
 admin clicks "Clean up missing" in Settings. `WATCH_LIBRARY=true` rescans a
 few seconds after files change; every scan is recorded and shown in Settings.
 
+Search (`docs/architecture.md`, "Search"): results from every source are
+merged per recording, with live, remastered and radio-edit versions kept
+apart and each source's own id remembered, so "play from Qobuz" plays the
+version you chose. Filters: sources, Lossless, Hi-Res. A slow or broken
+streaming source is named in the results instead of hiding the local ones
+(`SEARCH_PROVIDER_TIMEOUT_MS`, default 6000). `npm run bench:search
+--workspace=server` measures local search on a synthetic 50 000-track library.
+
 Listening history and scrobbling (`docs/architecture.md`, "Listening
 sessions"): a listen counts once at least half the track, or four minutes,
 was actually heard; pauses, seeks and skips do not count. Last.fm and

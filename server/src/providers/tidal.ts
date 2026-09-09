@@ -48,6 +48,7 @@ interface TidalAlbumAttributes {
 interface TidalTrackAttributes {
   title?: string;
   duration?: string | number;
+  version?: string;
 }
 
 interface TidalArtistResource extends Partial<TidalArtistAttributes> {
@@ -761,6 +762,7 @@ export class TidalProvider implements AuthenticatedMusicProvider {
       artistName: artist?.attributes?.name || 'Unknown',
       trackNumber,
       duration: parseTidalDuration(attrs.duration),
+      version: attrs.version || undefined,
       source: 'tidal',
     };
   }

@@ -242,6 +242,21 @@ export interface SmartPlaylistRule {
   value2?: string;
 }
 
+/** Search filters shared by the local and the unified search (V07.2). */
+export interface SearchFilters {
+  sources?: string[];
+  quality?: 'lossless' | 'hires';
+  format?: string;
+}
+
+function searchQuery(q: string, options: SearchFilters): string {
+  const parts = [`q=${encodeURIComponent(q)}`];
+  if (options.sources?.length) parts.push(`sources=${options.sources.join(',')}`);
+  if (options.quality) parts.push(`quality=${options.quality}`);
+  if (options.format) parts.push(`format=${encodeURIComponent(options.format)}`);
+  return parts.join('&');
+}
+
 export const api = {
   // ─── Library ────────────────────────────────────────────────
   getStats: (): Promise<ApiResponse<LibraryStats>> => fetchApi('/library/stats'),
@@ -260,8 +275,14 @@ export const api = {
     fetchApi(`/library/albums/${id}/tracks`),
   getTracks: (page = 1, limit = 100): Promise<PaginatedResponse<LibraryTrack>> =>
     fetchApi(`/library/tracks?page=${page}&limit=${limit}`),
-  search: (q: string, limit = 20): Promise<ApiResponse<LocalSearchResults>> =>
-    fetchApi(`/library/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  search: (
+    q: string,
+    limit = 20,
+    options: SearchFilters = {},
+  ): Promise<ApiResponse<LocalSearchResults>> =>
+    fetchApi(
+      `/library/search?${searchQuery(q, { ...options, sources: undefined })}&limit=${limit}`,
+    ),
   getScanRuns: (limit = 10): Promise<ApiResponse<ScanRun[]>> =>
     fetchApi(`/library/scan/runs?limit=${limit}`),
   getMissingTracks: (): Promise<ApiResponse<MissingTrack[]> & { meta: { total: number } }> =>
@@ -619,8 +640,8 @@ export const api = {
 
   // ─── Providers ──────────────────────────────────────────────
   getProviderStatus: (): Promise<ApiResponse<ProviderStatuses>> => fetchApi('/providers/status'),
-  providerSearch: (q: string): Promise<ProviderSearchResponse> =>
-    fetchApi(`/providers/search?q=${encodeURIComponent(q)}`),
+  providerSearch: (q: string, options: SearchFilters = {}): Promise<ProviderSearchResponse> =>
+    fetchApi(`/providers/search?${searchQuery(q, options)}`),
   providerAuthInit: (
     provider: string,
     redirectUri: string,

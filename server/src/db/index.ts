@@ -111,6 +111,16 @@ export async function initDatabase(overridePath?: string) {
   runMigration(sqlite, 'tracks', 'missing_since', 'INTEGER');
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_tracks_fingerprint ON tracks (fingerprint)');
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_tracks_availability ON tracks (availability)');
+  // V07.3: prefix searches on artist and album names use these.
+  sqlite.exec(
+    'CREATE INDEX IF NOT EXISTS idx_tracks_artist_name ON tracks (artist_name COLLATE NOCASE)',
+  );
+  sqlite.exec(
+    'CREATE INDEX IF NOT EXISTS idx_tracks_album_title ON tracks (album_title COLLATE NOCASE)',
+  );
+  sqlite.exec(
+    'CREATE INDEX IF NOT EXISTS idx_albums_artist_name ON albums (artist_name COLLATE NOCASE)',
+  );
   // V05.3: one submission per listening session and service.
   runMigration(sqlite, 'scrobble_queue', 'session_id', 'TEXT');
   sqlite.exec(

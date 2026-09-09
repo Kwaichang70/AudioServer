@@ -253,6 +253,37 @@ path is only where it lives now (`services/scanner.ts`).
   action. A run interrupted by a restart is closed as failed at startup.
 - `WATCH_LIBRARY` reaches the container through `docker-compose.yml`.
 
+**Search (V07).** Three layers, each with one job.
+
+- `providers/registry.ts` merges what every source returned. The comparison
+  key is Unicode-safe (accents stripped, punctuation removed, letters of
+  every script kept, so two different Japanese titles no longer collapse
+  into one empty key). Items merge only when artist and base title match,
+  their edition labels match (`version` from the source, or parsed from a
+  title suffix such as "(Live)", "[2011 Remaster]", "- Radio Edit") and
+  their durations lie within 10 s. The merged result keeps `availableOn`
+  (older clients) and `alternatives`: one `{source, id, albumId, version,
+duration, quality}` per source, so a different source is played with its
+  own item id, never by a name lookup.
+- `services/search.ts` adds `playability` per track from the same resolver
+  that drives playback (`browser`, `server`, `external`, `playable`,
+  `reason`; a missing local file is `missing-file`) and applies the filters
+  (`sources`, `quality=lossless|hires`, `format`). `searchAll` gives every
+  source the same time budget (`SEARCH_PROVIDER_TIMEOUT_MS`); a slow source
+  is `timeout`, a broken one `error`, an unconfigured one `unavailable`,
+  reported in `sources[]` next to the results. Local results never wait for
+  a streaming source.
+- `services/local-search.ts` is the ranked local query used by both
+  `/api/library/search` and the local provider: exact title, then prefix,
+  then contains, then other fields; NOCASE indexes on title, artist and
+  album names; missing files sort last within a rank and carry
+  `availability`. LIKE wildcards in the query are escaped.
+- FTS5 was measured, not assumed: `npm run bench:search` seeds 50 000
+  synthetic tracks (with non-Latin names) and reports p50/p95/max per query
+  class. On the development container p95 stays under 20 ms for every
+  class, an order of magnitude under the 300 ms target, so no virtual table
+  was added. Re-run on the NAS before revisiting that decision.
+
 **Auth surface.** Three hooks: `attachUser` (always-on, never fails —
 resolves the Bearer token to a revocable session row and populates
 `req.userId` / `req.sessionId` / `req.userRole`), `requireAuth` (gates every

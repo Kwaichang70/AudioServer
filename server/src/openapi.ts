@@ -466,6 +466,49 @@ export const openApiSpec = {
         },
       },
     },
+    '/providers/search': {
+      get: {
+        tags: ['Search'],
+        summary:
+          'Unified search across sources, edition-aware, with per-track playability, alternatives and per-source status (V07)',
+        parameters: [
+          { name: 'q', in: 'query', required: true, schema: { type: 'string' } },
+          {
+            name: 'sources',
+            in: 'query',
+            schema: { type: 'string' },
+            description: 'Comma list: local,qobuz,tidal,spotify',
+          },
+          { name: 'quality', in: 'query', schema: { type: 'string', enum: ['lossless', 'hires'] } },
+          {
+            name: 'format',
+            in: 'query',
+            schema: { type: 'string' },
+            description: 'Local container format, e.g. flac',
+          },
+          { name: 'limit', in: 'query', schema: { type: 'integer', maximum: 50 } },
+        ],
+        responses: {
+          200: {
+            description:
+              'SearchResults: artists/albums/tracks/playlists with version, availableOn, alternatives[], playability; sources[] with ok|timeout|error|unavailable',
+          },
+        },
+      },
+    },
+    '/library/search': {
+      get: {
+        tags: ['Search'],
+        summary: 'Ranked local search (exact, prefix, contains) with quality/format filters',
+        parameters: [
+          { name: 'q', in: 'query', required: true, schema: { type: 'string' } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', maximum: 50 } },
+          { name: 'quality', in: 'query', schema: { type: 'string', enum: ['lossless', 'hires'] } },
+          { name: 'format', in: 'query', schema: { type: 'string' } },
+        ],
+        responses: { 200: { description: '{ artists[], albums[], tracks[] } incl. availability' } },
+      },
+    },
     '/library/scan': {
       post: {
         tags: ['Library'],

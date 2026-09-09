@@ -264,7 +264,7 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 | V04    | Zelfstandige lokale/Qobuz-playback op server       | V03                               | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
 | V05    | Betrouwbare luistergegevens en tijdstempels        | V03–V04                           | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
 | V06    | Bibliotheekwijzigingen zonder verlies van relaties | V01, V05                          | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
-| V07    | Betere zoekresultaten, edities en bronkeuze        | V04, V06                          | Gepland                                                  |
+| V07    | Betere zoekresultaten, edities en bronkeuze        | V04, V06                          | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
 | V08    | Mobiele afronding, onboarding en offline shell     | V02–V07                           | Gepland                                                  |
 | V09    | Persoonlijke muziekomgevingen                      | V02, V05–V06                      | Optioneel vervolg                                        |
 | V10    | Onafhankelijke wachtrij per zone                   | V03–V04, V09                      | Optioneel vervolg                                        |
@@ -412,18 +412,22 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 **Doel:** de gebruiker vindt het gewenste nummer en weet welke versie kan afspelen.  
 **Bevindingen:** B08, B09.
 
-- [ ] **V07.1 · 2 dagen:** bronverwijzingen en editiegegevens bewaren; Unicode-veilige deduplicatie zonder verlies van live-/studio-/remasterversies.
-- [ ] **V07.2 · 2 dagen:** filters op bron, genre en audioformaat/kwaliteit; zoekresultaten met expliciete speelbaarheid en bronkeuze.
-- [ ] **V07.3 · 2 dagen:** lokale zoekbenchmark, rangschikking en geschikte indexen; FTS5 alleen invoeren als de gemeten winst dit rechtvaardigt.
-- [ ] **V07.4 · 2 dagen:** provider-timeouts, gedeeltelijke resultaten en lege/foutstatussen; tests op edities, niet-Latijnse namen en trage bronnen.
+- [x] **V07.1 · 2 dagen:** bronverwijzingen en editiegegevens bewaren; Unicode-veilige deduplicatie zonder verlies van live-/studio-/remasterversies.
+      _Gedaan:_ `normalizeSearchKey` houdt letters en cijfers van elk schrift (`\p{L}\p{N}`), verwijdert accenten en leestekens; verschillende Japanse of Cyrillische namen krijgen dus verschillende sleutels. Nieuwe velden `version` (uit Qobuz/Tidal of geparseerd uit titelsuffixen als “(Live)”, “[2011 Remaster]”, “- Radio Edit”), `alternatives[]` met per bron het eigen item-id, album-id, versie en kwaliteit; `availableOn` blijft voor oude clients. Samenvoegen alleen bij gelijke artiest + basistitel + editiesleutel + duur binnen 10 s.
+- [x] **V07.2 · 2 dagen:** filters op bron, genre en audioformaat/kwaliteit; zoekresultaten met expliciete speelbaarheid en bronkeuze.
+      _Gedaan:_ `services/search.ts` voegt per track `playability` toe uit dezelfde resolver die afspeelt (browser/server/extern/playable/reden; ontbrekend bestand = `missing-file`) en past filters `sources`, `quality=lossless|hires`, `format` toe. Zoekpagina: bronchips, kwaliteitsfilter, versie- en missing-badges, “▶ qobuz”-knoppen die dezelfde opname vanaf een andere bron starten met het eigen id van die bron. Genrefilter is bewust niet gebouwd: streamingbronnen leveren geen genre bij zoekresultaten en lokaal genre zit al op de albumpagina's; opgenomen in §7 als optioneel.
+- [x] **V07.3 · 2 dagen:** lokale zoekbenchmark, rangschikking en geschikte indexen; FTS5 alleen invoeren als de gemeten winst dit rechtvaardigt.
+      _Gedaan:_ `services/local-search.ts`: exact > prefix > bevat > ander veld, NOCASE-indexen op `tracks.artist_name`, `tracks.album_title`, `albums.artist_name`, LIKE-jokers ontsnapt, ontbrekende bestanden achteraan. `npm run bench:search` (50.000 synthetische tracks, ook niet-Latijnse namen, 200 rondes): p95 exact 15,5 ms, prefix 18,2 ms, bevat 19,4 ms, artiest 15,6 ms, versiewoord 19,1 ms op de ontwikkelcontainer. Ruim onder 300 ms, dus **geen FTS5**; besluit pas herzien na een meting op de NAS.
+- [x] **V07.4 · 2 dagen:** provider-timeouts, gedeeltelijke resultaten en lege/foutstatussen; tests op edities, niet-Latijnse namen en trage bronnen.
+      _Gedaan:_ `searchAll` geeft elke bron hetzelfde tijdbudget (`SEARCH_PROVIDER_TIMEOUT_MS`, standaard 6000, ook via Compose); uitkomst per bron in `sources[]` (ok/timeout/error/unavailable met ms en fout), de UI noemt onbereikbare bronnen boven de resultaten. Tests: `registry.test.ts` (accenten, schriften, titelversies, editiesleutels, duurverschil), `search-service.test.ts` (ranking, jokers, filters, speelbaarheid, optieparsing, trage én kapotte provider naast lokale resultaten, bronselectie met eigen id).
 
 **Acceptatie:**
 
-- Studio- en liveversies blijven afzonderlijk bereikbaar; verschillende niet-Latijnse titels verdwijnen niet door een gelijke lege sleutel.
-- Alternatieve bronkeuze gebruikt het juiste provider-item-ID en behoudt de gekozen versie.
-- Een defecte provider blokkeert lokale resultaten niet; de UI noemt de onbereikbare bron.
-- Streefwaarde: lokale zoekrespons p95 onder 300 ms bij 50.000 tracks, gemeten op vastgelegde NAS-hardware en dataset.
-- De bestaande paginering/lazy loading blijft werken; virtualisatie alleen toevoegen bij aangetoonde weergaveproblemen.
+- Studio- en liveversies blijven afzonderlijk bereikbaar; verschillende niet-Latijnse titels verdwijnen niet door een gelijke lege sleutel. _Gehaald: tests “keeps studio, live and remastered versions apart” en “keeps letters of every script”._
+- Alternatieve bronkeuze gebruikt het juiste provider-item-ID en behoudt de gekozen versie. _Gehaald: `alternatives[]` per bron; de zoekpagina start het alternatief met dat id en dezelfde versie (test “selected sources … own id”)._
+- Een defecte provider blokkeert lokale resultaten niet; de UI noemt de onbereikbare bron. _Gehaald: test met nooit antwoordende Qobuz (timeout) en falende Spotify (error) naast lokale treffers; statusregel in de UI._
+- Streefwaarde: lokale zoekrespons p95 onder 300 ms bij 50.000 tracks, gemeten op vastgelegde NAS-hardware en dataset. _Gehaald op de ontwikkelcontainer (p95 < 20 ms); NAS-meting met `npm run bench:search` nog uit te voeren._
+- De bestaande paginering/lazy loading blijft werken; virtualisatie alleen toevoegen bij aangetoonde weergaveproblemen. _Gehaald: zoekresultaten blijven op limit 20/50; geen virtualisatie toegevoegd._
 
 ### V08 — Mobiele bediening en betrouwbare webapp
 
@@ -713,6 +717,18 @@ Zelfde branch en omgeving als V01–V03.
 **Wacht op acceptatie (NAS):** één album map hernoemen op de NAS, scannen, en controleren dat favoriet, playlistpositie en geschiedenis blijven; een bestand tijdelijk verplaatsen buiten de bibliotheek en terugzetten (missing → hersteld); een SMB-share offline halen tijdens een scan (root onbereikbaar, niets gemarkeerd); duur van de eerste geforceerde scan noteren.
 
 **Beslismoment na V06:** V07 (zoeken, edities, bronkeuze) kan starten; de vingerafdruk en editiesleutel zijn de basis voor editieherkenning.
+
+### V07 — 9 september 2026
+
+**Uitgevoerd:** V07.1–V07.4 in code; 284 servertests, 95 clienttests, lint/typecheck/build groen.
+
+**Ontwerpkeuzes:** editieherkenning combineert drie signalen (versielabel van de bron, versielabel uit de titel, duur binnen 10 s); één signaal alleen was te grof (Spotify levert geen versieveld, titels zijn inconsistent). Bronkeuze werkt op `alternatives[]` met echte item-id's, nooit op naam-zoeken bij de andere bron. Speelbaarheid komt uit de playback-resolver van V04, zodat zoeken en afspelen nooit van mening verschillen. FTS5 is gemeten en afgewezen: de LIKE-variant met NOCASE-indexen zit een orde van grootte onder het doel. Genrefilter bewust overgeslagen (zie V07.2).
+
+**Gedragswijzigingen voor de gebruiker:** live- en remasterversies staan apart in de resultaten met een label; ontbrekende lokale bestanden staan gedimd met “missing”; bronchips en kwaliteitsfilter boven de resultaten; bij een trage of kapotte streamingdienst verschijnen de lokale treffers direct met een melding welke bron niet antwoordde.
+
+**Wacht op acceptatie (NAS):** `npm run bench:search --workspace=server` in de container draaien en de p95 noteren; een nummer zoeken dat lokaal én op Qobuz staat en met “▶ qobuz” de Qobuz-versie starten; een live-versie zoeken (bijv. “(Live)”) en controleren dat studio en live apart staan; Qobuz uitloggen en zoeken: lokale treffers direct, melding “qobuz: not connected”.
+
+**Beslismoment na V07:** V08 (mobiel, onboarding, offline shell) kan starten.
 
 ## Bronverwijzingen naar de onderzochte code
 

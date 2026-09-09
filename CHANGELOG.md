@@ -4,6 +4,48 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## V07 — Find the right version, know what can play (verbeterplan sprint 7)
+
+**Edition-aware, Unicode-safe search merge** (`server/src/providers/registry.ts`)
+
+- The comparison key keeps letters of every script; different non-Latin
+  titles no longer collapse into one empty key.
+- Results merge only when artist, base title, edition label (from the
+  source or parsed from "(Live)", "[2011 Remaster]", "- Radio Edit") and
+  duration (±10 s) agree. Studio, live and remastered versions stay separate.
+- Every merged result carries `alternatives`: one entry per source with that
+  source's own id, album id, version and quality. `availableOn` is kept.
+- Qobuz and Tidal `version` fields are mapped.
+
+**Playability, filters and source choice** (`server/src/services/search.ts`,
+`client/src/pages/SearchPage.tsx`)
+
+- Each track states `playability` (browser / server / external / playable /
+  reason) from the playback resolver; missing local files say `missing-file`.
+- `GET /api/providers/search` and `/api/library/search` accept `sources`,
+  `quality=lossless|hires`, `format`. The search page has source chips, a
+  quality filter, version and missing badges, and "▶ qobuz"-style buttons
+  that play the same recording from another source with that source's id.
+
+**Ranked local search and benchmark** (`server/src/services/local-search.ts`)
+
+- Exact, then prefix, then contains, then other fields; NOCASE indexes on
+  artist and album names; LIKE wildcards escaped; missing files sort last.
+- `npm run bench:search` seeds 50 000 tracks and prints p50/p95/max. Result
+  on the development container: p95 < 20 ms for every query class, so no
+  FTS5 (decision recorded in the plan).
+
+**Provider timeouts and partial results**
+
+- Every source gets the same time budget (`SEARCH_PROVIDER_TIMEOUT_MS`,
+  default 6000); the response lists `sources[]` with ok / timeout / error /
+  unavailable, and the UI names an unreachable source above the results.
+
+**Tests**: search keys (accents, scripts, title versions, edition keys),
+dedup by edition and duration, local ranking and filters, playability,
+option parsing, timeout/error/unavailable statuses, source selection with
+alternative ids (284 server, 95 client).
+
 ## V06 — Library changes without losing user data (verbeterplan sprint 6)
 
 **Source location vs identity** (`server/src/services/scanner.ts`, migration

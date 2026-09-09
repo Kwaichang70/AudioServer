@@ -7,6 +7,7 @@ import { logger } from '../logger.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { validate } from '../utils/validate.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { parseSearchOptions, unifiedSearch } from '../services/search.js';
 
 // Provider connections are global for the whole household (one Spotify/Tidal/
 // Qobuz account per server), so connecting, completing OAuth and disconnecting
@@ -58,16 +59,19 @@ function sendProviderError(res: import('express').Response, err: unknown): void 
 
 // ─── Unified search across all active providers ──────────────────
 
+// Query: q, sources=local,qobuz (default all), quality=lossless|hires,
+// format=flac, limit. Response carries per-source status and, per track,
+// what can play it and where else it exists (V07.2 / V07.4).
 providersRouter.get(
   '/search',
   asyncHandler(async (req, res) => {
-    const q = req.query.q as string;
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     if (!q) {
-      res.json({ data: { artists: [], albums: [], tracks: [], playlists: [] } });
+      res.json({ data: { artists: [], albums: [], tracks: [], playlists: [], sources: [] } });
       return;
     }
     try {
-      const results = await providers.searchAll(q);
+      const results = await unifiedSearch(q, parseSearchOptions(req.query));
       res.json({ data: results });
     } catch (err) {
       sendProviderError(res, err);

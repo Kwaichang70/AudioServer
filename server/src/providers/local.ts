@@ -2,7 +2,8 @@ import type { MusicProvider } from '@audioserver/shared';
 import type { Artist, Album, Track, SearchResults } from '@audioserver/shared';
 import { getDb, getRawDb } from '../db/index.js';
 import { artists, albums, tracks } from '../db/schema.js';
-import { eq, like, or } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
+import { searchLocal } from '../services/local-search.js';
 
 /**
  * Local filesystem music provider.
@@ -86,30 +87,9 @@ export class LocalProvider implements MusicProvider {
   }
 
   async search(query: string, limit = 20): Promise<SearchResults> {
-    const db = getDb();
-    const pattern = `%${query}%`;
-
-    return {
-      artists: db
-        .select()
-        .from(artists)
-        .where(like(artists.name, pattern))
-        .limit(limit)
-        .all() as Artist[],
-      albums: db
-        .select()
-        .from(albums)
-        .where(like(albums.title, pattern))
-        .limit(limit)
-        .all() as Album[],
-      tracks: db
-        .select()
-        .from(tracks)
-        .where(or(like(tracks.title, pattern), like(tracks.artistName, pattern)))
-        .limit(limit)
-        .all() as Track[],
-      playlists: [],
-    };
+    // Ranked, index-assisted (V07.3); see services/local-search.ts.
+    const { artists, albums, tracks } = searchLocal(query, { limit });
+    return { artists, albums, tracks, playlists: [] };
   }
 
   async getStreamUrl(trackId: string): Promise<string | null> {
