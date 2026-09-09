@@ -41,7 +41,7 @@ export default function AlbumPage() {
   const [album, setAlbum] = useState<Album | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [favorited, setFavorited] = useState(false);
-  const { playTrack, playAlbum, currentTrack, isPlaying } = useAudioContext();
+  const { playAlbum, currentTrack, isPlaying } = useAudioContext();
   const activeAlbumIdRef = useRef(id);
   activeAlbumIdRef.current = id;
 
@@ -216,13 +216,13 @@ export default function AlbumPage() {
           </tr>
         </thead>
         <tbody>
-          {tracks.map((track) => {
+          {tracks.map((track, trackIndex) => {
             const isCurrent = currentTrack?.id === track.id;
             const missing = track.availability === 'missing';
             return (
               <tr
                 key={track.id}
-                onClick={() => playTrack(track)}
+                onClick={() => playAlbum(tracks, trackIndex)}
                 title={
                   missing ? 'File not found on disk: rescan or clean up in Settings' : undefined
                 }
@@ -242,7 +242,7 @@ export default function AlbumPage() {
                     type="button"
                     onClick={(event) => {
                       event.stopPropagation();
-                      playTrack(track);
+                      playAlbum(tracks, trackIndex);
                     }}
                     className="w-full rounded text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     aria-label={`Play ${track.title} by ${track.artistName}`}

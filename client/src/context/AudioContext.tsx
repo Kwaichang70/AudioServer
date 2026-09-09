@@ -46,7 +46,12 @@ interface AudioContextValue {
   setReplayGainPreamp: (db: number) => void;
   selectedDeviceId: string;
   playTrack: (track: TrackInfo) => void;
-  playAlbum: (tracks: TrackInfo[]) => void;
+  /**
+   * Play a list from `startIndex`. Clicking a song in an album or playlist
+   * queues the whole list from there, so the music keeps going after that
+   * song instead of stopping (the bug Danny hit on 9 Sept 2026).
+   */
+  playAlbum: (tracks: TrackInfo[], startIndex?: number) => void;
   /** Jump to a queue position and play it — without replacing the queue. */
   playQueueIndex: (index: number) => void;
   addToQueue: (track: TrackInfo) => void;
@@ -426,7 +431,11 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
   const playTrack = useCallback((track: TrackInfo) => playTracks([track], 0), [playTracks]);
 
-  const playAlbum = useCallback((tracks: TrackInfo[]) => playTracks(tracks, 0), [playTracks]);
+  const playAlbum = useCallback(
+    (tracks: TrackInfo[], startIndex = 0) =>
+      playTracks(tracks, Math.max(0, Math.min(startIndex, tracks.length - 1))),
+    [playTracks],
+  );
 
   // Play a specific position in the EXISTING queue (QueuePage taps). playTrack
   // would replace the whole queue with just that track.

@@ -408,6 +408,13 @@ export class PlaybackService {
     deviceId?: string;
     state?: 'playing' | 'paused' | 'stopped';
     position?: number;
+    /**
+     * The monitor is certain the device stopped because the track finished
+     * (V09 fix). Without it the decision is made here from the position, and
+     * a renderer whose reported duration is a few seconds shorter than the
+     * library's would silently end the album instead of advancing it.
+     */
+    ended?: boolean;
   }): void {
     if (updates.deviceId && updates.deviceId !== this.state.deviceId) {
       logger.debug(
@@ -420,8 +427,8 @@ export class PlaybackService {
     if (updates.position !== undefined) this.state.position = updates.position;
     if (
       updates.state === 'stopped' &&
-      this.currentTrack?.duration &&
-      this.state.position >= this.currentTrack.duration - 2
+      (updates.ended ||
+        (this.currentTrack?.duration && this.state.position >= this.currentTrack.duration - 2))
     ) {
       this.advance(SERVER_ORIGIN);
       return;

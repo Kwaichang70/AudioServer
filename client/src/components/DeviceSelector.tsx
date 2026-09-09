@@ -45,9 +45,14 @@ const stateLabels: Record<string, string> = {
 interface Props {
   selectedDeviceId: string;
   onSelect: (deviceId: string) => void;
+  /**
+   * Icon only below `sm`. The player bar on a phone has no room for a device
+   * name, and dropping the name is what makes the picker fit there at all.
+   */
+  compact?: boolean;
 }
 
-export default function DeviceSelector({ selectedDeviceId, onSelect }: Props) {
+export default function DeviceSelector({ selectedDeviceId, onSelect, compact }: Props) {
   const [devices, setDevices] = useState<Device[]>([]);
   const [spotifyDevices, setSpotifyDevices] = useState<SpotifyDevice[]>([]);
   const [open, setOpen] = useState(false);
@@ -107,11 +112,14 @@ export default function DeviceSelector({ selectedDeviceId, onSelect }: Props) {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 px-2 py-1 text-xs rounded bg-surface-dark border border-white/10 hover:border-accent transition"
+        className="flex items-center gap-1.5 px-2 py-1.5 text-xs rounded bg-surface-dark border border-white/10 hover:border-accent transition"
         title="Select output device"
+        aria-label={`Output device: ${selectedLabel}`}
       >
         <span>{selectedIcon}</span>
-        <span className="max-w-[100px] truncate">{selectedLabel}</span>
+        <span className={`${compact ? 'hidden sm:inline ' : ''}max-w-[100px] truncate`}>
+          {selectedLabel}
+        </span>
         {selected?.playbackState === 'error' && <span className="text-red-400">!</span>}
       </button>
 

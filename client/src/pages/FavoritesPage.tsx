@@ -46,7 +46,7 @@ export default function FavoritesPage() {
   const [stations, setStations] = useState<FavStation[]>([]);
   const [loading, setLoading] = useState(true);
   const requestEpochRef = useRef(0);
-  const { playTrack } = useAudioContext();
+  const { playTrack, playAlbum } = useAudioContext();
   const trackNav = useGridNavigation<HTMLDivElement>(tracks.length, { orientation: 'vertical' });
 
   useEffect(() => {
@@ -204,11 +204,11 @@ export default function FavoritesPage() {
             aria-label="Favorite tracks"
             className="space-y-1"
           >
-            {tracks.map((track) => (
+            {tracks.map((track, trackIndex) => (
               <button
                 key={track.id}
                 data-grid-item
-                onClick={() => playTrack(track satisfies TrackInfo)}
+                onClick={() => playAlbum(tracks as TrackInfo[], trackIndex)}
                 className="w-full flex items-center gap-4 px-4 py-2 rounded hover:bg-surface-light transition text-left focus:outline-none focus:ring-2 focus:ring-accent"
               >
                 <div className="w-10 h-10 rounded bg-surface-dark overflow-hidden flex-shrink-0">

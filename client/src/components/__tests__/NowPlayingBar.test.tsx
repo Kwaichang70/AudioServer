@@ -182,6 +182,17 @@ describe('NowPlayingBar', () => {
     expect(mocks.actions.clearQueue).toHaveBeenCalled();
   });
 
+  it('keeps the queue counter and the device picker reachable on a phone', () => {
+    // The phone layout used to hide the picker in a desktop-only block and
+    // push the queue counter off the right edge (Danny, 9 Sept 2026).
+    renderBar();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open queue' }));
+    expect(mocks.navigate).toHaveBeenCalledWith('/queue');
+    expect(screen.getByTestId('device-selector')).toBeInTheDocument();
+    expect(screen.getByText('0:45 / 3:00')).toBeInTheDocument();
+  });
+
   it('shows external device state', () => {
     mocks.context = mocks.makeContext({ selectedDeviceId: 'sonos-office' });
 

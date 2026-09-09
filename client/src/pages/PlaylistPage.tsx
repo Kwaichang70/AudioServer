@@ -33,7 +33,7 @@ export default function PlaylistPage() {
   const { id } = useParams<{ id: string }>();
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
-  const { playTrack, playAlbum, currentTrack, isPlaying } = useAudioContext();
+  const { playAlbum, currentTrack, isPlaying } = useAudioContext();
   const loadRequestRef = useRef(0);
   const activePlaylistIdRef = useRef(id);
   activePlaylistIdRef.current = id;
@@ -168,11 +168,11 @@ export default function PlaylistPage() {
               const isCurrent = currentTrack?.id === track.id;
               return (
                 <div
-                  onClick={() => playTrack(track)}
+                  onClick={() => playAlbum(tracks, item._index)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
-                      playTrack(track);
+                      playAlbum(tracks, item._index);
                     }
                   }}
                   role="button"

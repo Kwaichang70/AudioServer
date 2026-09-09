@@ -165,8 +165,14 @@ describe('detail page request ordering', () => {
     const playButton = await screen.findByRole('button', {
       name: 'Play Keyboard Track by Track Artist',
     });
+    // Clicking a track queues the whole album from that track, so the music
+    // continues afterwards instead of stopping (fix, 9 Sept 2026).
     fireEvent.click(playButton);
-    expect(mocks.audio.playTrack).toHaveBeenCalledTimes(1);
+    expect(mocks.audio.playAlbum).toHaveBeenCalledTimes(1);
+    expect(mocks.audio.playAlbum).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: 'track' })],
+      0,
+    );
 
     const favoriteButton = screen.getByRole('button', {
       name: 'Remove Accessible Album from favorites',

@@ -96,59 +96,84 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
   const isRadio = currentTrack.id.startsWith('radio:');
+  const external = selectedDeviceId !== 'browser';
 
   return (
-    <div className="relative h-20 bg-surface border-t border-white/10 flex items-center px-2 md:px-4 gap-2 md:gap-4 safe-bottom no-select">
-      {/* Cover + Track info */}
-      <div className="flex items-center gap-2 md:gap-3 w-40 md:w-72 min-w-0 shrink-0">
+    <div className="relative h-20 bg-surface border-t border-white/10 flex items-center px-2 md:px-4 gap-2 md:gap-3 safe-bottom no-select">
+      {/* Phone: a hairline of progress along the top edge. There is no room
+          for a scrub track next to the controls on a 390 px screen, and the
+          fullscreen player (tap the cover) has a full-size one. */}
+      {!isRadio && (
+        <div className="md:hidden absolute inset-x-0 top-0 h-0.5 bg-white/10" aria-hidden="true">
+          <div className="h-full bg-accent" style={{ width: `${progress}%` }} />
+        </div>
+      )}
+
+      {/* Cover + track info. On a phone this block takes the free space (it
+          used to be pinned at 10rem, which squeezed the title, hid the time
+          and pushed the queue counter off the screen). */}
+      <div className="flex items-center gap-2 md:gap-3 flex-1 md:flex-none md:w-72 min-w-0">
         <button
           type="button"
-          className="w-10 h-10 md:w-12 md:h-12 rounded bg-surface-dark overflow-hidden shrink-0 cursor-pointer hover:opacity-80 transition"
+          className="w-12 h-12 rounded bg-surface-dark overflow-hidden shrink-0 cursor-pointer hover:opacity-80 transition"
           onClick={onExpandClick}
           title="Fullscreen view"
           aria-label="Open fullscreen player"
         >
           <TrackThumb key={currentTrack.id} track={currentTrack} />
         </button>
-        <button
-          type="button"
-          className="min-w-0 cursor-pointer text-left"
-          onClick={() => {
-            if (currentTrack.albumId) navigate(`/albums/${currentTrack.albumId}`);
-          }}
-        >
-          <p className="text-sm font-medium truncate hover:text-accent transition">
-            {currentTrack.title}
-            {currentTrack.id.startsWith('spotify:') && (
-              <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-green-900/50 text-green-300">
-                spotify
+        <div className="min-w-0 flex-1">
+          <button
+            type="button"
+            className="block w-full min-w-0 cursor-pointer text-left"
+            onClick={() => {
+              if (currentTrack.albumId) navigate(`/albums/${currentTrack.albumId}`);
+            }}
+          >
+            <p className="text-sm font-medium truncate hover:text-accent transition">
+              {currentTrack.title}
+              {currentTrack.id.startsWith('spotify:') && (
+                <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-green-900/50 text-green-300">
+                  spotify
+                </span>
+              )}
+            </p>
+            <p className="text-xs text-gray-300 truncate">
+              {currentTrack.artistName} &mdash; {currentTrack.albumTitle}
+              {currentTrack.id.startsWith('spotify:') && (
+                <span className="ml-1 text-green-400"> &middot; via Spotify Connect</span>
+              )}
+              {currentTrack.format && (
+                <span className="ml-1.5 hidden md:inline text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-gray-400">
+                  {currentTrack.format.toUpperCase()}
+                  {currentTrack.sampleRate
+                    ? `/${(currentTrack.sampleRate / 1000).toFixed(1)}kHz`
+                    : ''}
+                  {currentTrack.bitDepth ? `/${currentTrack.bitDepth}bit` : ''}
+                </span>
+              )}
+            </p>
+          </button>
+          {/* Third line: the clock the phone has no room for above, and where
+              the music is coming out. Empty (and zero-height) on a desktop
+              that plays in the browser. */}
+          <p className="flex items-center gap-1.5 text-[11px] leading-4 text-gray-400">
+            {!isRadio && (
+              <span className="md:hidden tabular-nums">
+                {formatTime(currentTime)} / {formatTime(duration)}
               </span>
             )}
+            {external && <span className="truncate text-accent">Playing on external device</span>}
           </p>
-          <p className="text-xs text-gray-400 truncate">
-            {currentTrack.artistName} &mdash; {currentTrack.albumTitle}
-            {currentTrack.id.startsWith('spotify:') && (
-              <span className="ml-1 text-green-400"> &middot; via Spotify Connect</span>
-            )}
-            {currentTrack.format && (
-              <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-gray-500">
-                {currentTrack.format.toUpperCase()}
-                {currentTrack.sampleRate
-                  ? `/${(currentTrack.sampleRate / 1000).toFixed(1)}kHz`
-                  : ''}
-                {currentTrack.bitDepth ? `/${currentTrack.bitDepth}bit` : ''}
-              </span>
-            )}
-          </p>
-        </button>
+        </div>
       </div>
 
       {/* Controls */}
-      <div className="flex-1 flex flex-col items-center gap-1">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col items-center gap-1 md:flex-1 shrink-0">
+        <div className="flex items-center gap-2 md:gap-3">
           <button
             onClick={toggleShuffle}
-            className={`transition ${shuffle ? 'text-accent' : 'text-gray-500 hover:text-white'}`}
+            className={`hidden md:block transition ${shuffle ? 'text-accent' : 'text-gray-500 hover:text-white'}`}
             title={shuffle ? 'Shuffle on' : 'Shuffle off'}
             aria-label={shuffle ? 'Shuffle on' : 'Shuffle off'}
             aria-pressed={shuffle}
@@ -166,17 +191,17 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
           <button
             onClick={isLoading ? undefined : isPlaying ? pause : resume}
             disabled={isLoading}
-            className={`w-9 h-9 rounded-full flex items-center justify-center transition ${
+            className={`w-11 h-11 md:w-9 md:h-9 rounded-full flex items-center justify-center transition ${
               isLoading ? 'bg-gray-500 text-surface' : 'bg-white text-surface hover:scale-105'
             }`}
             aria-label={isPlaying ? 'Pause' : 'Play'}
           >
             {isLoading ? (
-              <SpinnerIcon size={18} />
+              <SpinnerIcon size={20} />
             ) : isPlaying ? (
-              <PauseIcon size={18} />
+              <PauseIcon size={20} />
             ) : (
-              <PlayIcon size={18} />
+              <PlayIcon size={20} />
             )}
           </button>
           <button
@@ -189,7 +214,7 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
           </button>
           <button
             onClick={toggleRepeat}
-            className={`transition ${repeat !== 'off' ? 'text-accent' : 'text-gray-500 hover:text-white'}`}
+            className={`hidden md:block transition ${repeat !== 'off' ? 'text-accent' : 'text-gray-500 hover:text-white'}`}
             title={repeat === 'off' ? 'Repeat off' : repeat === 'all' ? 'Repeat all' : 'Repeat one'}
             aria-label={
               repeat === 'off' ? 'Repeat off' : repeat === 'all' ? 'Repeat all' : 'Repeat one'
@@ -197,33 +222,20 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
           >
             {repeat === 'one' ? <RepeatOneIcon size={18} /> : <RepeatIcon size={18} />}
           </button>
-          {/* Mobile/tablet: the desktop queue popup lives in the hidden-md
-              section, so navigate to the full Queue page instead. */}
-          {queue.length > 0 && (
-            <button
-              onClick={() => navigate('/queue')}
-              className="md:hidden text-[11px] px-1.5 py-0.5 rounded text-gray-500 hover:text-white bg-white/5 transition"
-              title="Open queue"
-              aria-label="Open queue"
-            >
-              {queueIndex + 1}/{queue.length}
-            </button>
-          )}
         </div>
-        {selectedDeviceId !== 'browser' && (
-          <p className="text-[10px] text-gray-500 mb-0.5">Playing on external device</p>
-        )}
         {isRadio ? (
           <div className="w-full max-w-lg flex items-center justify-center gap-2 text-xs">
             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-red-900/40 text-red-300">
               <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
               LIVE
             </span>
-            <span className="text-gray-500 truncate">{currentTrack.albumTitle}</span>
+            <span className="hidden md:inline text-gray-400 truncate">
+              {currentTrack.albumTitle}
+            </span>
           </div>
         ) : (
-          <div className="w-full max-w-lg flex items-center gap-2 text-xs text-gray-400">
-            <span className="w-10 text-right">{formatTime(currentTime)}</span>
+          <div className="hidden md:flex w-full max-w-lg items-center gap-2 text-xs text-gray-400">
+            <span className="w-10 text-right tabular-nums">{formatTime(currentTime)}</span>
             <div
               role="slider"
               tabIndex={0}
@@ -252,24 +264,37 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
                 style={{ width: `${progress}%` }}
               />
             </div>
-            <span className="w-10">{formatTime(duration)}</span>
+            <span className="w-10 tabular-nums">{formatTime(duration)}</span>
           </div>
         )}
       </div>
 
-      {/* Volume + Queue + Device */}
-      <div className="hidden md:flex items-center gap-2 w-64">
+      {/* Queue + volume + device. Always visible: on a phone the device picker
+          used to live in a desktop-only block, so there was no way to send the
+          music to a speaker from the player itself. */}
+      <div className="flex items-center gap-1.5 md:gap-2 shrink-0 md:w-64">
         {queue.length > 0 && (
-          <button
-            onClick={() => setShowQueue(!showQueue)}
-            className={`text-xs px-2 py-0.5 rounded transition ${showQueue ? 'bg-accent text-white' : 'text-gray-500 hover:text-white'}`}
-            title="Toggle queue"
-            aria-label="Toggle queue"
-          >
-            {queueIndex + 1}/{queue.length}
-          </button>
+          <>
+            {/* Phone: the desktop queue popup does not fit, so open the page. */}
+            <button
+              onClick={() => navigate('/queue')}
+              className="md:hidden text-[11px] px-1.5 py-1 rounded text-gray-300 hover:text-white bg-white/5 transition tabular-nums"
+              title="Open queue"
+              aria-label="Open queue"
+            >
+              {queueIndex + 1}/{queue.length}
+            </button>
+            <button
+              onClick={() => setShowQueue(!showQueue)}
+              className={`hidden md:block text-xs px-2 py-0.5 rounded transition ${showQueue ? 'bg-accent text-white' : 'text-gray-500 hover:text-white'}`}
+              title="Toggle queue"
+              aria-label="Toggle queue"
+            >
+              {queueIndex + 1}/{queue.length}
+            </button>
+          </>
         )}
-        <div className="flex items-center gap-1.5 flex-1">
+        <div className="hidden md:flex items-center gap-1.5 flex-1">
           <span className="text-xs text-gray-500">&#128264;</span>
           <input
             type="range"
@@ -282,7 +307,11 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
             className="flex-1 h-1 accent-accent"
           />
         </div>
-        <DeviceSelector selectedDeviceId={selectedDeviceId} onSelect={setSelectedDeviceId} />
+        <DeviceSelector
+          selectedDeviceId={selectedDeviceId}
+          onSelect={setSelectedDeviceId}
+          compact
+        />
       </div>
 
       {/* Queue panel */}

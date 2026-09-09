@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DeviceMonitor } from '../services/device-monitor.js';
 import type { DevicePlaybackStatus, OutputDevice } from '@audioserver/shared';
+import type { DispatchStatus } from '../types/socket-events.js';
 
 function makeStatus(
   state: DevicePlaybackStatus['state'],
@@ -16,6 +17,9 @@ function makeMonitor(
   extra: {
     onUnreachable?: (deviceId: string, errors: number) => void;
     pollTimeoutMs?: number;
+    endGraceSeconds?: number;
+    startGraceMs?: number;
+    getDispatch?: () => DispatchStatus;
   } = {},
 ) {
   const emit = vi.fn();
@@ -35,6 +39,7 @@ function makeMonitor(
     playback: {
       setState,
       ...(activeDeviceId ? { getActiveDeviceId: () => activeDeviceId } : {}),
+      ...(extra.getDispatch ? { getDispatch: extra.getDispatch } : {}),
     },
     logger: { info: vi.fn(), debug: vi.fn() },
     ...extra,
@@ -119,6 +124,7 @@ describe('DeviceMonitor realtime sync', () => {
       deviceId: 'device-1',
       state: 'stopped',
       position: 120,
+      ended: true,
     });
   });
 
@@ -128,6 +134,62 @@ describe('DeviceMonitor realtime sync', () => {
       makeStatus('stopped', 0),
     ]);
 
+    await monitor.pollDeviceOnce('device-1');
+    await monitor.pollDeviceOnce('device-1');
+
+    expect(setState).toHaveBeenLastCalledWith({
+      deviceId: 'device-1',
+      state: 'stopped',
+      position: 0,
+    });
+  });
+
+  it('advances when the renderer resets its counters at the end of a track', async () => {
+    // The real failure Danny hit: polls are 2 s apart and only stored when the
+    // position moves more than 3 s, so the last confirmed sample can be ~5 s
+    // short of the end — and a DLNA renderer reports 0:00/0:00 when it stops.
+    const { monitor, setState } = makeMonitor([
+      makeStatus('playing', 114, 120),
+      makeStatus('stopped', 0, 0),
+    ]);
+
+    await monitor.pollDeviceOnce('device-1');
+    await monitor.pollDeviceOnce('device-1');
+
+    expect(setState).toHaveBeenLastCalledWith({
+      deviceId: 'device-1',
+      state: 'stopped',
+      position: 120,
+      ended: true,
+    });
+  });
+
+  it('ignores a stopped report while a just-dispatched track is still loading', async () => {
+    const dispatch = (): DispatchStatus => ({
+      state: 'loading',
+      deviceId: 'device-1',
+      itemId: 'item-1',
+      trackId: 'track-1',
+      attempts: 1,
+      updatedAt: Date.now(),
+    });
+    const { monitor, setState } = makeMonitor([makeStatus('stopped', 0, 0)], undefined, {
+      getDispatch: dispatch,
+    });
+
+    await monitor.pollDeviceOnce('device-1');
+
+    expect(setState).not.toHaveBeenCalled();
+  });
+
+  it('does not carry the previous track\u2019s end position into the next one', async () => {
+    const { monitor, setState } = makeMonitor([
+      makeStatus('playing', 118, 120),
+      makeStatus('playing', 3, 240),
+      makeStatus('stopped', 0, 0),
+    ]);
+
+    await monitor.pollDeviceOnce('device-1');
     await monitor.pollDeviceOnce('device-1');
     await monitor.pollDeviceOnce('device-1');
 

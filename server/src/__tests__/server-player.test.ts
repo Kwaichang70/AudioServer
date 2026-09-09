@@ -4,7 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { closeDatabase, getRawDb, initDatabase } from '../db/index.js';
 import { playbackService, SERVER_ORIGIN } from '../services/playback.js';
-import { deviceMonitor } from '../services/device-monitor.js';
+import { DeviceMonitor, deviceMonitor } from '../services/device-monitor.js';
 import { PlaybackResolveError, type ResolvedStream } from '../services/playback-resolver.js';
 import {
   configureServerPlayer,
@@ -18,6 +18,7 @@ import {
   stopServerPlayback,
 } from '../services/server-player.js';
 import type { DispatchStatus } from '../types/socket-events.js';
+import type { DevicePlaybackStatus } from '@audioserver/shared';
 
 const tabA = { clientId: 'tab-a', sessionId: 's-a' };
 const local = (id: string, title = id) => ({
@@ -327,5 +328,102 @@ describe('server player restart reconciliation', () => {
     stopServerPlayback();
     playbackService.initialize();
     expect(await reconcileAfterRestart()).toBe('not-managed');
+  });
+});
+
+/**
+ * The whole chain that keeps an album going on a speaker: the device monitor
+ * sees the track end, PlaybackService advances, the server player streams the
+ * next item. Danny's album stopped after one song on 9 Sept 2026 because the
+ * first link was too strict about what "the track ended" looks like.
+ */
+describe('an album keeps playing on an external device', () => {
+  let tmp: string;
+  let played: string[];
+  let monitor: DeviceMonitor;
+  let statuses: DevicePlaybackStatus[];
+
+  const poll = async () => {
+    await monitor.pollDeviceOnce('speaker');
+    await new Promise((r) => setTimeout(r, 5));
+  };
+
+  beforeEach(async () => {
+    tmp = mkdtempSync(join(tmpdir(), 'audioserver-album-'));
+    await initDatabase(join(tmp, 'test.db'));
+    playbackService.initialize();
+    played = [];
+    statuses = [];
+    configureServerPlayer({
+      play: (async (deviceId: string, url: string) => {
+        played.push(url);
+      }) as never,
+      resolve: (async (track: { id: string; title: string }) =>
+        resolvedFor(track, played.length + 1)) as never,
+      isClientConnected: () => false,
+      timeoutMs: 200,
+      maxAttempts: 1,
+      policy: 'stop',
+    });
+    resetServerPlayerForTests();
+    initServerPlayer();
+    monitor = new DeviceMonitor({
+      getDevices: async () => [],
+      getPlaybackState: async () => {
+        const next = statuses.shift();
+        if (!next) throw new Error('no status queued');
+        return next;
+      },
+      getIO: () => ({ emit: () => true }),
+      playback: playbackService,
+      logger: { info: vi.fn(), debug: vi.fn() },
+    });
+  });
+
+  afterEach(() => {
+    monitor.stopAll();
+    stopServerPlayback();
+    resetServerPlayerForTests();
+    closeDatabase();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('advances to track 2 when the renderer stops with its counters reset', async () => {
+    playbackService.setQueue([local('a'), local('b'), local('c')], 0, tabA, 'speaker');
+    startServerPlayback('user-1', 'speaker');
+    await dispatch('speaker', local('a'), playbackService.getCurrentItemId());
+    expect(played).toEqual(['http://nas/stream/a?n=1']);
+
+    // Duration 100; the last sample the monitor keeps can lag a few seconds
+    // behind, and the speaker reports 0:00/0:00 the moment it stops.
+    statuses = [
+      { state: 'playing', position: 20, duration: 100, volume: 30 },
+      { state: 'playing', position: 94, duration: 100, volume: 30 },
+      { state: 'stopped', position: 0, duration: 0, volume: 30 },
+    ];
+    await poll();
+    await poll();
+    await poll();
+
+    expect(played).toEqual(['http://nas/stream/a?n=1', 'http://nas/stream/b?n=2']);
+    expect(playbackService.getState().state).toBe('playing');
+    expect(playbackService.getCurrentTrack()?.id).toBe('b');
+  });
+
+  it('leaves the queue where it is when somebody stops the speaker mid-track', async () => {
+    playbackService.setQueue([local('a'), local('b')], 0, tabA, 'speaker');
+    startServerPlayback('user-1', 'speaker');
+    await dispatch('speaker', local('a'), playbackService.getCurrentItemId());
+
+    statuses = [
+      { state: 'playing', position: 30, duration: 100, volume: 30 },
+      { state: 'stopped', position: 0, duration: 0, volume: 30 },
+    ];
+    await poll();
+    await poll();
+
+    expect(played).toEqual(['http://nas/stream/a?n=1']);
+    expect(playbackService.getState().state).toBe('stopped');
+    expect(playbackService.getSnapshot().queueIndex).toBe(0);
   });
 });

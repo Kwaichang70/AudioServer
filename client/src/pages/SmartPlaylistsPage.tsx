@@ -334,7 +334,7 @@ function SmartPlaylistDetail({ id }: { id: string }) {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [playlist, setPlaylist] = useState<SmartPlaylist | null>(null);
   const [loading, setLoading] = useState(true);
-  const { playTrack, playAlbum, currentTrack, isPlaying } = useAudioContext();
+  const { playAlbum, currentTrack, isPlaying } = useAudioContext();
   const { toast } = useToast();
 
   // Edit-mode state. When `editing` is true, we render the RuleEditor in place
@@ -463,7 +463,7 @@ function SmartPlaylistDetail({ id }: { id: string }) {
             return (
               <button
                 key={`${track.id}-${i}`}
-                onClick={() => playTrack(track)}
+                onClick={() => playAlbum(tracks, i)}
                 className={`w-full flex items-center gap-4 px-4 py-2 rounded hover:bg-surface-light transition text-left ${isCurrent ? 'text-accent' : ''}`}
               >
                 <span className="w-6 text-sm text-gray-500 text-right shrink-0">

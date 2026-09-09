@@ -3,7 +3,11 @@ import { playbackService } from './playback.js';
 import { getIO } from '../socketio.js';
 import { logger } from '../logger.js';
 import type { DevicePlaybackStatus, OutputDevice } from '@audioserver/shared';
-import type { DevicePlaybackUpdate, ServerToClientEvents } from '../types/socket-events.js';
+import type {
+  DevicePlaybackUpdate,
+  DispatchStatus,
+  ServerToClientEvents,
+} from '../types/socket-events.js';
 
 interface DeviceMonitorIo {
   emit: <EventName extends keyof ServerToClientEvents>(
@@ -17,9 +21,13 @@ interface PlaybackStateSync {
     deviceId?: string;
     state?: 'playing' | 'paused' | 'stopped';
     position?: number;
+    /** The device stopped because the track finished, not because someone stopped it. */
+    ended?: boolean;
   }): void;
   /** The device the household session is bound to; other monitored devices only feed the UI. */
   getActiveDeviceId?(): string;
+  /** How far the server got handing the current item to the device (V04). */
+  getDispatch?(): DispatchStatus;
 }
 
 interface DeviceMonitorDependencies {
@@ -34,6 +42,14 @@ interface DeviceMonitorDependencies {
   pollIntervalMs?: number;
   /** A single status request slower than this counts as a failure. */
   pollTimeoutMs?: number;
+  /**
+   * How close to the end of a track a renderer has to have got for a later
+   * "stopped" to count as "the track finished" instead of "somebody stopped
+   * it". Defaults to two poll intervals plus a margin — see syncPlaybackState.
+   */
+  endGraceSeconds?: number;
+  /** How long a freshly dispatched track may report "stopped" while it loads. */
+  startGraceMs?: number;
 }
 
 const defaultDependencies: DeviceMonitorDependencies = {
@@ -62,6 +78,11 @@ export class DeviceMonitor {
   // Polls that have not returned yet. A slow renderer must not pile up
   // overlapping requests (V04.3); the next tick simply waits.
   private inFlight = new Set<string>();
+  // The furthest a device was confirmed playing in the track it is playing
+  // now. A renderer that reaches the end of a track resets its transport
+  // counters to 0/0 in the same breath as it reports "stopped", so the only
+  // evidence that the track finished is what it told us just before.
+  private playingPeaks = new Map<string, { position: number; duration: number; at: number }>();
 
   constructor(private deps: DeviceMonitorDependencies = defaultDependencies) {}
 
@@ -196,6 +217,7 @@ export class DeviceMonitor {
       this.pollingIntervals.delete(deviceId);
       this.lastStates.delete(deviceId);
       this.consecutiveErrors.delete(deviceId);
+      this.playingPeaks.delete(deviceId);
       this.deps.logger.info(`DeviceMonitor: stop polling ${deviceId}`);
     }
   }
@@ -232,19 +254,47 @@ export class DeviceMonitor {
     const active = this.deps.playback.getActiveDeviceId?.();
     if (active !== undefined && active !== update.deviceId) return;
 
-    const lastAtEnd = !!last && isAtEnd(last);
-    const updateAtEnd = isAtEnd(update);
-    const ended =
-      last?.state === 'playing' && update.state === 'stopped' && (lastAtEnd || updateAtEnd);
+    if (update.state === 'playing') {
+      this.rememberProgress(update);
+    }
 
-    if (ended) {
-      this.deps.logger.info(`DeviceMonitor: track ended on ${update.deviceId}, advancing queue`);
-      this.deps.playback.setState({
-        deviceId: update.deviceId,
-        state: 'stopped',
-        position: update.duration || last.duration || update.position,
-      });
-      return;
+    if (update.state === 'stopped') {
+      const peak = this.playingPeaks.get(update.deviceId);
+
+      // Between "here is the next url" and the first frame of audio, a DLNA
+      // renderer answers STOPPED at 0:00. Writing that into the session would
+      // stop the very track the server just dispatched, so a stop inside the
+      // start grace window — before the device ever confirmed playing — is
+      // ignored. (Danny, 9 Sept 2026: album stuck at 0:00 on track 1.)
+      if (!peak && this.isDispatchSettling(update.deviceId)) {
+        this.deps.logger.debug(
+          `DeviceMonitor: ${update.deviceId} still loading, ignoring stopped at 0:00`,
+        );
+        return;
+      }
+
+      // End of track. The renderer's own numbers are unusable here (most
+      // reset to 0/0 on stop), so judge by the last confirmed playing sample:
+      // polls are 2 s apart and only stored when the position moved more than
+      // 3 s, so "playing" can legitimately lag several seconds behind the real
+      // end. Anything closer to the end than the grace window finished; a stop
+      // earlier than that is somebody pressing stop.
+      const heard = peak ?? (last?.state === 'playing' ? last : undefined);
+      const grace = this.endGraceSeconds();
+      if (heard && heard.duration > 0 && heard.position >= heard.duration - grace) {
+        this.deps.logger.info(
+          `DeviceMonitor: track ended on ${update.deviceId} at ${Math.round(heard.position)}/${Math.round(heard.duration)}s, advancing queue`,
+        );
+        this.playingPeaks.delete(update.deviceId);
+        this.deps.playback.setState({
+          deviceId: update.deviceId,
+          state: 'stopped',
+          position: Math.max(heard.duration, heard.position),
+          ended: true,
+        });
+        return;
+      }
+      this.playingPeaks.delete(update.deviceId);
     }
 
     this.deps.playback.setState({
@@ -252,6 +302,34 @@ export class DeviceMonitor {
       state: update.state,
       position: update.position,
     });
+  }
+
+  /** Keep the furthest position seen in the track the device plays now. */
+  private rememberProgress(update: DevicePlaybackUpdate): void {
+    const peak = this.playingPeaks.get(update.deviceId);
+    // A different duration, or a position that jumped backwards, means a new
+    // track (or a seek): start counting again instead of carrying the old
+    // track's end position into the next one.
+    const sameTrack =
+      peak && peak.duration === update.duration && update.position + 5 >= peak.position;
+    this.playingPeaks.set(update.deviceId, {
+      position: sameTrack ? Math.max(peak.position, update.position) : update.position,
+      duration: update.duration,
+      at: Date.now(),
+    });
+  }
+
+  private endGraceSeconds(): number {
+    if (this.deps.endGraceSeconds !== undefined) return this.deps.endGraceSeconds;
+    return ((this.deps.pollIntervalMs ?? 2000) / 1000) * 2 + 4;
+  }
+
+  /** True while the server is handing a track to this device and it has not started yet. */
+  private isDispatchSettling(deviceId: string): boolean {
+    const dispatch = this.deps.playback.getDispatch?.();
+    if (!dispatch || dispatch.deviceId !== deviceId) return false;
+    if (dispatch.state !== 'loading' && dispatch.state !== 'playing') return false;
+    return Date.now() - dispatch.updatedAt < (this.deps.startGraceMs ?? 15_000);
   }
 }
 
@@ -271,10 +349,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
       },
     );
   });
-}
-
-function isAtEnd(update: DevicePlaybackUpdate): boolean {
-  return update.duration > 0 && update.position >= Math.max(0, update.duration - 2);
 }
 
 function normalizeDeviceState(state: DevicePlaybackStatus['state']): DevicePlaybackUpdate['state'] {

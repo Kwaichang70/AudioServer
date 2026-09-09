@@ -4,6 +4,46 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Bugfix — An album keeps playing (reported from the NAS, 9 Sept 2026)
+
+**The queue stopped after one song on a speaker**
+(`server/src/services/device-monitor.ts`, `server/src/services/playback.ts`)
+
+- A renderer that finishes a track reports "stopped" with its counters back
+  at 0:00/0:00, and the monitor's last stored sample can lag several seconds
+  behind the real end (polls are 2 s apart and only kept when the position
+  moves more than 3 s). The old end-detection asked for a position within
+  two seconds of the duration, so it missed the end of most tracks: the
+  session went to stopped and the album never advanced.
+- The monitor now remembers how far a device actually got in the track it is
+  playing and judges a stop by that: inside the end grace window (two poll
+  intervals plus a margin) the track finished and the queue advances; earlier
+  than that somebody pressed stop and the session stops, queue intact.
+- That verdict travels as `setState({ ended: true })` instead of being
+  re-derived from the position, so a renderer whose reported duration is a
+  few seconds shorter than the library's no longer silently ends the album.
+- A "stopped" from a device that has not started yet is ignored while the
+  dispatch is still settling (15 s): a DLNA renderer answers STOPPED between
+  "here is the url" and the first frame of audio, which used to stop the very
+  track the NAS had just sent.
+
+**Clicking a song in an album played only that song**
+(`client/src/context/AudioContext.tsx`, album/playlist/favorites/smart pages)
+
+- `playAlbum(tracks, startIndex)` queues the whole list from the clicked
+  track, so the album continues after it. Clicking a track used to replace
+  the queue with that single song.
+
+**The player bar on a phone** (`client/src/components/NowPlayingBar.tsx`)
+
+- Track info takes the free width instead of a fixed 10 rem, with elapsed /
+  total time on its own line and a hairline of progress along the top edge.
+- The output-device picker is no longer desktop-only — sending music to a
+  speaker from a phone is possible again — and the queue counter (`3/11`) sits
+  in its own block instead of being clipped at the right edge.
+- Bigger play button (44 px) and lighter secondary text; shuffle, repeat, the
+  volume slider and the scrub bar stay on desktop, where there is room.
+
 ## V08 — Usable on a phone, honest when the network is not (verbeterplan sprint 8)
 
 **Service worker and updates** (`client/sw/sw.template.js`, `client/vite.config.ts`)
