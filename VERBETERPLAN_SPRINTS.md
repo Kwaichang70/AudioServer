@@ -696,7 +696,7 @@ Zelfde branch en omgeving als V01–V03.
 
 **Bevinding op de NAS (9 september 2026, ochtend):** het aanmaken van het admin-account op de NAS (V01–V03-build 42fa0c0) gaf “api error 502”. Rechtstreeks op poort 3001: `curl: (52) Empty reply from server` na 0,85 s, de container herstartte en de setupcode wisselde bij elke poging (0134-04E8 → 69AF-A3A4 → EFBB-3F7B), in de log staat `Node.js v22.22.2` als staart van een stacktrace. Lokaal in productiemodus met verse database slaagt dezelfde registratie in 0,35 s. Structurele oorzaak: 64 async-routehandlers stonden onverpakt op Express 4, waardoor elke fout na een `await` een unhandled rejection is en Node het proces beëindigt. Fix op de featurebranch: alle async-handlers in `asyncHandler`, `unhandledRejection` logt en gaat door, `uncaughtException` logt en stopt; regressietest `async-routes.test.ts` bewaakt dat er geen onverpakte async-handler meer bijkomt. De eigenlijke exception, daarna uit `docker logs` gelezen: `SqliteError: table users has no column named role`. De NAS-database dateert van vóór de rollen; de tabel `users` heeft daar alleen `id, username, password_hash, created_at`, en `CREATE TABLE IF NOT EXISTS` in migratie 0000 laat zo'n tabel staan. Fix: backfill `users.role` bij het opstarten (oudste account wordt admin als er al accounts zijn zonder rol), getest met een nagebouwde legacy-database. Tweede bevinding uit dezelfde log: `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` van express-rate-limit, de Synology reverse proxy zet `X-Forwarded-For` terwijl `trust proxy` uit stond, waardoor alle bezoekers één rate-limit-emmer deelden. Nieuwe instelling `TRUST_PROXY` (standaard `loopback`). Les voor §4 (compatibiliteit): een `CREATE TABLE IF NOT EXISTS`-migratie bewijst niets over de kolommen van een bestaande tabel; de startup-smoketest draait op een verse database en zag dit dus niet.
 
-**Beslismoment na V04:** de gebruikstest “tablet dicht, album blijft spelen” is nu de eerste NAS-taak. Zolang die niet is gedaan, geen grotere audio-uitbreiding (V11) starten; V05 (luistergegevens) hangt er niet van af en kan door.
+**Beslismoment na V04:** de gebruikstest “tablet dicht, album blijft spelen” is nu de eerste NAS-taak. Het doorspelen zelf is op 9 september 2026 bevestigd (zie het acceptatielog verderop); de lange test met gesloten tablet staat nog open. Zolang die niet is gedaan, geen grotere audio-uitbreiding (V11) starten; V05 (luistergegevens) hangt er niet van af en kan door.
 
 ### V05 — 9 september 2026
 
@@ -757,6 +757,14 @@ Zelfde branch en omgeving als V01–V03.
 **Opgelost:** de monitor onthoudt hoever het apparaat werkelijk kwam en beoordeelt een stop daarop (binnen het gratieveld = nummer klaar, eerder = iemand drukte op stop); dat oordeel reist mee als `setState({ ended: true })` in plaats van opnieuw te worden afgeleid uit de positie; een “stopped” van een apparaat dat nog laadt wordt genegeerd zolang de dispatch bezig is (15 s). Klikken op een nummer in album/playlist zet nu de hele lijst vanaf dat nummer in de wachtrij. De onderbalk op de telefoon geeft de tekst de vrije breedte, toont de tijd op een eigen regel, tekent de voortgang langs de bovenrand en houdt wachtrijteller en apparaatkiezer altijd bereikbaar.
 
 **Regressietests:** `album-advance.test.ts` (hele HTTP-flow), `device-monitor.test.ts` (tellers gereset, dispatch nog bezig, geen positie van de vorige track), `server-player.test.ts` (monitor → advance → dispatch van track 2 en een handmatige stop midden in een nummer).
+
+### NAS-acceptatie — 9 september 2026
+
+**"Album blijft spelen" is gehaald.** Danny bevestigt na het uitrollen van de klokfix dat een album op zijn speaker vanzelf doorloopt naar het volgende nummer. Daarmee is de kern van de gebruikstest uit §9 na V04 gehaald: de NAS stuurt zelf de volgende track naar het apparaat.
+
+**Wat dat kostte:** twee aparte oorzaken achter elkaar. Eerst miste de einddetectie het einde van de meeste tracks doordat een renderer zijn tellers terugzet op 0:00 en het laatst bewaarde monitorsample seconden achterloopt. Daarna bleek zijn speler helemaal geen positie en geen duur te melden (`NOT_IMPLEMENTED` / `0:00:00`), waardoor elke positiegebaseerde regel blind was — vandaar ook 0:00 / 0:00 in de app. De server klokt het nummer nu zelf op basis van de lengte uit de bibliotheek.
+
+**Nog open in dezelfde test:** tablet dicht en een half uur laten doorspelen; tweede apparaat dat de wachtrij opent en een nummer verwijdert; gemengde wachtrij met Qobuz.
 
 ### V09 — 9 september 2026
 
