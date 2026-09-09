@@ -18,7 +18,7 @@ import { fileURLToPath } from 'url';
  * it does not understand. Databases from before this check carry version 0,
  * which every build accepts and upgrades.
  */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 export class DatabaseVersionError extends Error {
   constructor(
@@ -131,6 +131,9 @@ export async function initDatabase(overridePath?: string) {
   runMigration(sqlite, 'scrobble_config', 'user_id', 'TEXT');
   runMigration(sqlite, 'scrobble_queue', 'user_id', 'TEXT');
   assignPersonalOwnership(sqlite);
+  // V10.1: zones. Each room gets its own queue and transport row.
+  runMigration(sqlite, 'queue_items', 'zone_id', 'TEXT');
+  createZones(sqlite);
   // V05.3: one submission per listening session and service.
   runMigration(sqlite, 'scrobble_queue', 'session_id', 'TEXT');
   sqlite.exec(
@@ -143,6 +146,117 @@ export async function initDatabase(overridePath?: string) {
   }
 
   logger.info(`Database initialized at ${dbPath} (schema v${SCHEMA_VERSION})`);
+}
+
+/** The zone every installation has: the browser the app itself plays in. */
+export const DEFAULT_ZONE_ID = 'zone-browser';
+
+/**
+ * Zones (V10.1). Until now the household had exactly one queue and one
+ * transport row (`playback_state` id 1). A zone is a room: its own queue,
+ * its own play/pause and volume, bound to exactly one output device.
+ *
+ * The existing session is not thrown away — it becomes the zone of the
+ * device it was last playing on, keeping its queue, position and volume. As
+ * with `favorites`, the singleton rule (`id INTEGER PRIMARY KEY DEFAULT 1`)
+ * lives inside the CREATE TABLE where no ALTER reaches it, so the table is
+ * rebuilt once, keyed by zone.
+ */
+function createZones(sqlite: InstanceType<typeof Database>): void {
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS zones (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      device_id TEXT NOT NULL UNIQUE,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER DEFAULT (unixepoch())
+    )
+  `);
+
+  const stateSql =
+    (
+      sqlite
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playback_state'")
+        .get() as { sql: string | null } | undefined
+    )?.sql ?? '';
+  const singleton = /id\s+INTEGER\s+PRIMARY\s+KEY/i.test(stateSql);
+
+  // Which device was the household playing on? That session becomes a zone.
+  const previous = singleton
+    ? (sqlite.prepare('SELECT * FROM playback_state WHERE id = 1').get() as
+        | Record<string, unknown>
+        | undefined)
+    : undefined;
+  const previousDevice =
+    typeof previous?.device_id === 'string' && previous.device_id ? previous.device_id : 'browser';
+
+  const ensureZone = (id: string, name: string, deviceId: string, isDefault: boolean): void => {
+    sqlite
+      .prepare('INSERT OR IGNORE INTO zones (id, name, device_id, is_default) VALUES (?, ?, ?, ?)')
+      .run(id, name, deviceId, isDefault ? 1 : 0);
+  };
+  ensureZone(DEFAULT_ZONE_ID, 'Browser', 'browser', true);
+  const restoredZoneId =
+    previousDevice === 'browser' ? DEFAULT_ZONE_ID : `zone-${slugForZone(previousDevice)}`;
+  if (restoredZoneId !== DEFAULT_ZONE_ID) {
+    ensureZone(restoredZoneId, previousDevice, previousDevice, false);
+  }
+
+  if (singleton) {
+    sqlite.exec(`
+      DROP TABLE IF EXISTS playback_state_v10;
+      CREATE TABLE playback_state_v10 (
+        zone_id TEXT PRIMARY KEY,
+        device_id TEXT DEFAULT 'browser',
+        track_id TEXT,
+        queue_item_id TEXT,
+        revision INTEGER DEFAULT 0,
+        state TEXT DEFAULT 'stopped',
+        position REAL DEFAULT 0,
+        volume INTEGER DEFAULT 50,
+        shuffle INTEGER DEFAULT 0,
+        repeat TEXT DEFAULT 'off',
+        owner_user_id TEXT,
+        server_managed INTEGER DEFAULT 0,
+        updated_at INTEGER DEFAULT (unixepoch())
+      );
+    `);
+    sqlite
+      .prepare(
+        `INSERT INTO playback_state_v10
+           (zone_id, device_id, track_id, queue_item_id, revision, state, position, volume,
+            shuffle, repeat, owner_user_id, server_managed, updated_at)
+         SELECT ?, device_id, track_id, queue_item_id, revision, state, position, volume,
+                shuffle, repeat, owner_user_id, server_managed, updated_at
+         FROM playback_state WHERE id = 1`,
+      )
+      .run(restoredZoneId);
+    sqlite.exec(`
+      DROP TABLE playback_state;
+      ALTER TABLE playback_state_v10 RENAME TO playback_state;
+    `);
+    logger.info(`Migration: playback state is per zone now, kept as "${restoredZoneId}" (V10)`);
+  }
+
+  // The queue that was on disk belongs to the zone that inherited the session.
+  const claimed = sqlite
+    .prepare('UPDATE queue_items SET zone_id = ? WHERE zone_id IS NULL')
+    .run(restoredZoneId).changes;
+  if (claimed > 0) {
+    logger.info(`Migration: moved ${claimed} queue item(s) into zone "${restoredZoneId}" (V10)`);
+  }
+  sqlite.exec(
+    'CREATE INDEX IF NOT EXISTS idx_queue_zone_position ON queue_items (zone_id, position)',
+  );
+}
+
+/** A device id turned into something readable inside a zone id. */
+export function slugForZone(deviceId: string): string {
+  const slug = deviceId
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'device';
 }
 
 function runMigration(

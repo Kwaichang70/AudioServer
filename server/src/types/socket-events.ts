@@ -40,6 +40,8 @@ export interface PlaybackOrigin {
  */
 export interface DispatchStatus {
   state: 'idle' | 'loading' | 'playing' | 'client' | 'skipped' | 'error';
+  /** The zone this dispatch belongs to (V10); absent on the stored status itself. */
+  zoneId?: string;
   deviceId: string | null;
   itemId: string | null;
   trackId: string | null;
@@ -50,6 +52,8 @@ export interface DispatchStatus {
 }
 
 export interface PlaybackSnapshot {
+  /** The zone this snapshot describes (V10). */
+  zoneId: string;
   revision: number;
   queue: PlaybackQueueEntry[];
   currentItemId: string | null;
@@ -62,12 +66,14 @@ export interface PlaybackSnapshot {
 }
 
 export interface PlaybackStateEvent extends NowPlaying {
+  zoneId: string;
   revision: number;
   currentItemId: string | null;
   origin: PlaybackOrigin;
 }
 
 export interface PlaybackQueueEvent {
+  zoneId: string;
   revision: number;
   queue: PlaybackQueueEntry[];
   currentItemId: string | null;
@@ -78,6 +84,7 @@ export interface PlaybackQueueEvent {
 }
 
 export interface PlaybackTrackChangedEvent {
+  zoneId: string;
   track: PlaybackTrack;
   itemId: string | null;
   revision: number;
@@ -106,13 +113,22 @@ export interface ServerToClientEvents {
   'device:discovered': (device: { id: string; name: string; type: string }) => void;
   'device:lost': (device: { id: string; name: string }) => void;
   'library:scan-progress': (progress: ScanStatus) => void;
+  /** The rooms that exist right now (V10); sent on connect and after a change. */
+  'zones:changed': (zones: ZoneSummary[]) => void;
   /** Sent right before the server closes a socket whose login session was revoked. */
   'session:revoked': () => void;
+}
+
+export interface ZoneSummary {
+  id: string;
+  name: string;
+  deviceId: string;
+  isDefault: boolean;
 }
 
 export interface ClientToServerEvents {
   'device:subscribe': (deviceId: string) => void;
   'device:unsubscribe': (deviceId: string) => void;
-  /** Ask for a fresh snapshot (after a reconnect the server sends one anyway). */
+  /** Ask for a fresh snapshot of every zone (after a reconnect one is sent anyway). */
   'playback:sync': () => void;
 }

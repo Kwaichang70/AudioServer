@@ -226,3 +226,106 @@ describe('rebuilding the household-singleton tables', () => {
     expect(getRawDb().prepare('SELECT COUNT(*) as n FROM scrobble_config').get()).toEqual({ n: 2 });
   });
 });
+
+/**
+ * V10.1: the household's single queue becomes the queue of a zone. Whatever
+ * was playing keeps playing — it is now the zone of the device it was on.
+ */
+describe('turning the household session into zones', () => {
+  let dir: string;
+  let path: string;
+
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'audioserver-v10-db-'));
+    path = join(dir, 'zones.db');
+    const db = new Database(path);
+    // The shape of the very first release: one session row, one queue, no
+    // item ids yet. Every later migration runs on top of it.
+    db.exec(`
+      CREATE TABLE playback_state (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        device_id TEXT DEFAULT 'browser',
+        track_id TEXT,
+        state TEXT DEFAULT 'stopped',
+        position REAL DEFAULT 0,
+        volume INTEGER DEFAULT 50,
+        shuffle INTEGER DEFAULT 0,
+        repeat TEXT DEFAULT 'off',
+        updated_at INTEGER DEFAULT (unixepoch())
+      );
+      CREATE TABLE queue_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        track_id TEXT NOT NULL,
+        track_title TEXT NOT NULL,
+        artist_name TEXT NOT NULL,
+        album_title TEXT NOT NULL,
+        album_id TEXT,
+        duration REAL,
+        source TEXT DEFAULT 'local',
+        position INTEGER NOT NULL,
+        added_at INTEGER DEFAULT (unixepoch())
+      );
+      INSERT INTO playback_state (id, device_id, track_id, state, position, volume)
+        VALUES (1, 'sonos-office', 't1', 'playing', 61.5, 30);
+      INSERT INTO queue_items (track_id, track_title, artist_name, album_title, position)
+        VALUES ('t1', 'Song', 'Band', 'Album', 0),
+               ('t2', 'Song 2', 'Band', 'Album', 1);
+    `);
+    db.close();
+    await initDatabase(path);
+  });
+
+  afterAll(() => {
+    closeDatabase();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('keeps the session as the zone of the device it was playing on', () => {
+    const zone = getRawDb()
+      .prepare("SELECT id, name, device_id, is_default FROM zones WHERE device_id = 'sonos-office'")
+      .get() as { id: string; device_id: string; is_default: number };
+    expect(zone).toMatchObject({ id: 'zone-sonos-office', device_id: 'sonos-office' });
+    expect(zone.is_default).toBe(0);
+
+    const state = getRawDb()
+      .prepare('SELECT * FROM playback_state WHERE zone_id = ?')
+      .get(zone.id) as { track_id: string; position: number; volume: number; state: string };
+    expect(state).toMatchObject({
+      track_id: 't1',
+      position: 61.5,
+      volume: 30,
+      state: 'playing',
+    });
+
+    const items = getRawDb()
+      .prepare('SELECT track_id FROM queue_items WHERE zone_id = ? ORDER BY position')
+      .all(zone.id) as Array<{ track_id: string }>;
+    expect(items.map((i) => i.track_id)).toEqual(['t1', 't2']);
+  });
+
+  it('always has a default browser zone, and only one zone per device', () => {
+    const db = getRawDb();
+    const browser = db.prepare("SELECT * FROM zones WHERE id = 'zone-browser'").get() as {
+      device_id: string;
+      is_default: number;
+    };
+    expect(browser).toMatchObject({ device_id: 'browser', is_default: 1 });
+
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO zones (id, name, device_id) VALUES ('zone-other', 'Other', 'sonos-office')",
+        )
+        .run(),
+    ).toThrow(/UNIQUE/);
+  });
+
+  it('is a no-op on a second start', async () => {
+    closeDatabase();
+    await initDatabase(path);
+    const db = getRawDb();
+    expect(db.prepare('SELECT COUNT(*) as n FROM zones').get()).toEqual({ n: 2 });
+    expect(db.prepare('SELECT COUNT(*) as n FROM playback_state').get()).toEqual({ n: 1 });
+    expect(db.prepare('SELECT COUNT(*) as n FROM queue_items').get()).toEqual({ n: 2 });
+  });
+});

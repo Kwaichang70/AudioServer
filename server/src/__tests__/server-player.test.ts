@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { closeDatabase, getRawDb, initDatabase } from '../db/index.js';
+import { closeDatabase, DEFAULT_ZONE_ID, getRawDb, initDatabase } from '../db/index.js';
 import { playbackService, SERVER_ORIGIN } from '../services/playback.js';
 import { DeviceMonitor, deviceMonitor } from '../services/device-monitor.js';
 import { PlaybackResolveError, type ResolvedStream } from '../services/playback-resolver.js';
@@ -287,8 +287,8 @@ describe('server player restart reconciliation', () => {
       serverManaged: true,
     });
     const row = getRawDb()
-      .prepare('SELECT owner_user_id, server_managed FROM playback_state WHERE id = 1')
-      .get() as { owner_user_id: string; server_managed: number };
+      .prepare('SELECT owner_user_id, server_managed FROM playback_state WHERE zone_id = ?')
+      .get(DEFAULT_ZONE_ID) as { owner_user_id: string; server_managed: number };
     expect(row).toEqual({ owner_user_id: 'user-1', server_managed: 1 });
   });
 

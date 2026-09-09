@@ -192,8 +192,24 @@ export const playHistory = sqliteTable('play_history', {
   playedAt: integer('played_at', { mode: 'timestamp' }).$defaultFn(now),
 });
 
+/**
+ * Zones (V10): a room with its own queue and transport. A zone owns exactly
+ * one output device and a device belongs to at most one zone, so pressing
+ * pause in the kitchen can never touch the living room.
+ */
+export const zones = sqliteTable('zones', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  /** The output device this zone plays on; unique across zones. */
+  deviceId: text('device_id').notNull().unique(),
+  /** The zone a client lands in when it names none. */
+  isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
+});
+
 export const playbackState = sqliteTable('playback_state', {
-  id: integer('id').primaryKey().default(1), // singleton row
+  /** One row per zone (V10); was a singleton row with id 1. */
+  zoneId: text('zone_id').primaryKey(),
   deviceId: text('device_id').default('browser'),
   trackId: text('track_id'),
   /** Which queue OCCURRENCE is current (V03.1); track_id alone is ambiguous when a track repeats. */
@@ -216,6 +232,8 @@ export const queueItems = sqliteTable(
   'queue_items',
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
+    /** The zone whose queue this item belongs to (V10). */
+    zoneId: text('zone_id'),
     /** Stable identity of this queue position (V03.1); survives reorders and restarts. */
     itemId: text('item_id'),
     trackId: text('track_id').notNull(),
@@ -232,6 +250,7 @@ export const queueItems = sqliteTable(
   },
   (table) => ({
     positionIdx: index('idx_queue_position').on(table.position),
+    zonePositionIdx: index('idx_queue_zone_position').on(table.zoneId, table.position),
   }),
 );
 

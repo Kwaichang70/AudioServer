@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { getRawDb } from '../db/index.js';
+import { DEFAULT_ZONE_ID, getRawDb } from '../db/index.js';
 import { logger } from '../logger.js';
 import type { NowPlaying, Track } from '@audioserver/shared';
 import type {
@@ -108,12 +108,13 @@ interface TrackRow {
  * continues while the tablet sleeps.
  */
 export interface PlaybackHooks {
-  onAdvance?: (deviceId: string, track: TrackInfo, itemId: string | null) => void;
-  onIdle?: (deviceId: string) => void;
+  onAdvance?: (deviceId: string, track: TrackInfo, itemId: string | null, zoneId: string) => void;
+  onIdle?: (deviceId: string, zoneId: string) => void;
 }
 
 /** What initialize() found on disk; the server player reconciles it with the device. */
 export interface PersistedSessionInfo {
+  zoneId: string;
   deviceId: string;
   state: 'playing' | 'paused' | 'stopped';
   trackId: string | null;
@@ -200,8 +201,16 @@ export class PlaybackService {
   private playingSince: number | null = null;
   private dispatch: DispatchStatus = idleDispatch();
 
-  constructor() {
+  /**
+   * @param zoneId the room this session belongs to (V10). Every read and
+   * write below is scoped to it, so two zones never see each other's queue.
+   */
+  constructor(readonly zoneId: string = DEFAULT_ZONE_ID) {
     this.state = this.defaultState();
+  }
+
+  getZoneId(): string {
+    return this.zoneId;
   }
 
   private listening: ListeningObserver | null = null;
@@ -328,7 +337,7 @@ export class PlaybackService {
       this.controllerClientId = null;
       this.appliedCommands.clear();
 
-      const row = db.prepare('SELECT * FROM playback_state WHERE id = 1').get() as
+      const row = db.prepare('SELECT * FROM playback_state WHERE zone_id = ?').get(this.zoneId) as
         | PlaybackStateRow
         | undefined;
       if (row) {
@@ -349,8 +358,8 @@ export class PlaybackService {
       this.dispatch = idleDispatch();
 
       const queueRows = db
-        .prepare('SELECT * FROM queue_items ORDER BY position ASC')
-        .all() as QueueItemRow[];
+        .prepare('SELECT * FROM queue_items WHERE zone_id = ? ORDER BY position ASC')
+        .all(this.zoneId) as QueueItemRow[];
       let backfilled = false;
       this.queue = queueRows.map((r, i) => {
         if (!r.item_id) backfilled = true;
@@ -373,7 +382,7 @@ export class PlaybackService {
       this.restoreCurrentTrack();
 
       logger.info(
-        `PlaybackService: loaded state (track=${this.state.trackId ?? 'none'}, item=${this.state.queueItemId ?? 'none'}, rev=${this.state.revision}, state=${this.state.state}, pos=${this.state.position}, vol=${this.state.volume}, queue=${this.queue.length} items, shuffle=${this.state.shuffle}, repeat=${this.state.repeat})`,
+        `PlaybackService[${this.zoneId}]: loaded state (track=${this.state.trackId ?? 'none'}, item=${this.state.queueItemId ?? 'none'}, rev=${this.state.revision}, state=${this.state.state}, pos=${this.state.position}, vol=${this.state.volume}, queue=${this.queue.length} items, shuffle=${this.state.shuffle}, repeat=${this.state.repeat})`,
       );
     } catch (err) {
       logger.warn(`PlaybackService: failed to load state: ${err}`);
@@ -407,6 +416,7 @@ export class PlaybackService {
 
   getPersistedSessionInfo(): PersistedSessionInfo {
     return {
+      zoneId: this.zoneId,
       deviceId: this.state.deviceId,
       state: this.state.state,
       trackId: this.state.trackId,
@@ -447,7 +457,7 @@ export class PlaybackService {
       updatedAt: Date.now(),
     };
     try {
-      this.sink?.emit('playback:dispatch', this.getDispatch());
+      this.sink?.emit('playback:dispatch', { ...this.getDispatch(), zoneId: this.zoneId });
     } catch (err) {
       logger.debug(`PlaybackService: emit dispatch failed: ${err}`);
     }
@@ -471,6 +481,7 @@ export class PlaybackService {
 
   getSnapshot(): PlaybackSnapshot {
     return {
+      zoneId: this.zoneId,
       revision: this.state.revision,
       queue: this.getQueue(),
       currentItemId: this.state.queueItemId,
@@ -585,7 +596,7 @@ export class PlaybackService {
     const track = this.queueEntryToTrackInfo(this.queue[index]);
     this.play(track, deviceId, itemId, origin);
     this.emitTrackChanged(track, origin);
-    this.hooks.onAdvance?.(this.state.deviceId, track, this.state.queueItemId);
+    this.hooks.onAdvance?.(this.state.deviceId, track, this.state.queueItemId, this.zoneId);
     return track;
   }
 
@@ -621,7 +632,7 @@ export class PlaybackService {
     this.persistState();
     this.emitState(origin);
     this.notifyTransport('stopped');
-    this.hooks.onIdle?.(this.state.deviceId);
+    this.hooks.onIdle?.(this.state.deviceId, this.zoneId);
   }
 
   setVolume(volume: number, origin: PlaybackOrigin = SERVER_ORIGIN): void {
@@ -814,7 +825,12 @@ export class PlaybackService {
       if (this.state.repeat === 'one' && this.currentTrack) {
         this.play(this.currentTrack, undefined, undefined, origin);
         this.emitTrackChanged(this.currentTrack, origin);
-        this.hooks.onAdvance?.(this.state.deviceId, this.currentTrack, this.state.queueItemId);
+        this.hooks.onAdvance?.(
+          this.state.deviceId,
+          this.currentTrack,
+          this.state.queueItemId,
+          this.zoneId,
+        );
         return this.currentTrack;
       }
       this.finishQueue(origin);
@@ -830,7 +846,7 @@ export class PlaybackService {
       if (track) {
         this.play(track, undefined, current?.itemId, origin);
         this.emitTrackChanged(track, origin);
-        this.hooks.onAdvance?.(this.state.deviceId, track, this.state.queueItemId);
+        this.hooks.onAdvance?.(this.state.deviceId, track, this.state.queueItemId, this.zoneId);
         return track;
       }
       return null;
@@ -872,7 +888,7 @@ export class PlaybackService {
     const track = this.queueEntryToTrackInfo(entry);
     this.play(track, undefined, entry.itemId, origin);
     this.emitTrackChanged(track, origin);
-    this.hooks.onAdvance?.(this.state.deviceId, track, this.state.queueItemId);
+    this.hooks.onAdvance?.(this.state.deviceId, track, this.state.queueItemId, this.zoneId);
     return track;
   }
 
@@ -883,7 +899,7 @@ export class PlaybackService {
     this.persistState();
     this.emitState(origin);
     this.notifyTransport('stopped');
-    this.hooks.onIdle?.(this.state.deviceId);
+    this.hooks.onIdle?.(this.state.deviceId, this.zoneId);
   }
 
   // ─── Helpers ──────────────────────────────────────────────────
@@ -990,10 +1006,11 @@ export class PlaybackService {
       const db = getRawDb();
       db.prepare(
         `
-        INSERT OR REPLACE INTO playback_state (id, device_id, track_id, queue_item_id, revision, state, position, volume, shuffle, repeat, owner_user_id, server_managed, updated_at)
-        VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
+        INSERT OR REPLACE INTO playback_state (zone_id, device_id, track_id, queue_item_id, revision, state, position, volume, shuffle, repeat, owner_user_id, server_managed, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())
       `,
       ).run(
+        this.zoneId,
         this.state.deviceId,
         this.state.trackId,
         this.state.queueItemId,
@@ -1015,13 +1032,14 @@ export class PlaybackService {
     try {
       const db = getRawDb();
       const insert = db.prepare(`
-        INSERT INTO queue_items (item_id, track_id, track_title, artist_name, album_title, album_id, duration, source, metadata, position)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO queue_items (zone_id, item_id, track_id, track_title, artist_name, album_title, album_id, duration, source, metadata, position)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const insertAll = db.transaction(() => {
-        db.prepare('DELETE FROM queue_items').run();
+        db.prepare('DELETE FROM queue_items WHERE zone_id = ?').run(this.zoneId);
         for (const item of this.queue) {
           insert.run(
+            this.zoneId,
             item.itemId,
             item.trackId,
             item.trackTitle,
@@ -1047,6 +1065,7 @@ export class PlaybackService {
     try {
       this.sink?.emit('playback:state', {
         ...this.getState(),
+        zoneId: this.zoneId,
         revision: this.state.revision,
         currentItemId: this.state.queueItemId,
         origin,
@@ -1059,6 +1078,7 @@ export class PlaybackService {
   private emitQueue(origin: PlaybackOrigin): void {
     try {
       this.sink?.emit('playback:queue', {
+        zoneId: this.zoneId,
         revision: this.state.revision,
         queue: this.getQueue(),
         currentItemId: this.state.queueItemId,
@@ -1076,6 +1096,7 @@ export class PlaybackService {
     const payload: PlaybackTrack = { ...track };
     try {
       this.sink?.emit('playback:track-changed', {
+        zoneId: this.zoneId,
         track: payload,
         itemId: this.state.queueItemId,
         revision: this.state.revision,
@@ -1110,4 +1131,5 @@ function parseMetadata(raw: string | null): Record<string, unknown> | undefined 
   }
 }
 
-export const playbackService = new PlaybackService();
+/** The default zone's session (V10). Other zones live in services/zones.ts. */
+export const playbackService = new PlaybackService(DEFAULT_ZONE_ID);
