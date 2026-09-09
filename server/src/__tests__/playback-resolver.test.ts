@@ -78,9 +78,21 @@ describe('playback resolver', () => {
     const token = decodeURIComponent(resolved.url.split('?t=')[1]);
     expect(verifyStreamToken(token)).toEqual({ userId: 'system' });
 
-    // Every resolution mints a new token (never a stored one).
-    const again = await resolveForDevice({ id: 'trk1' });
-    expect(again.url).not.toBe(resolved.url);
+    // Every resolution mints a new token (never a stored one). The token's
+    // payload is its expiry, so the clock has to move for the two to differ —
+    // on a fast runner both resolutions land in the same millisecond, which
+    // used to make this assertion flaky rather than wrong.
+    const realNow = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(realNow + 1000);
+    try {
+      const again = await resolveForDevice({ id: 'trk1' });
+      expect(again.url).not.toBe(resolved.url);
+      expect(verifyStreamToken(decodeURIComponent(again.url.split('?t=')[1]))).toEqual({
+        userId: 'system',
+      });
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it('reports a missing local track as not found', async () => {
