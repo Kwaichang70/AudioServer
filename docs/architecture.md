@@ -281,8 +281,8 @@ duration, quality}` per source, so a different source is played with its
 - FTS5 was measured, not assumed: `npm run bench:search` seeds 50 000
   synthetic tracks (with non-Latin names) and reports p50/p95/max per query
   class. On the development container p95 stays under 20 ms for every
-  class, an order of magnitude under the 300 ms target, so no virtual table
-  was added. Re-run on the NAS before revisiting that decision.
+  class; on the Synology itself (container, 50 000 tracks) p95 is 41–51 ms.
+  Both are far under the 300 ms target, so no virtual table was added.
 
 **Auth surface.** Three hooks: `attachUser` (always-on, never fails —
 resolves the Bearer token to a revocable session row and populates

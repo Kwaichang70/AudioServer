@@ -426,7 +426,7 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 - Studio- en liveversies blijven afzonderlijk bereikbaar; verschillende niet-Latijnse titels verdwijnen niet door een gelijke lege sleutel. _Gehaald: tests “keeps studio, live and remastered versions apart” en “keeps letters of every script”._
 - Alternatieve bronkeuze gebruikt het juiste provider-item-ID en behoudt de gekozen versie. _Gehaald: `alternatives[]` per bron; de zoekpagina start het alternatief met dat id en dezelfde versie (test “selected sources … own id”)._
 - Een defecte provider blokkeert lokale resultaten niet; de UI noemt de onbereikbare bron. _Gehaald: test met nooit antwoordende Qobuz (timeout) en falende Spotify (error) naast lokale treffers; statusregel in de UI._
-- Streefwaarde: lokale zoekrespons p95 onder 300 ms bij 50.000 tracks, gemeten op vastgelegde NAS-hardware en dataset. _Gehaald op de ontwikkelcontainer (p95 < 20 ms); NAS-meting met `npm run bench:search` nog uit te voeren._
+- Streefwaarde: lokale zoekrespons p95 onder 300 ms bij 50.000 tracks, gemeten op vastgelegde NAS-hardware en dataset. _Gehaald, gemeten op de NAS (Synology, container, 50.000 tracks, 100 rondes, 9 sep 2026): p95 exact 41,0 ms, prefix 50,8 ms, bevat 50,2 ms, artiest 43,5 ms, versiewoord 44,6 ms; max 66,3 ms. Ontwikkelcontainer: p95 < 20 ms._
 - De bestaande paginering/lazy loading blijft werken; virtualisatie alleen toevoegen bij aangetoonde weergaveproblemen. _Gehaald: zoekresultaten blijven op limit 20/50; geen virtualisatie toegevoegd._
 
 ### V08 — Mobiele bediening en betrouwbare webapp
@@ -726,7 +726,9 @@ Zelfde branch en omgeving als V01–V03.
 
 **Gedragswijzigingen voor de gebruiker:** live- en remasterversies staan apart in de resultaten met een label; ontbrekende lokale bestanden staan gedimd met “missing”; bronchips en kwaliteitsfilter boven de resultaten; bij een trage of kapotte streamingdienst verschijnen de lokale treffers direct met een melding welke bron niet antwoordde.
 
-**Wacht op acceptatie (NAS):** `npm run bench:search --workspace=server` in de container draaien en de p95 noteren; een nummer zoeken dat lokaal én op Qobuz staat en met “▶ qobuz” de Qobuz-versie starten; een live-versie zoeken (bijv. “(Live)”) en controleren dat studio en live apart staan; Qobuz uitloggen en zoeken: lokale treffers direct, melding “qobuz: not connected”.
+**NAS-meting (9 september 2026):** `bench:search` in de container op de Synology: p95 41–51 ms per zoekklasse bij 50.000 tracks, factor 6 onder het doel; FTS5 blijft achterwege.
+
+**Wacht op acceptatie (NAS):** een nummer zoeken dat lokaal én op Qobuz staat en met “▶ qobuz” de Qobuz-versie starten; een live-versie zoeken (bijv. “(Live)”) en controleren dat studio en live apart staan; Qobuz uitloggen en zoeken: lokale treffers direct, melding “qobuz: not connected”.
 
 **Beslismoment na V07:** V08 (mobiel, onboarding, offline shell) kan starten.
 
