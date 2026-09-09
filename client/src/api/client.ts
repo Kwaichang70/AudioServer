@@ -2,6 +2,8 @@ import type { Album, Artist, RadioStation, Track } from '@audioserver/shared';
 import { API_BASE, STORAGE_KEYS } from '../constants.js';
 import type {
   ApiResponse,
+  ZoneOverview,
+  ZoneSummary,
   AuthResult,
   DeviceStatusResponse,
   DevicesResponse,
@@ -133,12 +135,26 @@ export function newCommandId(): string {
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/**
+ * The room this tab is steering (V10). Set from AudioContext when the output
+ * device changes; every request carries it, so a command lands in the room
+ * the user is looking at and never in another one.
+ */
+let activeZoneId: string | null = null;
+export function setActiveZone(zoneId: string | null): void {
+  activeZoneId = zoneId;
+}
+export function getActiveZone(): string | null {
+  return activeZoneId;
+}
+
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem(STORAGE_KEYS.authToken);
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-Client-Id': getClientId(),
   };
+  if (activeZoneId) headers['X-Zone-Id'] = activeZoneId;
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   const res = await fetch(`${API_BASE}${path}`, {
@@ -394,6 +410,18 @@ export const api = {
 
   // ─── Playback (server-authoritative session, V03) ──────────
   getNowPlaying: (): Promise<PlaybackStateResponse> => fetchApi('/playback/now-playing'),
+  // ── Zones (V10): a room with its own queue, transport and volume ──
+  getZones: (): Promise<ApiResponse<ZoneOverview[]>> => fetchApi('/playback/zones'),
+  createZone: (name: string, deviceId: string): Promise<ApiResponse<ZoneSummary>> =>
+    fetchApi('/playback/zones', { method: 'POST', body: JSON.stringify({ name, deviceId }) }),
+  renameZone: (id: string, name: string): Promise<ApiResponse<ZoneSummary>> =>
+    fetchApi(`/playback/zones/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    }),
+  deleteZone: (id: string): Promise<ApiResponse<{ ok: boolean }>> =>
+    fetchApi(`/playback/zones/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
   getQueue: (): Promise<PlaybackQueueResponse> => fetchApi('/playback/queue'),
   getPlaybackSession: (): Promise<PlaybackSnapshotResponse> => fetchApi('/playback/session'),
   getPlaybackCapabilities: (): Promise<ApiResponse<SourceCapabilities[]>> =>

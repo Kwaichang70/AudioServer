@@ -51,6 +51,9 @@ const mocks = vi.hoisted(() => {
       subscribeDevice: vi.fn(),
       unsubscribeDevice: vi.fn(),
       requestSync: vi.fn(),
+      // Zones (V10): one room, the browser one.
+      zones: [],
+      setZoneFilter: vi.fn(),
     },
     spotifyWeb: {
       deviceId: 'spotify-web-device',
@@ -103,6 +106,7 @@ vi.mock('../../api/client.js', () => ({
   }),
   ApiError: FakeApiError,
   getClientId: () => 'me',
+  setActiveZone: vi.fn(),
   newCommandId: () => `cmd-${Math.random()}`,
 }));
 

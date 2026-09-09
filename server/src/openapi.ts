@@ -337,8 +337,41 @@ export const openApiSpec = {
       get: {
         tags: ['Playback'],
         summary:
-          'Full playback session snapshot (queue with item ids, revision, state, controller)',
-        responses: { 200: ok('PlaybackSnapshot') },
+          'Full playback session snapshot of one zone (queue with item ids, revision, state, controller)',
+        parameters: [
+          {
+            name: 'X-Zone-Id',
+            in: 'header',
+            required: false,
+            schema: { type: 'string' },
+            description: 'Which room to read; the default zone when omitted (V10).',
+          },
+        ],
+        responses: { 200: ok('PlaybackSnapshot'), 404: ok('unknown zone') },
+      },
+    },
+    '/playback/zones': {
+      get: {
+        tags: ['Playback'],
+        summary: 'Every room with its own queue, transport and volume (V10)',
+        responses: { 200: ok('Zone[] with state, track, queueLength, queueIndex, volume') },
+      },
+      post: {
+        tags: ['Playback'],
+        summary: 'Create a room on an output device (admin). One device belongs to one room.',
+        responses: { 201: ok('Zone'), 409: ok('that device already plays in another room') },
+      },
+    },
+    '/playback/zones/{id}': {
+      patch: {
+        tags: ['Playback'],
+        summary: 'Rename a room (admin)',
+        responses: { 200: ok('Zone'), 404: ok('unknown zone') },
+      },
+      delete: {
+        tags: ['Playback'],
+        summary: 'Remove a room and what it was playing (admin); the browser room stays',
+        responses: { 200: ok('{ ok: true }'), 400: ok('the browser room cannot be removed') },
       },
     },
     '/playback/queue/set': {

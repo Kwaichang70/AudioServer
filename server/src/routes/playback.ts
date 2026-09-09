@@ -1,13 +1,16 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { playbackService, SERVER_ORIGIN, StaleRevisionError } from '../services/playback.js';
-import type { PlaybackOrigin } from '../types/socket-events.js';
+import { SERVER_ORIGIN, StaleRevisionError, type PlaybackService } from '../services/playback.js';
+import { zones, ZoneTakenError } from '../services/zones.js';
+import type { PlaybackOrigin, PlaybackSnapshot } from '../types/socket-events.js';
 import {
   isServerManagedDevice,
   startServerPlayback,
   stopServerPlayback,
 } from '../services/server-player.js';
 import { validate } from '../utils/validate.js';
+import { requireAdmin } from '../middleware/auth.js';
+import { getIO } from '../socketio.js';
 import { getAllCapabilities } from '../services/playback-resolver.js';
 
 export const playbackRouter = Router();
@@ -51,7 +54,39 @@ const commandFields = {
   expectedRevision: z.number().int().min(0).optional(),
 };
 
+/** Tell every client which rooms exist now. Best effort: no socket, no news. */
+function broadcastZones(): void {
+  try {
+    getIO().emit('zones:changed', zones.list());
+  } catch {
+    // Socket.IO is not up in unit tests; the REST answer already carried it.
+  }
+}
+
 const originHeaderName = 'x-client-id';
+const zoneHeaderName = 'x-zone-id';
+
+/**
+ * Which room is this request steering (V10)? An explicit `X-Zone-Id` header
+ * or `zoneId` in the body wins; otherwise the zone that owns the named
+ * device; otherwise the default zone. A client that names a zone that does
+ * not exist gets 404 rather than silently steering another room.
+ */
+function sessionOf(req: Request, res: Response): PlaybackService | null {
+  const header = req.headers[zoneHeaderName];
+  const fromHeader = typeof header === 'string' && header ? header.slice(0, 128) : null;
+  const body = (req.body ?? {}) as { zoneId?: unknown; deviceId?: unknown };
+  const fromBody = typeof body.zoneId === 'string' ? body.zoneId : null;
+  const query = typeof req.query.zoneId === 'string' ? req.query.zoneId : null;
+  const deviceId = typeof body.deviceId === 'string' ? body.deviceId : null;
+
+  const zone = zones.resolve({ zoneId: fromBody ?? fromHeader ?? query, deviceId });
+  if (!zone) {
+    res.status(404).json({ error: 'NotFound', message: 'That zone does not exist' });
+    return null;
+  }
+  return zones.sessionFor(zone.id);
+}
 
 function originOf(req: Request): PlaybackOrigin {
   const header = req.headers[originHeaderName];
@@ -93,13 +128,18 @@ function withMetadata(track: z.infer<typeof trackSchema>) {
   };
 }
 
-function sendSnapshot(res: Response, snapshot = playbackService.getSnapshot()) {
+function sendSnapshot(res: Response, snapshot: PlaybackSnapshot) {
   res.json({ data: snapshot });
 }
 
-function runCommand(res: Response, commandId: string | undefined, apply: () => void): void {
+function runCommand(
+  res: Response,
+  session: PlaybackService,
+  commandId: string | undefined,
+  apply: () => void,
+): void {
   try {
-    sendSnapshot(res, playbackService.withCommand(commandId, apply));
+    sendSnapshot(res, session.withCommand(commandId, apply));
   } catch (err) {
     if (err instanceof StaleRevisionError) {
       res.status(409).json({
@@ -115,18 +155,38 @@ function runCommand(res: Response, commandId: string | undefined, apply: () => v
 }
 
 /** After a play-type command, hand server-driven devices to the server player. */
-function syncServerPlayer(req: Request, deviceId: string | undefined) {
+function syncServerPlayer(req: Request, deviceId: string | undefined, zoneId: string) {
   if (!deviceId) return;
   if (isServerManagedDevice(deviceId) && req.userId) {
-    startServerPlayback(req.userId, deviceId);
+    startServerPlayback(req.userId, deviceId, zoneId);
   } else {
-    stopServerPlayback();
+    stopServerPlayback(zoneId);
   }
 }
 
 // ─── Reads ───────────────────────────────────────────────────────
 
-playbackRouter.get('/session', (_req, res) => sendSnapshot(res));
+playbackRouter.get('/session', (req, res) => {
+  const session = sessionOf(req, res);
+  if (session) sendSnapshot(res, session.getSnapshot());
+});
+
+// Every room and what it is doing (V10).
+playbackRouter.get('/zones', (_req, res) => {
+  res.json({
+    data: zones.list().map((zone) => {
+      const snapshot = zones.sessionFor(zone.id).getSnapshot();
+      return {
+        ...zone,
+        state: snapshot.state.state,
+        track: snapshot.state.track,
+        queueLength: snapshot.queue.length,
+        queueIndex: snapshot.queueIndex,
+        volume: snapshot.state.volume,
+      };
+    }),
+  });
+});
 
 // What each source can do right now (server dispatch / browser / external
 // player), so the client stops guessing from id prefixes (V04.1).
@@ -134,12 +194,81 @@ playbackRouter.get('/capabilities', (_req, res) => {
   res.json({ data: getAllCapabilities() });
 });
 
-playbackRouter.get('/now-playing', (_req, res) => {
-  res.json({ data: playbackService.getState() });
+playbackRouter.get('/now-playing', (req, res) => {
+  const session = sessionOf(req, res);
+  if (session) res.json({ data: session.getState() });
 });
 
-playbackRouter.get('/queue', (_req, res) => {
-  res.json({ data: playbackService.getQueue(), revision: playbackService.getRevision() });
+playbackRouter.get('/queue', (req, res) => {
+  const session = sessionOf(req, res);
+  if (session) res.json({ data: session.getQueue(), revision: session.getRevision() });
+});
+
+// ─── Zones ───────────────────────────────────────────────────────
+//
+// A zone is a room: its own queue, transport and volume, bound to exactly
+// one output device. Creating and removing rooms is household plumbing, so
+// it needs an admin; playing in a room does not.
+
+const zoneSchema = z.object({
+  name: z.string().min(1).max(80),
+  deviceId: z.string().min(1).max(200),
+});
+
+playbackRouter.post(
+  '/zones',
+  requireAdmin,
+  validate({ body: zoneSchema }),
+  (req: Request, res: Response) => {
+    try {
+      res.status(201).json({ data: zones.create(req.body) });
+      broadcastZones();
+    } catch (err) {
+      if (err instanceof ZoneTakenError) {
+        res.status(409).json({
+          error: 'Conflict',
+          message: `${err.deviceId} already plays in "${err.zone.name}"`,
+          data: err.zone,
+        });
+        return;
+      }
+      throw err;
+    }
+  },
+);
+
+playbackRouter.patch(
+  '/zones/:id',
+  requireAdmin,
+  validate({ body: z.object({ name: z.string().min(1).max(80) }) }),
+  (req: Request, res: Response) => {
+    const zone = zones.rename(String(req.params.id), req.body.name);
+    if (!zone) {
+      res.status(404).json({ error: 'NotFound', message: 'That zone does not exist' });
+      return;
+    }
+    res.json({ data: zone });
+    broadcastZones();
+  },
+);
+
+playbackRouter.delete('/zones/:id', requireAdmin, (req: Request, res: Response) => {
+  const zone = zones.get(String(req.params.id));
+  if (!zone) {
+    res.status(404).json({ error: 'NotFound', message: 'That zone does not exist' });
+    return;
+  }
+  if (zone.isDefault) {
+    res.status(400).json({
+      error: 'BadRequest',
+      message: 'The browser zone is where clients without a room land; it cannot be removed',
+    });
+    return;
+  }
+  stopServerPlayback(zone.id);
+  zones.remove(zone.id);
+  res.json({ data: { ok: true } });
+  broadcastZones();
 });
 
 // Everything below mutates the household session.
@@ -151,8 +280,10 @@ playbackRouter.post(
   '/queue/add',
   validate({ body: z.object({ track: trackSchema, ...commandFields }) }),
   (req, res) => {
-    runCommand(res, req.body.commandId, () => {
-      playbackService.addToQueue(withMetadata(req.body.track), originOf(req));
+    const session = sessionOf(req, res);
+    if (!session) return;
+    runCommand(res, session, req.body.commandId, () => {
+      session.addToQueue(withMetadata(req.body.track), originOf(req));
     });
   },
 );
@@ -177,22 +308,24 @@ playbackRouter.post(
   }),
   (req, res) => {
     const origin = originOf(req);
-    runCommand(res, req.body.commandId, () => {
-      playbackService.setQueue(
+    const session = sessionOf(req, res);
+    if (!session) return;
+    runCommand(res, session, req.body.commandId, () => {
+      session.setQueue(
         req.body.tracks.map(withMetadata),
         req.body.startIndex ?? 0,
         origin,
         req.body.deviceId,
       );
-      if (req.body.shuffle !== undefined) playbackService.setShuffle(req.body.shuffle, origin);
-      if (req.body.repeat) playbackService.setRepeat(req.body.repeat, origin);
-      syncServerPlayer(req, req.body.deviceId);
+      if (req.body.shuffle !== undefined) session.setShuffle(req.body.shuffle, origin);
+      if (req.body.repeat) session.setRepeat(req.body.repeat, origin);
+      syncServerPlayer(req, req.body.deviceId, session.getZoneId());
       // Start the chosen item: for server-managed devices this streams it to
       // the speaker (onAdvance hook); for the browser the calling tab plays
       // it and other tabs only mirror (origin = this client).
-      const current = playbackService.getCurrentItemId();
+      const current = session.getCurrentItemId();
       if (req.body.play !== false && current) {
-        playbackService.playItem(current, origin, req.body.deviceId);
+        session.playItem(current, origin, req.body.deviceId);
       }
     });
   },
@@ -202,11 +335,13 @@ playbackRouter.post(
   '/queue/clear',
   validate({ body: z.object({ ...commandFields }).optional() }),
   (req, res) => {
-    runCommand(res, req.body?.commandId, () => {
-      playbackService.clearQueue(originOf(req));
+    const session = sessionOf(req, res);
+    if (!session) return;
+    runCommand(res, session, req.body?.commandId, () => {
+      session.clearQueue(originOf(req));
       // Nothing left to advance to: release the device monitor pin once the
       // current track ends (onIdle) — but stop driving now if nothing plays.
-      if (playbackService.getState().state !== 'playing') stopServerPlayback();
+      if (session.getState().state !== 'playing') stopServerPlayback(session.getZoneId());
     });
   },
 );
@@ -225,10 +360,12 @@ playbackRouter.post(
       }),
   }),
   (req, res) => {
-    runCommand(res, req.body.commandId, () => {
-      playbackService.assertRevision(req.body.expectedRevision);
-      if (req.body.itemId) playbackService.removeItem(req.body.itemId, originOf(req));
-      else playbackService.removeFromQueue(req.body.index!, originOf(req));
+    const session = sessionOf(req, res);
+    if (!session) return;
+    runCommand(res, session, req.body.commandId, () => {
+      session.assertRevision(req.body.expectedRevision);
+      if (req.body.itemId) session.removeItem(req.body.itemId, originOf(req));
+      else session.removeFromQueue(req.body.index!, originOf(req));
     });
   },
 );
@@ -248,10 +385,12 @@ playbackRouter.post(
       }),
   }),
   (req, res) => {
-    runCommand(res, req.body.commandId, () => {
-      playbackService.assertRevision(req.body.expectedRevision);
-      if (req.body.itemId) playbackService.moveItem(req.body.itemId, req.body.to, originOf(req));
-      else playbackService.moveInQueue(req.body.from!, req.body.to, originOf(req));
+    const session = sessionOf(req, res);
+    if (!session) return;
+    runCommand(res, session, req.body.commandId, () => {
+      session.assertRevision(req.body.expectedRevision);
+      if (req.body.itemId) session.moveItem(req.body.itemId, req.body.to, originOf(req));
+      else session.moveInQueue(req.body.from!, req.body.to, originOf(req));
     });
   },
 );
@@ -268,17 +407,19 @@ playbackRouter.post(
     }),
   }),
   (req, res) => {
-    const track = playbackService.playItem(req.body.itemId, originOf(req), req.body.deviceId);
+    const session = sessionOf(req, res);
+    if (!session) return;
+    const track = session.playItem(req.body.itemId, originOf(req), req.body.deviceId);
     if (!track) {
       res.status(404).json({
         error: 'NotFound',
         message: 'That queue item no longer exists',
-        data: playbackService.getSnapshot(),
+        data: session.getSnapshot(),
       });
       return;
     }
-    syncServerPlayer(req, req.body.deviceId);
-    sendSnapshot(res);
+    syncServerPlayer(req, req.body.deviceId, session.getZoneId());
+    sendSnapshot(res, session.getSnapshot());
   },
 );
 
@@ -288,8 +429,10 @@ playbackRouter.post(
   '/next',
   validate({ body: z.object({ deviceId: z.string().optional(), ...commandFields }).optional() }),
   (req, res) => {
-    runCommand(res, req.body?.commandId, () => {
-      playbackService.advance(originOf(req));
+    const session = sessionOf(req, res);
+    if (!session) return;
+    runCommand(res, session, req.body?.commandId, () => {
+      session.advance(originOf(req));
     });
   },
 );
@@ -298,8 +441,10 @@ playbackRouter.post(
   '/previous',
   validate({ body: z.object({ ...commandFields }).optional() }),
   (req, res) => {
-    runCommand(res, req.body?.commandId, () => {
-      playbackService.previous(originOf(req));
+    const session = sessionOf(req, res);
+    if (!session) return;
+    runCommand(res, session, req.body?.commandId, () => {
+      session.previous(originOf(req));
     });
   },
 );
@@ -314,17 +459,19 @@ playbackRouter.post(
     }),
   }),
   (req, res) => {
+    const session = sessionOf(req, res);
+    if (!session) return;
     if (req.body.track) {
-      playbackService.play(
+      session.play(
         withMetadata(req.body.track),
         req.body.deviceId ?? undefined,
         req.body.itemId,
         originOf(req),
       );
     } else {
-      playbackService.resume(originOf(req));
+      session.resume(originOf(req));
     }
-    res.json({ data: playbackService.getState() });
+    res.json({ data: session.getState() });
   },
 );
 
@@ -346,24 +493,30 @@ playbackRouter.post(
     }),
   }),
   (req, res) => {
-    const current = playbackService.getSnapshot().currentItemId ?? null;
+    const session = sessionOf(req, res);
+    if (!session) return;
+    const current = session.getSnapshot().currentItemId ?? null;
     if (req.body.itemId && current && req.body.itemId !== current) {
       res.status(200).json({ data: { accepted: false, reason: 'stale-item' } });
       return;
     }
-    playbackService.progress(req.body.position);
+    session.progress(req.body.position);
     res.json({ data: { accepted: true } });
   },
 );
 
 playbackRouter.post('/pause', (req, res) => {
-  playbackService.pause(originOf(req));
-  res.json({ data: playbackService.getState() });
+  const session = sessionOf(req, res);
+  if (!session) return;
+  session.pause(originOf(req));
+  res.json({ data: session.getState() });
 });
 
 playbackRouter.post('/stop', (req, res) => {
-  playbackService.stop(originOf(req));
-  res.json({ data: playbackService.getState() });
+  const session = sessionOf(req, res);
+  if (!session) return;
+  session.stop(originOf(req));
+  res.json({ data: session.getState() });
 });
 
 playbackRouter.post(
@@ -372,8 +525,10 @@ playbackRouter.post(
   // legacy clients that depend on server-side clamping.
   validate({ body: z.object({ volume: z.number() }) }),
   (req, res) => {
-    playbackService.setVolume(req.body.volume, originOf(req));
-    res.json({ data: playbackService.getState() });
+    const session = sessionOf(req, res);
+    if (!session) return;
+    session.setVolume(req.body.volume, originOf(req));
+    res.json({ data: session.getState() });
   },
 );
 
@@ -381,8 +536,10 @@ playbackRouter.post(
   '/shuffle',
   validate({ body: z.object({ shuffle: z.boolean() }) }),
   (req, res) => {
-    playbackService.setShuffle(req.body.shuffle, originOf(req));
-    res.json({ data: playbackService.getState() });
+    const session = sessionOf(req, res);
+    if (!session) return;
+    session.setShuffle(req.body.shuffle, originOf(req));
+    res.json({ data: session.getState() });
   },
 );
 
@@ -390,8 +547,10 @@ playbackRouter.post(
   '/repeat',
   validate({ body: z.object({ repeat: z.enum(['off', 'all', 'one']) }) }),
   (req, res) => {
-    playbackService.setRepeat(req.body.repeat, originOf(req));
-    res.json({ data: playbackService.getState() });
+    const session = sessionOf(req, res);
+    if (!session) return;
+    session.setRepeat(req.body.repeat, originOf(req));
+    res.json({ data: session.getState() });
   },
 );
 

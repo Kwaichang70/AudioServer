@@ -13,8 +13,8 @@ import { useMediaSession } from '../hooks/useMediaSession.js';
 import { useSocket } from '../hooks/useSocket.js';
 import { useSpotifyWebPlayback } from '../hooks/useSpotifyWebPlayback.js';
 import { useTrackPlayback } from '../hooks/useTrackPlayback.js';
-import { api, ApiError, getClientId, newCommandId } from '../api/client.js';
-import type { PlaybackQueueEntry, PlaybackSnapshot } from '../api/types.js';
+import { api, ApiError, getClientId, newCommandId, setActiveZone } from '../api/client.js';
+import type { PlaybackQueueEntry, PlaybackSnapshot, ZoneOverview } from '../api/types.js';
 import { useToast } from '../components/Toast.js';
 import { getProgressSnapshot, setProgress } from './ProgressStore.js';
 import { DEVICE_POLL_INTERVAL, PROGRESS_REPORT_INTERVAL, STORAGE_KEYS } from '../constants.js';
@@ -68,6 +68,10 @@ interface AudioContextValue {
   setSelectedDeviceId: (id: string) => void;
   toggleShuffle: () => void;
   toggleRepeat: () => void;
+  /** The rooms this server knows and the one this tab steers (V10). */
+  zones: ZoneOverview[];
+  zoneId: string | null;
+  refreshZones: () => void;
 }
 
 const AudioCtx = createContext<AudioContextValue | null>(null);
@@ -138,6 +142,28 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     setSelectedDeviceIdState(id);
     localStorage.setItem(STORAGE_KEYS.selectedDevice, id);
   }, []);
+
+  // Zones (V10): a room owns one output device, so the chosen device decides
+  // which room this tab steers. Every request carries it and only that room's
+  // events are applied — pressing pause here can never touch another room.
+  const [zoneList, setZoneList] = useState<ZoneOverview[]>([]);
+  const refreshZones = useCallback(() => {
+    api
+      .getZones()
+      .then((res) => setZoneList(Array.isArray(res.data) ? res.data : []))
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    refreshZones();
+  }, [refreshZones, socket.zones]);
+  const zoneId = useMemo(
+    () => zoneList.find((z) => z.deviceId === selectedDeviceId)?.id ?? null,
+    [zoneList, selectedDeviceId],
+  );
+  useEffect(() => {
+    setActiveZone(zoneId);
+    socket.setZoneFilter(zoneId);
+  }, [zoneId, socket]);
   const [isLoading, setIsLoading] = useState(false);
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState<'off' | 'all' | 'one'>('off');
@@ -998,6 +1024,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       setSelectedDeviceId,
       toggleShuffle,
       toggleRepeat,
+      zones: zoneList,
+      zoneId,
+      refreshZones,
     }),
     [
       currentTrack,
@@ -1032,6 +1061,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       setSelectedDeviceId,
       toggleShuffle,
       toggleRepeat,
+      zoneList,
+      zoneId,
+      refreshZones,
     ],
   );
 

@@ -4,6 +4,48 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## V10 — Elke kamer zijn eigen wachtrij (verbeterplan sprint 10)
+
+**Zones** (`server/src/services/zones.ts`, `server/src/db/index.ts`)
+
+- Een zone is een kamer: eigen wachtrij, eigen transport, eigen volume,
+  gekoppeld aan precies één uitvoerapparaat. `zones.device_id` is UNIQUE, dus
+  twee kamers kunnen nooit dezelfde speaker claimen.
+- `playback_state` was één rij voor het hele huis (`id INTEGER PRIMARY KEY
+DEFAULT 1`) en wordt eenmalig herbouwd met `zone_id` als sleutel;
+  `queue_items` krijgt er een `zone_id` bij. De bestaande sessie blijft
+  bestaan: hij wordt de zone van het apparaat waarop hij speelde, inclusief
+  wachtrij, positie en volume. Schemaversie 8.
+- Het zoneregister houdt één `PlaybackService` per kamer; de browserzone
+  behoudt de instantie die de rest van de server al gebruikt.
+
+**Dispatch, monitor en events per kamer**
+
+- De server-player houdt per zone bij welk apparaat hij aanstuurt, met een
+  eigen dispatch-volgnummer en skipteller: een storing in de keuken raakt de
+  woonkamer niet.
+- Apparaatstatus gaat naar de zone die het apparaat bezit — nooit naar "de"
+  sessie — en na een herstart verzoent elke kamer zijn eigen speaker.
+- Socket-events dragen hun `zoneId`; bij verbinden krijgt een client een
+  snapshot per kamer plus de lijst met kamers, en de client past alleen toe
+  wat bij de gekozen kamer hoort.
+
+**API en UI**
+
+- `GET /api/playback/zones` toont elke kamer met wat er speelt;
+  `POST`/`PATCH`/`DELETE /api/playback/zones` (admin) maken, hernoemen en
+  verwijderen er een. De browserzone kan niet weg — daar landt een client
+  zonder kamer.
+- Elk playbackverzoek draagt `X-Zone-Id`; een onbekende zone geeft 404 in
+  plaats van stilletjes een andere kamer te bedienen.
+- De apparaatkiezer is de kamerkiezer geworden: hij toont de kamernaam en wat
+  daar speelt (`Keuken · playing 7/11 · Minneapolis`).
+
+Tests: `zones.test.ts` (eigen wachtrij per kamer, pause/next/volume blijven
+binnen de kamer, snapshot van de gevraagde kamer, één speaker per kamer,
+hernoemen/verwijderen met rechten) en een clienttest voor de kamerkiezer —
+313 servertests, 116 clienttests.
+
 ## Bugfix — A speaker that reports nothing (NAS, 9 Sept 2026)
 
 **The queue only moved when you pressed next**

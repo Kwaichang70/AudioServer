@@ -5,7 +5,7 @@ import { logger } from './logger.js';
 import { getPrincipalFromToken } from './middleware/auth.js';
 import { onSessionsRevoked } from './services/sessions.js';
 import { deviceMonitor } from './services/device-monitor.js';
-import { playbackService } from './services/playback.js';
+import { zones } from './services/zones.js';
 import type { ServerToClientEvents, ClientToServerEvents } from './types/socket-events.js';
 
 interface SocketData {
@@ -57,8 +57,9 @@ export function initSocketIO(httpServer: HttpServer) {
   onSessionsRevoked((sessionIds) => disconnectSessions(sessionIds));
 
   // The playback service must not import this module (import-order
-  // independence, V03.4); hand it the server as an event sink instead.
-  playbackService.setEventSink(io);
+  // independence, V03.4); hand it the server as an event sink instead. Every
+  // zone gets the same sink; its events carry the zone they belong to (V10).
+  zones.setEventSink(io);
 
   io.on('connection', (socket) => {
     logger.info(`Client connected: ${socket.id}`);
@@ -66,10 +67,15 @@ export function initSocketIO(httpServer: HttpServer) {
 
     // Snapshot recovery (V03.3): a (re)connecting client gets the whole
     // session state at once instead of piecing it together from later events.
-    socket.emit('playback:snapshot', playbackService.getSnapshot());
-    socket.on('playback:sync', () => {
-      socket.emit('playback:snapshot', playbackService.getSnapshot());
-    });
+    // One snapshot per zone (V10), plus the list of rooms itself.
+    const sendSnapshots = () => {
+      socket.emit('zones:changed', zones.list());
+      for (const zone of zones.list()) {
+        socket.emit('playback:snapshot', zones.sessionFor(zone.id).getSnapshot());
+      }
+    };
+    sendSnapshots();
+    socket.on('playback:sync', sendSnapshots);
 
     // Device monitoring subscriptions
     socket.on('device:subscribe', (deviceId: string) => {

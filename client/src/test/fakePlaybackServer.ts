@@ -65,6 +65,23 @@ export function createFakePlaybackServer() {
   const respond = () => Promise.resolve({ data: snapshot() });
 
   const api = {
+    // Zones (V10): the fake server is one room, the browser one.
+    getZones: () =>
+      Promise.resolve({
+        data: [
+          {
+            id: 'zone-browser',
+            name: 'Browser',
+            deviceId: 'browser',
+            isDefault: true,
+            state: 'stopped',
+            track: null,
+            queueLength: 0,
+            queueIndex: -1,
+            volume: 50,
+          },
+        ],
+      }),
     getPlaybackSession: () => respond(),
     setServerQueue: (
       tracks: Record<string, unknown>[],

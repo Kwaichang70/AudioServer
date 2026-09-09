@@ -1,5 +1,5 @@
 import { deviceManager } from '../devices/manager.js';
-import { playbackService } from './playback.js';
+import { zones } from './zones.js';
 import { getIO } from '../socketio.js';
 import { logger } from '../logger.js';
 import type { DevicePlaybackStatus, OutputDevice } from '@audioserver/shared';
@@ -28,8 +28,8 @@ interface PlaybackStateSync {
   noteIdlePoll?(deviceId: string, state: 'playing' | 'paused' | 'stopped', position: number): void;
   /** The device the household session is bound to; other monitored devices only feed the UI. */
   getActiveDeviceId?(): string;
-  /** How far the server got handing the current item to the device (V04). */
-  getDispatch?(): DispatchStatus;
+  /** How far the server got handing the current item to that device (V04). */
+  getDispatch?(deviceId: string): DispatchStatus | undefined;
 }
 
 interface DeviceMonitorDependencies {
@@ -54,11 +54,27 @@ interface DeviceMonitorDependencies {
   startGraceMs?: number;
 }
 
+/**
+ * Status of a device goes to the zone that owns it (V10) — never to "the"
+ * session, so a poll of the kitchen speaker cannot pause the living room.
+ * A device no zone claimed is monitored for the UI only.
+ */
+const zoneRouter: PlaybackStateSync = {
+  setState: (updates) => {
+    if (!updates.deviceId) return;
+    zones.sessionForDevice(updates.deviceId)?.setState(updates);
+  },
+  getDispatch: (deviceId) => zones.sessionForDevice(deviceId)?.getDispatch(),
+  noteIdlePoll: (deviceId, state, position) => {
+    zones.sessionForDevice(deviceId)?.noteIdlePoll(deviceId, state, position);
+  },
+};
+
 const defaultDependencies: DeviceMonitorDependencies = {
   getDevices: () => deviceManager.getDevices(),
   getPlaybackState: (deviceId) => deviceManager.getPlaybackState(deviceId),
   getIO,
-  playback: playbackService,
+  playback: zoneRouter,
   logger,
 };
 
@@ -347,7 +363,7 @@ export class DeviceMonitor {
 
   /** True while the server is handing a track to this device and it has not started yet. */
   private isDispatchSettling(deviceId: string): boolean {
-    const dispatch = this.deps.playback.getDispatch?.();
+    const dispatch = this.deps.playback.getDispatch?.(deviceId);
     if (!dispatch || dispatch.deviceId !== deviceId) return false;
     if (dispatch.state !== 'loading' && dispatch.state !== 'playing') return false;
     return Date.now() - dispatch.updatedAt < (this.deps.startGraceMs ?? 15_000);

@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../api/client.js';
+import { useAudioContext } from '../context/AudioContext.js';
 
 interface Device {
   id: string;
@@ -53,6 +54,18 @@ interface Props {
 }
 
 export default function DeviceSelector({ selectedDeviceId, onSelect, compact }: Props) {
+  // Zones (V10): a device that is a room shows the room's name and what it is
+  // playing, so picking an output is picking a room.
+  const { zones } = useAudioContext();
+  const zoneOf = (deviceId: string) => zones.find((z) => z.deviceId === deviceId);
+  const zoneLine = (deviceId: string): string | null => {
+    const zone = zoneOf(deviceId);
+    if (!zone) return null;
+    if (zone.queueLength === 0) return `${zone.name} \u00B7 empty queue`;
+    const what = zone.track?.title ? `\u00B7 ${zone.track.title}` : '';
+    const state = zone.state === 'playing' ? 'playing' : zone.state;
+    return `${zone.name} \u00B7 ${state} ${zone.queueIndex + 1}/${zone.queueLength} ${what}`.trim();
+  };
   const [devices, setDevices] = useState<Device[]>([]);
   const [spotifyDevices, setSpotifyDevices] = useState<SpotifyDevice[]>([]);
   const [open, setOpen] = useState(false);
@@ -103,7 +116,8 @@ export default function DeviceSelector({ selectedDeviceId, onSelect, compact }: 
   const selectedSpotify = spotifyDevices.find(
     (d) => `${SPOTIFY_CONNECT_PREFIX}${d.id}` === selectedDeviceId,
   );
-  const selectedLabel = selected?.name ?? selectedSpotify?.name ?? 'Browser';
+  const selectedLabel =
+    zoneOf(selectedDeviceId)?.name ?? selected?.name ?? selectedSpotify?.name ?? 'Browser';
   const selectedIcon = selectedSpotify
     ? '\u{1F7E2}'
     : deviceTypeIcons[selected?.type || 'browser'] || '\u{1F50A}';
@@ -153,7 +167,12 @@ export default function DeviceSelector({ selectedDeviceId, onSelect, compact }: 
               >
                 <span className="text-lg">{deviceTypeIcons[device.type] || '\u{1F50A}'}</span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium truncate">{device.name}</p>
+                  <p className="text-sm font-medium truncate">
+                    {zoneOf(device.id)?.name ?? device.name}
+                  </p>
+                  {zoneLine(device.id) ? (
+                    <p className="text-xs text-accent truncate">{zoneLine(device.id)}</p>
+                  ) : null}
                   <p className="text-xs text-gray-500">
                     {device.type.toUpperCase()}
                     {device.host && ` \u00B7 ${device.host}`}

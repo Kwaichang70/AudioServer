@@ -112,7 +112,7 @@ class ZoneRegistry {
       const byDevice = this.forDevice(hint.deviceId);
       if (byDevice) return byDevice;
     }
-    return this.get(DEFAULT_ZONE_ID) ?? this.list()[0] ?? null;
+    return this.get(DEFAULT_ZONE_ID) ?? this.list()[0] ?? FALLBACK_ZONE;
   }
 
   /** The live session of a zone, created and loaded from disk on first use. */
@@ -125,9 +125,12 @@ class ZoneRegistry {
     // that appears at runtime loads its own.
     const isDefault = zoneId === DEFAULT_ZONE_ID;
     const service = isDefault ? playbackService : new PlaybackService(zoneId);
-    service.setHooks(this.hooks);
-    service.setEventSink(this.sink);
-    service.setListeningObserver(this.observer);
+    // Only hand over what the registry actually has. The default zone's
+    // session may already be wired by whoever owns startup, and adopting it
+    // here must never silence it.
+    if (Object.keys(this.hooks).length > 0) service.setHooks(this.hooks);
+    if (this.sink) service.setEventSink(this.sink);
+    if (this.observer) service.setListeningObserver(this.observer);
     if (!isDefault) service.initialize();
     this.sessions.set(zoneId, service);
     return service;
@@ -205,6 +208,18 @@ class ZoneRegistry {
     this.sessions.clear();
   }
 }
+
+/**
+ * The zone every request can always fall back to. Without it a database that
+ * is not open yet (or a zones table that cannot be read) would answer 404 for
+ * playback, which is a worse failure than simply playing in the browser.
+ */
+const FALLBACK_ZONE: Zone = {
+  id: DEFAULT_ZONE_ID,
+  name: 'Browser',
+  deviceId: 'browser',
+  isDefault: true,
+};
 
 function toZone(row: ZoneRow): Zone {
   return {

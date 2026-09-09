@@ -14,6 +14,7 @@ import { playlistsRouter } from '../../routes/playlists.js';
 import { providersRouter } from '../../routes/providers.js';
 import { historyRouter } from '../../routes/history.js';
 import { smartPlaylistsRouter } from '../../routes/smart-playlists.js';
+import { zones } from '../../services/zones.js';
 import { listenbrainzRouter } from '../../routes/listenbrainz.js';
 import { scrobbleRouter } from '../../routes/scrobble.js';
 import { librespotRouter } from '../../routes/librespot.js';
@@ -57,6 +58,8 @@ export async function createTestApp(options: TestAppOptions = {}) {
   const tmp = mkdtempSync(join(tmpdir(), 'audioserver-test-'));
   const dbPath = join(tmp, 'test.db');
   await initDatabase(dbPath);
+  // Zones hold a live session per room; a fresh database means fresh rooms.
+  zones.resetForTests();
 
   let admin: TestUser | null = null;
   let member: TestUser | null = null;

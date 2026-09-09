@@ -267,7 +267,7 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 | V07    | Betere zoekresultaten, edities en bronkeuze        | V04, V06                          | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
 | V08    | Mobiele afronding, onboarding en offline shell     | V02–V07                           | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
 | V09    | Persoonlijke muziekomgevingen                      | V02, V05–V06                      | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
-| V10    | Onafhankelijke wachtrij per zone                   | V03–V04, V09                      | Optioneel vervolg                                        |
+| V10    | Onafhankelijke wachtrij per zone                   | V03–V04, V09                      | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
 | V11    | Audio-inzicht en geverifieerde trackovergangen     | V04; V10 als zones worden gebouwd | Optioneel vervolg                                        |
 | V12    | Gemengde playlists en betere ontdekfuncties        | V05, V07; V09 bij profielen       | Optioneel vervolg                                        |
 
@@ -477,10 +477,10 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 **Keuzemoment:** minimaal twee daadwerkelijk gebruikte uitvoerapparaten beschikbaar.  
 **Bevinding:** B11.
 
-- [ ] **V10.1 · 2,5 dag:** zones en afspeelsessies modelleren; singleton playbackstate/queue omzetten naar per-zone opslag.
-- [ ] **V10.2 · 2 dagen:** dispatch, monitor, events en toegang aan de juiste zone koppelen; één apparaat kan niet onbedoeld twee actieve zones bezetten.
-- [ ] **V10.3 · 1,5 dag:** zonekiezer met eigen wachtrij/status/volume en herkenbare gedeelde bediening.
-- [ ] **V10.4 · 2 dagen:** gelijktijdig luisteren, tweede controller, offline apparaat en herstart testen op twee outputs.
+- [x] **V10.1 · 2,5 dag:** zones en afspeelsessies modelleren; singleton playbackstate/queue omzetten naar per-zone opslag.
+- [x] **V10.2 · 2 dagen:** dispatch, monitor, events en toegang aan de juiste zone koppelen; één apparaat kan niet onbedoeld twee actieve zones bezetten.
+- [x] **V10.3 · 1,5 dag:** zonekiezer met eigen wachtrij/status/volume en herkenbare gedeelde bediening.
+- [x] **V10.4 · 2 dagen:** gelijktijdig luisteren, tweede controller, offline apparaat en herstart testen op twee outputs.
 
 **Acceptatie:**
 
@@ -773,6 +773,20 @@ Zelfde branch en omgeving als V01–V03.
 **Wacht op acceptatie (NAS):** een tweede account aanmaken, met beide accounts hetzelfde album als favoriet zetten, elkaars playlist-ID raden (moet 404 geven), een playlist delen en zien dat de ander hem wel ziet maar niet kan bewerken, met beide accounts ListenBrainz koppelen en controleren dat de “Recent listens” per persoon kloppen, en ten slotte een testaccount verwijderen en controleren dat de gedeelde playlist blijft bestaan.
 
 **Beslismoment na V09:** V10 (wachtrij per zone) of V11 (audio-uitbreiding) — volgens §9 eerst de NAS-acceptatie van V03/V04 afronden.
+
+### V10 — 9 september 2026
+
+**Uitgevoerd:** V10.1–V10.4 in code; 313 servertests, 116 clienttests, lint/typecheck/build groen.
+
+**Ontwerpkeuzes:** een zone is een kamer met precies één uitvoerapparaat, en een apparaat hoort bij hoogstens één zone — dat is een UNIQUE-index, geen afspraak, dus twee kamers kunnen dezelfde speaker niet claimen. De browserzone is de vaste landingsplek: een client die geen kamer noemt komt daar terecht, en die zone kan niet verwijderd worden. `playback_state` was opnieuw een huishoudtabel met `id INTEGER PRIMARY KEY DEFAULT 1`; net als bij `favorites` in V09 wordt hij eenmalig herbouwd, nu met `zone_id` als sleutel, met behoud van de lopende sessie: die wordt de zone van het apparaat waarop hij speelde. Elke kamer heeft een eigen `PlaybackService`; de browserzone behoudt de instantie die de rest van de server al importeert, zodat er precies één sessieobject per kamer bestaat.
+
+**Waarom de client per kamer filtert:** alle zones zenden over dezelfde socket. De client zet een zonefilter op basis van het gekozen apparaat en stuurt `X-Zone-Id` mee met elk verzoek; een event van een andere kamer wordt genegeerd en een onbekende zone geeft 404 in plaats van stilletjes de verkeerde kamer te bedienen.
+
+**Gedragswijzigingen voor de gebruiker:** de apparaatkiezer is de kamerkiezer geworden en toont per kamer wat daar speelt (`Keuken · playing 7/11 · Minneapolis`). Pause, volgende en volume werken alleen in de kamer die je hebt gekozen. Een beheerder kan kamers aanmaken, hernoemen en verwijderen.
+
+**Wacht op acceptatie (NAS):** twee apparaten tegelijk laten spelen met verschillende albums; in kamer A pauzeren en controleren dat B doorspeelt; volume in A wijzigen en B ongemoeid zien; de app op telefoon en desktop op verschillende kamers zetten; de server herstarten en controleren dat beide kamers hun eigen wachtrij terugkrijgen; één speaker uitzetten en zien dat alleen die kamer stopt.
+
+**Beslismoment na V10:** V11 (trackovergangen en audiopad) of V12; volgens §9 eerst de NAS-acceptatie van V03/V04 afronden.
 
 ## Bronverwijzingen naar de onderzochte code
 

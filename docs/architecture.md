@@ -333,6 +333,17 @@ itself for device playback) and die with it. Helmet sends a
 `Content-Security-Policy-Report-Only` header; violations land in the log via
 `POST /api/csp-report`.
 
+**Zones (V10).** A zone is a room: its own queue, transport and volume,
+bound to exactly one output device (`zones.device_id` is UNIQUE, so two rooms
+can never claim the same speaker). `services/zones.ts` holds one
+`PlaybackService` per zone — the browser zone keeps the module-level instance
+the rest of the server imports — and hands each of them the same hooks, event
+sink and listening observer. Requests carry `X-Zone-Id` (or name a device the
+zone owns); an unknown zone answers 404 rather than steering another room.
+Device status is routed to the zone that owns the device, the server player
+keeps its active device, dispatch sequence and skip counter per zone, and
+socket events carry their `zoneId` so a client applies only its own room's.
+
 **Personal vs household data (V09).** The library, the playback session, the
 output devices and the provider tokens belong to the household; playlists,
 smart playlists, favorites, listening history, statistics and scrobble

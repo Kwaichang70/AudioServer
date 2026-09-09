@@ -1,4 +1,6 @@
-import { playbackService, SERVER_ORIGIN, type TrackInfo } from './playback.js';
+import { SERVER_ORIGIN, type PlaybackService, type TrackInfo } from './playback.js';
+import { zones } from './zones.js';
+import { DEFAULT_ZONE_ID } from '../db/index.js';
 import { deviceMonitor } from './device-monitor.js';
 import { deviceManager } from '../devices/manager.js';
 import {
@@ -60,17 +62,46 @@ export function configureServerPlayer(overrides: Partial<ServerPlayerDeps>): voi
   deps = { ...deps, ...overrides };
 }
 
-let activeDeviceId: string | null = null;
-let dispatchSeq = 0;
-let consecutiveSkips = 0;
+/**
+ * Per zone (V10): every room drives its own speaker. A dispatch in the
+ * kitchen must not cancel the one in the living room, so the sequence number
+ * and the skip counter are per zone too.
+ */
+interface ZonePlayback {
+  activeDeviceId: string | null;
+  dispatchSeq: number;
+  consecutiveSkips: number;
+}
+
+const perZone = new Map<string, ZonePlayback>();
+
+function zoneState(zoneId: string): ZonePlayback {
+  const existing = perZone.get(zoneId);
+  if (existing) return existing;
+  const fresh: ZonePlayback = { activeDeviceId: null, dispatchSeq: 0, consecutiveSkips: 0 };
+  perZone.set(zoneId, fresh);
+  return fresh;
+}
+
+function sessionOf(zoneId: string): PlaybackService {
+  return zones.sessionFor(zoneId);
+}
+
+/** The zone that drives a device, or null when no zone claimed it. */
+function zoneDriving(deviceId: string): string | null {
+  for (const [zoneId, state] of perZone) {
+    if (state.activeDeviceId === deviceId) return zoneId;
+  }
+  return null;
+}
 
 /** External renderers we can stream to (DLNA/Sonos/Volumio). */
 export function isServerManagedDevice(deviceId: string | null | undefined): boolean {
   return !!deviceId && deviceId !== 'browser' && !deviceId.startsWith('spotify-connect:');
 }
 
-export function getActiveServerDevice(): string | null {
-  return activeDeviceId;
+export function getActiveServerDevice(zoneId: string = DEFAULT_ZONE_ID): string | null {
+  return zoneState(zoneId).activeDeviceId;
 }
 
 /**
@@ -78,25 +109,31 @@ export function getActiveServerDevice(): string | null {
  * external device. Pins the device so the monitor keeps polling (and thus
  * advancing) after every client disconnects.
  */
-export function startServerPlayback(userId: string, deviceId: string): void {
-  if (activeDeviceId && activeDeviceId !== deviceId) {
-    deviceMonitor.unpin(activeDeviceId);
+export function startServerPlayback(
+  userId: string,
+  deviceId: string,
+  zoneId: string = DEFAULT_ZONE_ID,
+): void {
+  const state = zoneState(zoneId);
+  if (state.activeDeviceId && state.activeDeviceId !== deviceId) {
+    deviceMonitor.unpin(state.activeDeviceId);
   }
-  activeDeviceId = deviceId;
-  consecutiveSkips = 0;
+  state.activeDeviceId = deviceId;
+  state.consecutiveSkips = 0;
   deviceMonitor.pin(deviceId);
-  playbackService.setServerManaged(true, userId);
-  logger.info(`ServerPlayer: driving playback on ${deviceId}`);
+  sessionOf(zoneId).setServerManaged(true, userId);
+  logger.info(`ServerPlayer[${zoneId}]: driving playback on ${deviceId}`);
 }
 
-export function stopServerPlayback(): void {
-  if (activeDeviceId) {
-    deviceMonitor.unpin(activeDeviceId);
-    logger.info(`ServerPlayer: released ${activeDeviceId}`);
+export function stopServerPlayback(zoneId: string = DEFAULT_ZONE_ID): void {
+  const state = zoneState(zoneId);
+  if (state.activeDeviceId) {
+    deviceMonitor.unpin(state.activeDeviceId);
+    logger.info(`ServerPlayer[${zoneId}]: released ${state.activeDeviceId}`);
   }
-  activeDeviceId = null;
-  dispatchSeq++; // any in-flight dispatch becomes stale
-  playbackService.setServerManaged(false);
+  state.activeDeviceId = null;
+  state.dispatchSeq++; // any in-flight dispatch becomes stale
+  sessionOf(zoneId).setServerManaged(false);
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
@@ -123,10 +160,13 @@ export async function dispatch(
   deviceId: string,
   track: TrackInfo,
   itemId: string | null,
+  zoneId: string = DEFAULT_ZONE_ID,
 ): Promise<void> {
-  const seq = ++dispatchSeq;
-  const stale = () => seq !== dispatchSeq || activeDeviceId !== deviceId;
-  playbackService.setDispatch({
+  const zone = zoneState(zoneId);
+  const session = sessionOf(zoneId);
+  const seq = ++zone.dispatchSeq;
+  const stale = () => seq !== zone.dispatchSeq || zone.activeDeviceId !== deviceId;
+  session.setDispatch({
     state: 'loading',
     deviceId,
     itemId,
@@ -145,15 +185,17 @@ export async function dispatch(
         `dispatch to ${deviceId}`,
       );
       if (stale()) return;
-      consecutiveSkips = 0;
-      playbackService.setDispatch({
+      zone.consecutiveSkips = 0;
+      session.setDispatch({
         state: 'playing',
         deviceId,
         itemId,
         trackId: track.id,
         attempts: attempt,
       });
-      logger.info(`ServerPlayer: sent "${track.title}" (${resolved.source}) to ${deviceId}`);
+      logger.info(
+        `ServerPlayer[${zoneId}]: sent "${track.title}" (${resolved.source}) to ${deviceId}`,
+      );
       return;
     } catch (err) {
       lastError = err;
@@ -165,7 +207,7 @@ export async function dispatch(
     }
   }
   if (stale()) return;
-  handleUnplayable(deviceId, track, itemId, lastError);
+  handleUnplayable(deviceId, track, itemId, lastError, zoneId);
 }
 
 function handleUnplayable(
@@ -173,7 +215,10 @@ function handleUnplayable(
   track: TrackInfo,
   itemId: string | null,
   err: unknown,
+  zoneId: string,
 ): void {
+  const zone = zoneState(zoneId);
+  const session = sessionOf(zoneId);
   const code = err instanceof PlaybackResolveError ? err.code : 'dispatch_failed';
   const message = err instanceof Error ? err.message : String(err);
 
@@ -181,9 +226,9 @@ function handleUnplayable(
   // the SDK/Connect and reports back; with nobody awake there is nothing to
   // wait for, so the policy applies.
   if (code === 'external_player_only') {
-    const controller = playbackService.getSnapshot().controller.clientId;
+    const controller = session.getSnapshot().controller.clientId;
     if (deps.isClientConnected(controller)) {
-      playbackService.setDispatch({
+      session.setDispatch({
         state: 'client',
         deviceId,
         itemId,
@@ -195,10 +240,10 @@ function handleUnplayable(
     }
   }
 
-  if (deps.policy === 'skip' && consecutiveSkips < deps.maxConsecutiveSkips) {
-    consecutiveSkips++;
-    logger.warn(`ServerPlayer: skipping "${track.title}" (${code}): ${message}`);
-    playbackService.setDispatch({
+  if (deps.policy === 'skip' && zone.consecutiveSkips < deps.maxConsecutiveSkips) {
+    zone.consecutiveSkips++;
+    logger.warn(`ServerPlayer[${zoneId}]: skipping "${track.title}" (${code}): ${message}`);
+    session.setDispatch({
       state: 'skipped',
       deviceId,
       itemId,
@@ -208,30 +253,33 @@ function handleUnplayable(
       attempts: deps.maxAttempts,
     });
     // advance() emits track-changed and fires onAdvance for the next item.
-    const next = playbackService.advance(SERVER_ORIGIN);
-    if (!next) consecutiveSkips = 0;
+    const next = session.advance(SERVER_ORIGIN);
+    if (!next) zone.consecutiveSkips = 0;
     return;
   }
 
   const reason =
     deps.policy === 'skip'
-      ? `Stopped after ${consecutiveSkips} unplayable tracks in a row (last: ${message})`
+      ? `Stopped after ${zone.consecutiveSkips} unplayable tracks in a row (last: ${message})`
       : message;
-  logger.error(`ServerPlayer: stopping playback on ${deviceId}: ${reason}`);
-  consecutiveSkips = 0;
-  playbackService.markPlaybackFailed(reason, code);
-  stopServerPlayback();
+  logger.error(`ServerPlayer[${zoneId}]: stopping playback on ${deviceId}: ${reason}`);
+  zone.consecutiveSkips = 0;
+  session.markPlaybackFailed(reason, code);
+  stopServerPlayback(zoneId);
 }
 
 /** Device monitor gave up on the pinned device: no fictitious "playing". */
 export function onDeviceUnreachable(deviceId: string, errors: number): void {
-  if (deviceId !== activeDeviceId) return;
-  logger.error(`ServerPlayer: ${deviceId} unreachable after ${errors} polls, stopping session`);
-  playbackService.markPlaybackFailed(
+  const zoneId = zoneDriving(deviceId);
+  if (!zoneId) return;
+  logger.error(
+    `ServerPlayer[${zoneId}]: ${deviceId} unreachable after ${errors} polls, stopping session`,
+  );
+  sessionOf(zoneId).markPlaybackFailed(
     `Device ${deviceId} stopped responding; playback stopped`,
     'device_unreachable',
   );
-  stopServerPlayback();
+  stopServerPlayback(zoneId);
 }
 
 /**
@@ -240,10 +288,12 @@ export function onDeviceUnreachable(deviceId: string, errors: number): void {
  * track end advances the queue again). Idle → the session is stopped; only
  * PLAYBACK_RESUME_ON_RESTART=true starts the current item again.
  */
-export async function reconcileAfterRestart(): Promise<
-  'not-managed' | 'device-playing' | 'resumed' | 'stopped'
-> {
-  const info = playbackService.getPersistedSessionInfo();
+export async function reconcileAfterRestart(
+  zoneId: string = DEFAULT_ZONE_ID,
+): Promise<'not-managed' | 'device-playing' | 'resumed' | 'stopped'> {
+  const zone = zoneState(zoneId);
+  const session = sessionOf(zoneId);
+  const info = session.getPersistedSessionInfo();
   if (!info.serverManaged || !isServerManagedDevice(info.deviceId)) return 'not-managed';
 
   try {
@@ -260,12 +310,12 @@ export async function reconcileAfterRestart(): Promise<
     logger.warn(`ServerPlayer: ${info.deviceId} did not answer after restart: ${err}`);
   }
 
-  const current = playbackService.getCurrentTrack();
+  const current = session.getCurrentTrack();
   if (deviceState === 'playing' || deviceState === 'buffering') {
-    activeDeviceId = info.deviceId;
+    zone.activeDeviceId = info.deviceId;
     deviceMonitor.pin(info.deviceId);
-    playbackService.setServerManaged(true, info.ownerUserId);
-    playbackService.setDispatch({
+    session.setServerManaged(true, info.ownerUserId);
+    session.setDispatch({
       state: 'playing',
       deviceId: info.deviceId,
       itemId: info.queueItemId,
@@ -278,38 +328,52 @@ export async function reconcileAfterRestart(): Promise<
   }
 
   if (deps.resumeOnRestart && current && info.state === 'playing') {
-    activeDeviceId = info.deviceId;
+    zone.activeDeviceId = info.deviceId;
     deviceMonitor.pin(info.deviceId);
-    playbackService.setServerManaged(true, info.ownerUserId);
+    session.setServerManaged(true, info.ownerUserId);
     logger.info(`ServerPlayer: resuming "${current.title}" on ${info.deviceId} after restart`);
-    void dispatch(info.deviceId, current, info.queueItemId);
+    void dispatch(info.deviceId, current, info.queueItemId, zoneId);
     return 'resumed';
   }
 
   if (info.state === 'playing') {
-    playbackService.markPlaybackFailed(
+    session.markPlaybackFailed(
       `Server restarted while ${info.deviceId} was ${deviceState === 'unknown' ? 'unreachable' : deviceState}; press play to continue`,
       'restart',
     );
   }
-  playbackService.setServerManaged(false);
+  session.setServerManaged(false);
   logger.info(`ServerPlayer: ${info.deviceId} is ${deviceState} after restart; session stopped`);
   return 'stopped';
 }
 
+/** Every zone reconciles its own speaker after a restart (V10). */
+export async function reconcileAllZones(): Promise<void> {
+  for (const zone of zones.list()) {
+    try {
+      const outcome = await reconcileAfterRestart(zone.id);
+      if (outcome !== 'not-managed') {
+        logger.info(`ServerPlayer: zone "${zone.name}" after restart: ${outcome}`);
+      }
+    } catch (err) {
+      logger.warn(`ServerPlayer: reconciling zone "${zone.name}" failed: ${err}`);
+    }
+  }
+}
+
 /** Wire the playback hooks. Call once at startup. */
 export function initServerPlayer(): void {
-  playbackService.setHooks({
-    onAdvance: (deviceId, track, itemId) => {
-      if (!isServerManagedDevice(deviceId) || deviceId !== activeDeviceId) return;
-      dispatch(deviceId, track, itemId).catch((err) => {
-        logger.error(`ServerPlayer: dispatch crashed for ${deviceId}: ${err}`);
+  zones.setHooks({
+    onAdvance: (deviceId, track, itemId, zoneId) => {
+      if (!isServerManagedDevice(deviceId) || deviceId !== zoneState(zoneId).activeDeviceId) return;
+      dispatch(deviceId, track, itemId, zoneId).catch((err) => {
+        logger.error(`ServerPlayer[${zoneId}]: dispatch crashed for ${deviceId}: ${err}`);
       });
     },
-    onIdle: (deviceId) => {
-      if (deviceId === activeDeviceId) {
-        playbackService.setDispatch({ state: 'idle', deviceId });
-        stopServerPlayback();
+    onIdle: (deviceId, zoneId) => {
+      if (deviceId === zoneState(zoneId).activeDeviceId) {
+        sessionOf(zoneId).setDispatch({ state: 'idle', deviceId });
+        stopServerPlayback(zoneId);
       }
     },
   });
@@ -319,7 +383,9 @@ export function initServerPlayer(): void {
 
 /** Test helper: forget in-memory ownership without touching the service. */
 export function resetServerPlayerForTests(): void {
-  activeDeviceId = null;
-  dispatchSeq++;
-  consecutiveSkips = 0;
+  for (const state of perZone.values()) {
+    state.activeDeviceId = null;
+    state.dispatchSeq++;
+    state.consecutiveSkips = 0;
+  }
 }

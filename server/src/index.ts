@@ -25,11 +25,11 @@ import { scrobbler } from './services/scrobbler.js';
 import { closeDatabase, initDatabase } from './db/index.js';
 import { providers } from './providers/registry.js';
 import { autoStartLibrespot, stopLibrespot } from './services/librespot.js';
-import { playbackService } from './services/playback.js';
+import { zones } from './services/zones.js';
 import { startWatcher, stopWatcher } from './services/watcher.js';
 import { closeInterruptedScanRuns } from './services/scanner.js';
 import { deviceMonitor } from './services/device-monitor.js';
-import { initServerPlayer, reconcileAfterRestart } from './services/server-player.js';
+import { initServerPlayer, reconcileAllZones } from './services/server-player.js';
 import { closeOrphanedSessions, playbackListeningObserver } from './services/listening.js';
 import { globalLimiter } from './middleware/rateLimiter.js';
 import { requestLogger } from './middleware/requestLogger.js';
@@ -204,8 +204,9 @@ async function main() {
   const interrupted = closeInterruptedScanRuns();
   if (interrupted > 0)
     logger.warn(`Scanner: ${interrupted} scan run(s) were interrupted by the previous shutdown`);
-  playbackService.setListeningObserver(playbackListeningObserver);
-  playbackService.initialize();
+  // Zones (V10): every room loads its own queue and transport.
+  zones.setListeningObserver(playbackListeningObserver);
+  zones.initialize();
   // Server-driven playback: pushes the next queue track to DLNA/Sonos devices
   // itself, so albums keep playing when every client (tablet) is asleep.
   initServerPlayer();
@@ -213,7 +214,7 @@ async function main() {
   // checked, not assumed (V04.3). Runs after listen() so readiness is not
   // delayed by a slow renderer.
   const reconcile = () =>
-    reconcileAfterRestart().catch((err) => logger.warn(`ServerPlayer: reconcile failed: ${err}`));
+    reconcileAllZones().catch((err) => logger.warn(`ServerPlayer: reconcile failed: ${err}`));
   startWatcher();
   scrobbler.start();
   autoStartLibrespot().catch(() => {});

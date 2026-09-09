@@ -213,6 +213,8 @@ export interface PlaybackOrigin {
 /** What the server-side player is doing with the current item on the active device. */
 export interface DispatchStatus {
   state: 'idle' | 'loading' | 'playing' | 'client' | 'skipped' | 'error';
+  /** The room this dispatch belongs to (V10). */
+  zoneId?: string;
   deviceId: string | null;
   itemId: string | null;
   trackId: string | null;
@@ -231,8 +233,27 @@ export interface SourceCapabilities {
   reason?: string;
 }
 
+/** A room with its own queue, transport and volume (V10). */
+export interface ZoneSummary {
+  id: string;
+  name: string;
+  deviceId: string;
+  isDefault: boolean;
+}
+
+/** A room plus what it is playing right now (GET /playback/zones). */
+export interface ZoneOverview extends ZoneSummary {
+  state: 'playing' | 'paused' | 'stopped';
+  track: NowPlaying['track'];
+  queueLength: number;
+  queueIndex: number;
+  volume: number;
+}
+
 /** Authoritative session state returned by every queue command and pushed on connect. */
 export interface PlaybackSnapshot {
+  /** The room this snapshot describes (V10). */
+  zoneId?: string;
   revision: number;
   queue: PlaybackQueueEntry[];
   currentItemId: string | null;
@@ -245,6 +266,7 @@ export interface PlaybackSnapshot {
 }
 
 export interface PlaybackQueueEvent {
+  zoneId?: string;
   revision: number;
   queue: PlaybackQueueEntry[];
   currentItemId: string | null;
@@ -255,12 +277,14 @@ export interface PlaybackQueueEvent {
 }
 
 export interface PlaybackStateEvent extends NowPlaying {
+  zoneId?: string;
   revision: number;
   currentItemId: string | null;
   origin: PlaybackOrigin;
 }
 
 export interface PlaybackTrackChangedEvent {
+  zoneId?: string;
   track: {
     id: string;
     title: string;
