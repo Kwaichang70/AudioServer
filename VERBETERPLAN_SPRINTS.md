@@ -268,7 +268,7 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 | V08    | Mobiele afronding, onboarding en offline shell     | V02–V07                           | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
 | V09    | Persoonlijke muziekomgevingen                      | V02, V05–V06                      | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
 | V10    | Onafhankelijke wachtrij per zone                   | V03–V04, V09                      | Uitgevoerd in code (9 sep 2026); wacht op NAS-acceptatie |
-| V11    | Audio-inzicht en geverifieerde trackovergangen     | V04; V10 als zones worden gebouwd | Optioneel vervolg                                        |
+| V11    | Audio-inzicht en geverifieerde trackovergangen     | V04; V10 als zones worden gebouwd | Uitgevoerd in code (12 sep 2026); wacht op NAS-metingen  |
 | V12    | Gemengde playlists en betere ontdekfuncties        | V05, V07; V09 bij profielen       | Optioneel vervolg                                        |
 
 ### V01 — Releasebasis en direct herstelbare risico's
@@ -495,10 +495,10 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 **Doel:** hoorbare kwaliteit verbeteren en beperkingen eerlijk tonen.  
 **Bevinding:** B12.
 
-- [ ] **V11.1 · 1,5 dag:** capabilities per output: ondersteunde formaten, seek, next-URI, ReplayGain, gapless en bekende limieten.
-- [ ] **V11.2 · 2,5 dag:** browservoorbereiding en daadwerkelijke overname van het volgende element/buffer; crossfadefouten en promises correct afhandelen.
-- [ ] **V11.3 · 2 dagen:** servergestuurde next-URI voor ondersteunde apparaten; unsupported/failed teruggeven als expliciete status.
-- [ ] **V11.4 · 2 dagen:** audiopad tonen en testovergangen opnemen/meten op de gekozen referentieoutputs.
+- [x] **V11.1 · 1,5 dag:** capabilities per output: ondersteunde formaten, seek, next-URI, ReplayGain, gapless en bekende limieten.
+- [x] **V11.2 · 2,5 dag:** browservoorbereiding en daadwerkelijke overname van het volgende element/buffer; crossfadefouten en promises correct afhandelen.
+- [x] **V11.3 · 2 dagen:** servergestuurde next-URI voor ondersteunde apparaten; unsupported/failed teruggeven als expliciete status.
+- [x] **V11.4 · 2 dagen:** audiopad tonen en testovergangen opnemen/meten op de gekozen referentieoutputs.
 
 **Acceptatie:**
 
@@ -795,6 +795,22 @@ Zelfde branch en omgeving als V01–V03.
 **Wacht op acceptatie (NAS):** twee apparaten tegelijk laten spelen met verschillende albums; in kamer A pauzeren en controleren dat B doorspeelt; volume in A wijzigen en B ongemoeid zien; de app op telefoon en desktop op verschillende kamers zetten; de server herstarten en controleren dat beide kamers hun eigen wachtrij terugkrijgen; één speaker uitzetten en zien dat alleen die kamer stopt.
 
 **Beslismoment na V10:** V11 (trackovergangen en audiopad) of V12; volgens §9 eerst de NAS-acceptatie van V03/V04 afronden.
+
+### V11 — 12 september 2026
+
+**Uitgevoerd:** V11.1–V11.4 in code; 328 servertests, 118 clienttests, lint/typecheck/build groen.
+
+**Ontwerpkeuze: niets claimen wat niet gemeten is.** Een uitgang wordt gevraagd wat hij kan (DLNA en Sonos publiceren hun actielijst en hun formaten); wat een apparaat niet zegt blijft `unknown`, want stilte is geen "nee". Het woord "gapless" komt nergens uit een specificatie: het log houdt **waargenomen** en **gemeten** getallen in aparte kolommen, en alleen een echte meting van de uitgang — met vermelding van de methode — kan "gapless geverifieerd" dragen. Daarbij telt de slechtste meting, niet het gemiddelde, en zijn er minstens drie grenzen nodig.
+
+**De kern van de sprint** is de overdracht vooraf: zodra een nummer speelt krijgt de speler het volgende al, zodat hij het zelf kan starten. Het lastige deel is niet het versturen maar het _niet_ versturen: als de speler die track zelf start, mag de server hem niet opnieuw dispatchen. De monitor herkent de eigen overgang aan een positie die terugvalt naar het begin terwijl het apparaat blijft spelen, en vertrouwt dat alleen als er werkelijk iets was klaargezet — anders zou terugspoelen naar 0:00 de wachtrij laten doorschakelen.
+
+**Browser:** `preloadNext()` bereidde het volgende element voor waarna `play()` het weggooide met een nieuwe `src`. Die buffer wordt nu overgenomen wanneer hij bij de url hoort en speelklaar is.
+
+**Gedragswijzigingen voor de gebruiker:** Settings toont het audiopad met per stap hoe zeker de server ervan is, wat elke uitgang kan, en de laatste overgangen met waargenomen en (indien aanwezig) gemeten tijden.
+
+**Wacht op acceptatie (NAS):** twintig overgangen achter elkaar op de referentiespeaker zonder herstart, dubbele dispatch of overslaan; de grens van twee aaneengesloten nummers opnemen en de gemeten pauze via `POST /api/playback/transitions/:id/measurement` vastleggen (pas daarna mag "gapless geverifieerd" verschijnen); hetzelfde in de browser; een speler die `SetNextAVTransportURI` niet ondersteunt en dus terugvalt op de gewone dispatch.
+
+**Beslismoment na V11:** V12 (gemengde playlists en ontdekken) of afronden; volledige servertranscoding blijft expliciet buiten scope tot er een proef met CPU-meting is gedaan.
 
 ## Bronverwijzingen naar de onderzochte code
 

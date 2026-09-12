@@ -18,7 +18,7 @@ import { fileURLToPath } from 'url';
  * it does not understand. Databases from before this check carry version 0,
  * which every build accepts and upgrades.
  */
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 export class DatabaseVersionError extends Error {
   constructor(
@@ -134,6 +134,25 @@ export async function initDatabase(overridePath?: string) {
   // V10.1: zones. Each room gets its own queue and transport row.
   runMigration(sqlite, 'queue_items', 'zone_id', 'TEXT');
   createZones(sqlite);
+  // V11.4: the transition log. Created here (not in a Drizzle file) so every
+  // database shape gets it, including ones that never ran the newer files.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS transition_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      zone_id TEXT,
+      device_id TEXT NOT NULL,
+      from_track_id TEXT,
+      to_track_id TEXT,
+      handover TEXT NOT NULL,
+      armed_at INTEGER,
+      observed_gap_ms INTEGER,
+      measured_gap_ms INTEGER,
+      method TEXT,
+      note TEXT,
+      created_at INTEGER DEFAULT (unixepoch())
+    )
+  `);
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_transition_device ON transition_log (device_id, id)');
   // V05.3: one submission per listening session and service.
   runMigration(sqlite, 'scrobble_queue', 'session_id', 'TEXT');
   sqlite.exec(

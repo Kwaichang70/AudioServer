@@ -675,6 +675,38 @@ export class PlaybackService {
     return this.queue.map((item) => ({ ...item }));
   }
 
+  /**
+   * The item that would play after the current one, without moving anything
+   * (V11.3). Respects repeat and shuffle the way advance() does, except that
+   * shuffle has no fixed answer — a random next cannot be handed over early,
+   * so it returns null and the track is dispatched at the end instead.
+   */
+  peekNext(): { itemId: string; track: TrackInfo } | null {
+    if (this.queue.length === 0 || this.state.shuffle) return null;
+    if (this.state.repeat === 'one') {
+      const current = this.queue[this.queueIndex];
+      return current
+        ? { itemId: current.itemId, track: this.queueEntryToTrackInfo(current) }
+        : null;
+    }
+    let nextIndex = this.queueIndex + 1;
+    if (nextIndex >= this.queue.length) {
+      if (this.state.repeat !== 'all') return null;
+      nextIndex = 0;
+    }
+    const entry = this.queue[nextIndex];
+    return entry ? { itemId: entry.itemId, track: this.queueEntryToTrackInfo(entry) } : null;
+  }
+
+  /**
+   * The device moved to the next track by itself (V11.3): it was handed the
+   * url in advance and started playing it. The queue follows without anyone
+   * dispatching anything — that is the whole point of a gapless handover.
+   */
+  deviceAdvanced(): TrackInfo | null {
+    return this.advance(SERVER_ORIGIN);
+  }
+
   getQueueIndex(): number {
     return this.queueIndex;
   }

@@ -13,6 +13,12 @@ interface AudioState {
    */
   playbackBlocked: 'autoplay' | 'error' | null;
   volume: number;
+  /**
+   * The last track boundary made in this tab (V11.4): whether the next
+   * element was already prepared, and how long the handover took measured in
+   * the page. Not a statement about the sound at the speaker.
+   */
+  lastHandover?: { how: 'preloaded' | 'reloaded'; gapMs: number; at: number };
 }
 
 export type ReplayGainMode = 'off' | 'track' | 'album';
@@ -59,6 +65,10 @@ function classifyPlayError(err: unknown): 'autoplay' | 'error' {
 export function useAudio() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const nextAudioRef = useRef<HTMLAudioElement | null>(null);
+  /** Which url the preloaded element holds, so play() can recognise it (V11.2). */
+  const preloadedUrlRef = useRef<string | null>(null);
+  /** When the current track ended, to measure the handover to the next (V11.4). */
+  const endedAtRef = useRef<number | null>(null);
   const onEndedRef = useRef<(() => void) | null>(null);
   const crossfadeDurationRef = useRef(0); // 0 = gapless, >0 = crossfade seconds
   const crossfadeFiredRef = useRef<WeakSet<HTMLAudioElement>>(new WeakSet());
@@ -170,6 +180,8 @@ export function useAudio() {
 
     audio.addEventListener('ended', () => {
       setState((s) => ({ ...s, isPlaying: false }));
+      // The boundary starts here; play() of the next track closes it (V11.4).
+      endedAtRef.current = performance.now();
       if (crossfadeDurationRef.current === 0) {
         onEndedRef.current?.();
       }
@@ -226,6 +238,20 @@ export function useAudio() {
     },
     [],
   );
+
+  /**
+   * How the last boundary was made and how long it took, measured in the page
+   * (V11.4). This is the handover inside the browser — from the end of one
+   * element to the start of the next — not the sound coming out of a speaker:
+   * a real gapless verdict still needs a recording.
+   */
+  const handedOver = useCallback((how: 'preloaded' | 'reloaded'): void => {
+    const endedAt = endedAtRef.current;
+    endedAtRef.current = null;
+    if (endedAt === null) return; // a manual start, not a boundary
+    const gapMs = Math.max(0, Math.round(performance.now() - endedAt));
+    setState((s) => ({ ...s, lastHandover: { how, gapMs, at: Date.now() } }));
+  }, []);
 
   /**
    * `HTMLMediaElement.play()` returns a promise that rejects when the browser
@@ -298,34 +324,74 @@ export function useAudio() {
         audioRef.current = newAudio;
         nextAudioRef.current = oldAudio;
       } else {
-        // Gapless: swap src on the existing element.
-        crossfadeFiredRef.current.delete(audio);
-        audio.src = url;
-        if (audioCtxRef.current && sameOrigin) attachGain(audio);
-        applyVolume(audio);
-        startPlayback(audio);
+        // Take over the element that was preloaded for exactly this url
+        // (V11.2). Until now the buffer was prepared and then thrown away by
+        // assigning a new src, which is why the browser still had to fetch
+        // and decode at the boundary. `readyState >= HAVE_CURRENT_DATA` means
+        // it can start on the spot; anything less and loading it again is no
+        // worse than what we had.
+        const prepared =
+          preloadedUrlRef.current === url &&
+          nextAudioRef.current &&
+          nextAudioRef.current.readyState >= 2
+            ? nextAudioRef.current
+            : null;
+
+        if (prepared) {
+          audio.pause();
+          audio.src = '';
+          crossfadeFiredRef.current.delete(audio);
+          nextAudioRef.current = null;
+          preloadedUrlRef.current = null;
+          audioRef.current = prepared;
+          applyVolume(prepared);
+          startPlayback(prepared);
+          handedOver('preloaded');
+        } else {
+          // Gapless: swap src on the existing element.
+          crossfadeFiredRef.current.delete(audio);
+          audio.src = url;
+          if (audioCtxRef.current && sameOrigin) attachGain(audio);
+          applyVolume(audio);
+          startPlayback(audio);
+          handedOver('reloaded');
+        }
       }
 
       setState((s) => ({ ...s, isPlaying: true, playbackBlocked: null }));
     },
-    [applyVolume, attachGain, attachListeners, computeReplayGainAmp, fadeVia, startPlayback],
+    [
+      applyVolume,
+      attachGain,
+      attachListeners,
+      computeReplayGainAmp,
+      fadeVia,
+      handedOver,
+      startPlayback,
+    ],
   );
 
   const preloadNext = useCallback(
     (url: string) => {
+      if (preloadedUrlRef.current === url && nextAudioRef.current) return;
       if (nextAudioRef.current) {
         nextAudioRef.current.pause();
         nextAudioRef.current.src = '';
       }
       const next = new Audio();
       next.preload = 'auto';
+      // The element must carry the same listeners as the current one: once
+      // play() takes it over (V11.2) it IS the current one, and without them
+      // progress, crossfade and end-of-track would go silent.
+      attachListeners(next);
       next.src = url;
       // Same caveat as in play(): skip Web Audio for cross-origin (would silence).
       if (audioCtxRef.current && isSameOriginUrl(url)) attachGain(next);
       applyVolume(next);
       nextAudioRef.current = next;
+      preloadedUrlRef.current = url;
     },
-    [applyVolume, attachGain],
+    [applyVolume, attachGain, attachListeners],
   );
 
   const pause = useCallback(() => {

@@ -350,6 +350,53 @@ export const openApiSpec = {
         responses: { 200: ok('PlaybackSnapshot'), 404: ok('unknown zone') },
       },
     },
+    '/playback/outputs': {
+      get: {
+        tags: ['Playback'],
+        summary:
+          'What each output can really do (V11.1): formats, seek, next-track handover, ReplayGain, gapless',
+        parameters: [
+          {
+            name: 'refresh',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+            description: 'refresh=1 asks the devices again instead of using the cached answer.',
+          },
+        ],
+        responses: { 200: ok('OutputCapabilities[]') },
+      },
+    },
+    '/playback/audio-path': {
+      get: {
+        tags: ['Playback'],
+        summary:
+          'Where the music comes from, what happens on the way and where it comes out; steps the server cannot see say so (V11.4)',
+        responses: { 200: ok('AudioPath') },
+      },
+    },
+    '/playback/transitions': {
+      get: {
+        tags: ['Playback'],
+        summary:
+          'Recent track boundaries: how each was made, what was observed and what was measured',
+        responses: { 200: ok('Transition[]') },
+      },
+      post: {
+        tags: ['Playback'],
+        summary:
+          'A boundary made in a browser tab; stored as an observation, never as proof of gapless audio',
+        responses: { 200: ok('{ id }') },
+      },
+    },
+    '/playback/transitions/{id}/measurement': {
+      post: {
+        tags: ['Playback'],
+        summary:
+          'Attach a real measurement (recording) to one boundary — the only basis for "gapless verified" (admin)',
+        responses: { 200: ok('Transition'), 404: ok('unknown transition') },
+      },
+    },
     '/playback/zones': {
       get: {
         tags: ['Playback'],

@@ -40,6 +40,11 @@ interface DeviceMonitorDependencies {
   logger: Pick<typeof logger, 'info' | 'debug'>;
   /** Called once when a pinned (server-driven) device stays unreachable and polling gives up. */
   onUnreachable?: (deviceId: string, errors: number) => void;
+  /**
+   * The device started a new track by itself (V11.3): it was handed the next
+   * url in advance. The queue has to follow without anyone dispatching again.
+   */
+  onDeviceAdvanced?: (deviceId: string) => void;
   /** Milliseconds between polls (tests shorten it). */
   pollIntervalMs?: number;
   /** A single status request slower than this counts as a failure. */
@@ -107,6 +112,11 @@ export class DeviceMonitor {
   /** Hook up the server player after construction (avoids an import cycle). */
   setUnreachableHandler(handler: (deviceId: string, errors: number) => void): void {
     this.deps = { ...this.deps, onUnreachable: handler };
+  }
+
+  /** Same, for a device that moves to the next track on its own (V11.3). */
+  setDeviceAdvancedHandler(handler: (deviceId: string) => void): void {
+    this.deps = { ...this.deps, onDeviceAdvanced: handler };
   }
 
   isPinned(deviceId: string): boolean {
@@ -279,6 +289,18 @@ export class DeviceMonitor {
     if (active !== undefined && active !== update.deviceId) return;
 
     if (update.state === 'playing') {
+      // A position that falls back to the start while the device keeps
+      // playing means it began a new track by itself — the one it was handed
+      // in advance (V11.3). The handler only acts when something really was
+      // armed, so a listener seeking back to 0:00 changes nothing.
+      const peak = this.playingPeaks.get(update.deviceId);
+      if (peak && peak.position > 30 && update.position <= 5) {
+        this.deps.logger.info(
+          `DeviceMonitor: ${update.deviceId} restarted its position after ${Math.round(peak.position)}s; the device moved to the next track itself`,
+        );
+        this.playingPeaks.delete(update.deviceId);
+        this.deps.onDeviceAdvanced?.(update.deviceId);
+      }
       this.rememberProgress(update);
     }
 

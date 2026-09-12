@@ -15,6 +15,10 @@ interface DlnaDevice {
   name: string;
   host: string;
   controlUrl: string;
+  /** AVTransport's service description; lists the actions this renderer really has (V11.1). */
+  scpdUrl?: string;
+  /** ConnectionManager control URL; GetProtocolInfo says which formats it accepts. */
+  connectionManagerUrl?: string;
   location: string;
   isOnline: boolean;
 }
@@ -22,6 +26,28 @@ interface DlnaDevice {
 type DlnaTrackMetadata = TrackMetadata & {
   mimeType?: string;
 };
+
+/** One bounded GET; a renderer that does not answer must not hang a request. */
+async function fetchText(url: string, timeoutMs = 5000): Promise<string> {
+  const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+  return res.text();
+}
+
+/**
+ * The Sink half of a GetProtocolInfo answer, reduced to mime types. A line
+ * looks like `http-get:*:audio/flac:DLNA.ORG_PN=...`; only the third field is
+ * a format. Anything that is not audio is dropped — this is a music player.
+ */
+export function parseSinkProtocolInfo(xml: string): string[] {
+  const sink = xml.match(/<Sink>([\s\S]*?)<\/Sink>/)?.[1] ?? '';
+  const decoded = sink.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+  const formats = new Set<string>();
+  for (const entry of decoded.split(',')) {
+    const mime = entry.split(':')[2]?.trim();
+    if (mime && mime.startsWith('audio/')) formats.add(mime);
+  }
+  return [...formats].sort();
+}
 
 export class DlnaController implements DeviceController {
   readonly deviceType = 'dlna' as const;
@@ -140,14 +166,21 @@ export class DlnaController implements DeviceController {
       const friendlyName = device.friendlyName?.[0] || 'Unknown DLNA Device';
       const udn = device.UDN?.[0] || `dlna-${host}`;
 
-      // Find AVTransport service
+      // Find AVTransport service, and ConnectionManager alongside it: the
+      // first says which actions exist (SetNextAVTransportURI), the second
+      // which formats the renderer accepts (V11.1).
       let controlUrl = '';
+      let scpdUrl = '';
+      let connectionManagerUrl = '';
       const services = device.serviceList?.[0]?.service || [];
       for (const svc of services) {
         const serviceType = svc.serviceType?.[0] || '';
-        if (serviceType.includes('AVTransport')) {
+        if (serviceType.includes('AVTransport') && !controlUrl) {
           controlUrl = svc.controlURL?.[0] || '';
-          break;
+          scpdUrl = svc.SCPDURL?.[0] || '';
+        }
+        if (serviceType.includes('ConnectionManager') && !connectionManagerUrl) {
+          connectionManagerUrl = svc.controlURL?.[0] || '';
         }
       }
 
@@ -158,7 +191,10 @@ export class DlnaController implements DeviceController {
           for (const svc of embeddedServices) {
             if (svc.serviceType?.[0]?.includes('AVTransport')) {
               controlUrl = svc.controlURL?.[0] || '';
-              break;
+              scpdUrl = svc.SCPDURL?.[0] || '';
+            }
+            if (svc.serviceType?.[0]?.includes('ConnectionManager') && !connectionManagerUrl) {
+              connectionManagerUrl = svc.controlURL?.[0] || '';
             }
           }
           if (controlUrl) break;
@@ -173,12 +209,19 @@ export class DlnaController implements DeviceController {
         ? controlUrl
         : `${base.protocol}//${base.host}${controlUrl}`;
 
+      const absolute = (url: string): string | undefined => {
+        if (!url) return undefined;
+        return url.startsWith('http') ? url : `${base.protocol}//${base.host}${url}`;
+      };
+
       const id = udn.replace('uuid:', '');
       this.devices.set(id, {
         id,
         name: friendlyName,
         host,
         controlUrl: absoluteControlUrl,
+        scpdUrl: absolute(scpdUrl),
+        connectionManagerUrl: absolute(connectionManagerUrl),
         location,
         isOnline: true,
       });
@@ -280,20 +323,57 @@ export class DlnaController implements DeviceController {
     await this.sendAction(device.controlUrl, 'Stop', { InstanceID: '0' });
   }
 
+  /**
+   * Hand the next track over before this one ends. Not every renderer has
+   * SetNextAVTransportURI, and since V11 the failure is reported instead of
+   * swallowed: the caller decides between a gapless handover and dispatching
+   * the next track itself.
+   */
   async setNextUri(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void> {
     const device = this.getDevice(deviceId);
     const didl = this.buildDidlMetadata(streamUrl, metadata);
-    try {
-      await this.sendAction(device.controlUrl, 'SetNextAVTransportURI', {
-        InstanceID: '0',
-        NextURI: streamUrl,
-        NextURIMetaData: didl,
-      });
-      logger.info(`DLNA setNextUri: ${metadata?.title || 'track'} → ${device.name}`);
-    } catch (err) {
-      // Not all DLNA devices support SetNextAVTransportURI
-      logger.debug(`DLNA setNextUri not supported on ${device.name}: ${err}`);
-    }
+    await this.sendAction(device.controlUrl, 'SetNextAVTransportURI', {
+      InstanceID: '0',
+      NextURI: streamUrl,
+      NextURIMetaData: didl,
+    });
+    logger.info(`DLNA setNextUri: ${metadata?.title || 'track'} → ${device.name}`);
+  }
+
+  /**
+   * The actions this renderer actually implements, from its own service
+   * description (V11.1). Empty when the device does not say — never guessed.
+   */
+  async getSupportedActions(deviceId: string): Promise<string[]> {
+    const device = this.getDevice(deviceId);
+    if (!device.scpdUrl) return [];
+    const xml = await fetchText(device.scpdUrl);
+    const parsed = await parseStringPromise(xml);
+    const actions = parsed?.scpd?.actionList?.[0]?.action ?? [];
+    return actions
+      .map((a: { name?: string[] }) => a.name?.[0])
+      .filter((name: string | undefined): name is string => !!name);
+  }
+
+  /** The formats this renderer says it accepts (ConnectionManager GetProtocolInfo). */
+  async getSupportedFormats(deviceId: string): Promise<string[]> {
+    const device = this.getDevice(deviceId);
+    if (!device.connectionManagerUrl) return [];
+    const body = `<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+  <s:Body><u:GetProtocolInfo xmlns:u="urn:schemas-upnp-org:service:ConnectionManager:1" /></s:Body>
+</s:Envelope>`;
+    const res = await fetch(device.connectionManagerUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset="utf-8"',
+        SOAPAction: '"urn:schemas-upnp-org:service:ConnectionManager:1#GetProtocolInfo"',
+      },
+      body,
+      signal: AbortSignal.timeout(5000),
+    });
+    const xml = await res.text();
+    return parseSinkProtocolInfo(xml);
   }
 
   async next(deviceId: string): Promise<void> {

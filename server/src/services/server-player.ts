@@ -10,6 +10,8 @@ import {
   type ResolvedStream,
 } from './playback-resolver.js';
 import { isClientConnected } from '../socketio.js';
+import { noteNextUriFailed, supportsNextUri } from './output-capabilities.js';
+import { recordTransition } from './transitions.js';
 import { logger } from '../logger.js';
 
 /**
@@ -31,6 +33,25 @@ export type UnplayablePolicy = 'skip' | 'stop';
 
 export interface ServerPlayerDeps {
   play: (deviceId: string, url: string, metadata: ResolvedStream['metadata']) => Promise<void>;
+  /** Hand the next track over before this one ends (V11.3). */
+  setNextUri: (
+    deviceId: string,
+    url: string,
+    metadata: ResolvedStream['metadata'],
+  ) => Promise<void>;
+  /** May this output take a next track in advance? */
+  supportsNextUri: (deviceId: string) => Promise<boolean>;
+  /** The device just told us it cannot, by failing. */
+  noteNextUriFailed: (deviceId: string) => void;
+  /** Write one boundary to the transition log (V11.4). */
+  recordTransition: (input: {
+    zoneId: string | null;
+    deviceId: string;
+    fromTrackId: string | null;
+    toTrackId: string | null;
+    handover: 'next-uri' | 'dispatch' | 'client';
+    armedAt?: number | null;
+  }) => void;
   resolve: (track: TrackInfo) => Promise<ResolvedStream>;
   isClientConnected: (clientId: string | null) => boolean;
   getDeviceState: (deviceId: string) => Promise<{ state: string }>;
@@ -46,6 +67,10 @@ const envPolicy = process.env.PLAYBACK_UNPLAYABLE_POLICY === 'stop' ? 'stop' : '
 
 let deps: ServerPlayerDeps = {
   play: (deviceId, url, metadata) => deviceManager.play(deviceId, url, metadata),
+  setNextUri: (deviceId, url, metadata) => deviceManager.setNextUri(deviceId, url, metadata),
+  supportsNextUri,
+  noteNextUriFailed,
+  recordTransition,
   resolve: resolveForDevice,
   isClientConnected,
   getDeviceState: (deviceId) => deviceManager.getPlaybackState(deviceId),
@@ -71,6 +96,15 @@ interface ZonePlayback {
   activeDeviceId: string | null;
   dispatchSeq: number;
   consecutiveSkips: number;
+  /**
+   * The item this zone handed to the device in advance (V11.3). When the
+   * queue advances onto exactly this item, the device is already playing it:
+   * dispatching again would restart the track and be the "double dispatch"
+   * the sprint's acceptance forbids.
+   */
+  armed?: { itemId: string | null; trackId: string; at: number } | null;
+  /** The track that was playing when we armed the next one, for the log. */
+  playingTrackId?: string | null;
 }
 
 const perZone = new Map<string, ZonePlayback>();
@@ -78,7 +112,13 @@ const perZone = new Map<string, ZonePlayback>();
 function zoneState(zoneId: string): ZonePlayback {
   const existing = perZone.get(zoneId);
   if (existing) return existing;
-  const fresh: ZonePlayback = { activeDeviceId: null, dispatchSeq: 0, consecutiveSkips: 0 };
+  const fresh: ZonePlayback = {
+    activeDeviceId: null,
+    dispatchSeq: 0,
+    consecutiveSkips: 0,
+    armed: null,
+    playingTrackId: null,
+  };
   perZone.set(zoneId, fresh);
   return fresh;
 }
@@ -132,6 +172,8 @@ export function stopServerPlayback(zoneId: string = DEFAULT_ZONE_ID): void {
     logger.info(`ServerPlayer[${zoneId}]: released ${state.activeDeviceId}`);
   }
   state.activeDeviceId = null;
+  state.armed = null;
+  state.playingTrackId = null;
   state.dispatchSeq++; // any in-flight dispatch becomes stale
   sessionOf(zoneId).setServerManaged(false);
 }
@@ -196,6 +238,9 @@ export async function dispatch(
       logger.info(
         `ServerPlayer[${zoneId}]: sent "${track.title}" (${resolved.source}) to ${deviceId}`,
       );
+      zone.playingTrackId = track.id;
+      zone.armed = null;
+      void armNext(deviceId, zoneId);
       return;
     } catch (err) {
       lastError = err;
@@ -208,6 +253,47 @@ export async function dispatch(
   }
   if (stale()) return;
   handleUnplayable(deviceId, track, itemId, lastError, zoneId);
+}
+
+/**
+ * Hand the NEXT track to the device while this one still plays (V11.3).
+ *
+ * This is what makes a boundary gapless on a renderer that supports it: the
+ * device already has the url and starts it itself, with no round trip at the
+ * end of the track. An output that cannot do it says so by failing, and is
+ * remembered as such — the queue then advances the ordinary way, with the
+ * short pause that costs.
+ *
+ * Shuffle has no next track to promise (peekNext returns null), so those
+ * boundaries stay dispatch-driven.
+ */
+async function armNext(deviceId: string, zoneId: string): Promise<void> {
+  const zone = zoneState(zoneId);
+  const session = sessionOf(zoneId);
+  const next = session.peekNext();
+  if (!next) return;
+  if (zone.armed?.itemId === next.itemId) return;
+
+  try {
+    if (!(await deps.supportsNextUri(deviceId))) return;
+    const resolved = await deps.resolve(next.track);
+    if (zone.activeDeviceId !== deviceId) return;
+    await withTimeout(
+      deps.setNextUri(deviceId, resolved.url, resolved.metadata),
+      deps.timeoutMs,
+      `handing "${next.track.title}" to ${deviceId} in advance`,
+    );
+    zone.armed = { itemId: next.itemId, trackId: next.track.id, at: Date.now() };
+    logger.info(
+      `ServerPlayer[${zoneId}]: "${next.track.title}" armed on ${deviceId} for a gapless start`,
+    );
+  } catch (err) {
+    zone.armed = null;
+    deps.noteNextUriFailed(deviceId);
+    logger.info(
+      `ServerPlayer[${zoneId}]: ${deviceId} will not take the next track in advance (${err}); dispatching at the end instead`,
+    );
+  }
 }
 
 function handleUnplayable(
@@ -266,6 +352,19 @@ function handleUnplayable(
   zone.consecutiveSkips = 0;
   session.markPlaybackFailed(reason, code);
   stopServerPlayback(zoneId);
+}
+
+/**
+ * The device started the track it was handed in advance (V11.3). The queue
+ * follows; nothing is dispatched. Only trusted when this zone really armed
+ * something, so a listener seeking back to the start changes nothing.
+ */
+export function onDeviceAdvanced(deviceId: string): void {
+  const zoneId = zoneDriving(deviceId);
+  if (!zoneId) return;
+  const zone = zoneState(zoneId);
+  if (!zone.armed) return;
+  sessionOf(zoneId).deviceAdvanced();
 }
 
 /** Device monitor gave up on the pinned device: no fictitious "playing". */
@@ -365,7 +464,46 @@ export async function reconcileAllZones(): Promise<void> {
 export function initServerPlayer(): void {
   zones.setHooks({
     onAdvance: (deviceId, track, itemId, zoneId) => {
-      if (!isServerManagedDevice(deviceId) || deviceId !== zoneState(zoneId).activeDeviceId) return;
+      const zone = zoneState(zoneId);
+      if (!isServerManagedDevice(deviceId) || deviceId !== zone.activeDeviceId) return;
+
+      // The device was handed this exact item in advance and started it
+      // itself: the queue is only following. Dispatching now would restart
+      // the track — the double dispatch V11 must not do.
+      if (zone.armed && zone.armed.itemId === itemId) {
+        const armedAt = zone.armed.at;
+        deps.recordTransition({
+          zoneId,
+          deviceId,
+          fromTrackId: zone.playingTrackId ?? null,
+          toTrackId: track.id,
+          handover: 'next-uri',
+          armedAt,
+        });
+        logger.info(
+          `ServerPlayer[${zoneId}]: ${deviceId} moved to "${track.title}" on its own (handed over ${Math.round((Date.now() - armedAt) / 1000)}s earlier)`,
+        );
+        zone.playingTrackId = track.id;
+        zone.armed = null;
+        sessionOf(zoneId).setDispatch({
+          state: 'playing',
+          deviceId,
+          itemId,
+          trackId: track.id,
+          attempts: 0,
+          message: 'Handed over in advance; the device started it itself',
+        });
+        void armNext(deviceId, zoneId);
+        return;
+      }
+
+      deps.recordTransition({
+        zoneId,
+        deviceId,
+        fromTrackId: zone.playingTrackId ?? null,
+        toTrackId: track.id,
+        handover: 'dispatch',
+      });
       dispatch(deviceId, track, itemId, zoneId).catch((err) => {
         logger.error(`ServerPlayer[${zoneId}]: dispatch crashed for ${deviceId}: ${err}`);
       });
@@ -378,6 +516,7 @@ export function initServerPlayer(): void {
     },
   });
   deviceMonitor.setUnreachableHandler(onDeviceUnreachable);
+  deviceMonitor.setDeviceAdvancedHandler(onDeviceAdvanced);
   logger.info('ServerPlayer: hooks registered');
 }
 
@@ -387,5 +526,7 @@ export function resetServerPlayerForTests(): void {
     state.activeDeviceId = null;
     state.dispatchSeq++;
     state.consecutiveSkips = 0;
+    state.armed = null;
+    state.playingTrackId = null;
   }
 }

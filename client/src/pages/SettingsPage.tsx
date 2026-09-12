@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client.js';
 import { useToast } from '../components/Toast.js';
+import AudioPathPanel from '../components/AudioPathPanel.js';
 import { useAudioContext, type ReplayGainMode } from '../context/AudioContext.js';
 import { useAuth } from '../context/AuthContext.js';
 import { DEVICE_POLL_INTERVAL, STORAGE_KEYS } from '../constants.js';
@@ -340,6 +341,9 @@ export default function SettingsPage() {
           </div>
         </section>
       )}
+
+      {/* Audio path and transitions (V11.4) */}
+      <AudioPathPanel />
 
       {/* About & diagnostics (V08.4) */}
       <section className="mb-10" data-testid="about-section">

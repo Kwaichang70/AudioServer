@@ -4,6 +4,57 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## V11 — Trackovergangen en een eerlijk audiopad (verbeterplan sprint 11)
+
+**Wat een uitgang echt kan** (`server/src/services/output-capabilities.ts`)
+
+- Elk apparaat wordt gevraagd wat het kan: DLNA en Sonos publiceren hun
+  actielijst (`SetNextAVTransportURI`, `Seek`) en de formaten die ze accepteren
+  (`GetProtocolInfo`). Wat een apparaat niet zegt blijft **unknown** — stilte is
+  geen "nee", en er wordt niets afgeleid uit een merknaam.
+- `GET /api/playback/outputs` toont het per uitgang, met de beperkingen in
+  gewone zinnen.
+
+**De volgende track vooraf doorgeven** (`server/src/services/server-player.ts`)
+
+- Zodra een nummer speelt krijgt het apparaat het volgende alvast: het start
+  dat zelf, zonder rondje langs de NAS aan het eind. Dat is wat een overgang
+  naadloos kan maken.
+- Als de speler het overneemt, **dispatcht de server niet opnieuw** — dat zou
+  de track herstarten (de "dubbele dispatch" die de acceptatie verbiedt). De
+  monitor herkent het aan een positie die terugvalt naar het begin terwijl het
+  apparaat blijft spelen, en vertrouwt dat alleen als er echt iets klaargezet
+  was; terugspoelen naar 0:00 verandert dus niets.
+- Een speler die de overdracht weigert wordt onthouden als "kan dit niet" en
+  krijgt voortaan de gewone dispatch aan het einde van het nummer. In shuffle
+  wordt niets vooraf beloofd: er is geen vaste volgende track.
+
+**Browser: de voorbereide track wordt nu echt overgenomen** (`client/src/hooks/useAudio.ts`)
+
+- `preloadNext()` bereidde het volgende element voor, waarna `play()` het
+  weggooide door een nieuwe `src` te zetten. De voorbereide buffer wordt nu
+  overgenomen als hij bij die url hoort en speelklaar is; de listeners hangen
+  er al aan, zodat voortgang en einde blijven werken.
+
+**Overgangen en het audiopad** (`server/src/services/transitions.ts`, `audio-path.ts`)
+
+- Elke grens wordt gelogd met hoe hij tot stand kwam. **Waargenomen** en
+  **gemeten** getallen staan in aparte kolommen: wat de server ziet heeft de
+  resolutie van een poll (seconden) of van een browsertab die zijn eigen
+  wissel klokt, en dat kan nooit "gapless" bewijzen. Alleen een echte meting
+  (opname van de uitgang, admin) kan dat, en die legt vast hóé er gemeten is.
+- "Gapless geverifieerd" verschijnt pas na minstens drie gemeten grenzen, en
+  de **slechtste** telt: één hoorbare pauze in twintig overgangen betekent niet
+  naadloos.
+- Settings toont het audiopad: bron, transport, renderer en uitgang, elk met
+  hoe zeker de server ervan is. Bron-FLAC is nadrukkelijk geen bewijs van een
+  bit-perfecte uitgang; wat er ín het apparaat gebeurt staat als onbekend.
+
+Schemaversie 9 (`transition_log`). Tests: `output-capabilities.test.ts`,
+`gapless-handover.test.ts` (overname zonder dubbele dispatch, weigering,
+shuffle, terugspoelen), `transitions.test.ts` en een clienttest voor het
+audiopad — 328 servertests, 118 clienttests.
+
 ## V10 — Elke kamer zijn eigen wachtrij (verbeterplan sprint 10)
 
 **Zones** (`server/src/services/zones.ts`, `server/src/db/index.ts`)

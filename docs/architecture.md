@@ -333,6 +333,24 @@ itself for device playback) and die with it. Helmet sends a
 `Content-Security-Policy-Report-Only` header; violations land in the log via
 `POST /api/csp-report`.
 
+**Track transitions and the audio path (V11).** `services/output-capabilities.ts`
+asks each output what it can do — DLNA and Sonos publish their action list and
+the formats they accept — and whatever a device does not say stays `unknown`.
+When a track starts on a server-driven output, the server hands the renderer
+the NEXT url straight away (`SetNextAVTransportURI`) so the device can start it
+itself; the monitor recognises that self-made transition by a position that
+falls back to the start while the device keeps playing, and the server then
+does NOT dispatch that track again (a restart would be audible and is the
+"double dispatch" V11 forbids). A renderer that refuses the handover is
+remembered as unable and gets the ordinary end-of-track dispatch. Every
+boundary lands in `transition_log`, where what the server OBSERVED (poll
+resolution, or a browser tab timing its own element swap) and what somebody
+MEASURED (a recording, with the method) are separate columns — only the second
+can carry "gapless verified", and then only after at least three boundaries
+with the worst one deciding. `services/audio-path.ts` describes source,
+transfer, renderer and output with a certainty per step: a FLAC source is not
+proof of a bit-perfect output.
+
 **Zones (V10).** A zone is a room: its own queue, transport and volume,
 bound to exactly one output device (`zones.device_id` is UNIQUE, so two rooms
 can never claim the same speaker). `services/zones.ts` holds one

@@ -233,6 +233,54 @@ export interface SourceCapabilities {
   reason?: string;
 }
 
+/** What an output can really do, asked of the device itself (V11.1). */
+export interface OutputCapabilities {
+  deviceId: string;
+  deviceName: string;
+  type: 'dlna' | 'sonos' | 'volumio' | 'browser';
+  formats: string[];
+  seek: 'supported' | 'unsupported' | 'unknown';
+  nextUri: 'supported' | 'unsupported' | 'unknown';
+  replayGain: 'browser' | 'none' | 'unknown';
+  gapless: 'verified' | 'unsupported' | 'unknown';
+  measuredGapMs?: number;
+  limits: string[];
+  probedAt?: number;
+}
+
+/** One step between the file and the speaker, with how sure we are of it. */
+export interface AudioPathStep {
+  stage: 'source' | 'transfer' | 'renderer' | 'output';
+  title: string;
+  detail: string;
+  certainty: 'known' | 'reported' | 'unknown';
+}
+
+export interface AudioPath {
+  zoneId: string;
+  deviceId: string;
+  trackId: string | null;
+  steps: AudioPathStep[];
+  summary: string;
+  caveats: string[];
+}
+
+/** One track boundary; observed and measured numbers stay separate (V11.4). */
+export interface TransitionRecord {
+  id: number;
+  zoneId: string | null;
+  deviceId: string;
+  fromTrackId: string | null;
+  toTrackId: string | null;
+  handover: 'next-uri' | 'dispatch' | 'client';
+  armedAt: number | null;
+  observedGapMs: number | null;
+  measuredGapMs: number | null;
+  method: string | null;
+  note: string | null;
+  createdAt: number | null;
+}
+
 /** A room with its own queue, transport and volume (V10). */
 export interface ZoneSummary {
   id: string;

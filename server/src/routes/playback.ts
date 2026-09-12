@@ -11,6 +11,14 @@ import {
 import { validate } from '../utils/validate.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { getIO } from '../socketio.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
+import {
+  forgetCapabilities,
+  getAllOutputCapabilities,
+  getOutputCapabilities,
+} from '../services/output-capabilities.js';
+import { addMeasurement, listTransitions, recordTransition } from '../services/transitions.js';
+import { describeAudioPath } from '../services/audio-path.js';
 import { getAllCapabilities } from '../services/playback-resolver.js';
 
 export const playbackRouter = Router();
@@ -270,6 +278,108 @@ playbackRouter.delete('/zones/:id', requireAdmin, (req: Request, res: Response) 
   res.json({ data: { ok: true } });
   broadcastZones();
 });
+
+// ─── Audio path and transitions (V11) ────────────────────────────
+
+// What each output can really do, asked of the device itself. `refresh=1`
+// asks again instead of using the cached answer.
+playbackRouter.get(
+  '/outputs',
+  asyncHandler(async (req: Request, res: Response) => {
+    const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
+    res.json({ data: await getAllOutputCapabilities({ refresh }) });
+  }),
+);
+
+playbackRouter.get(
+  '/outputs/:id',
+  asyncHandler(async (req: Request, res: Response) => {
+    const refresh = req.query.refresh === '1' || req.query.refresh === 'true';
+    const caps = await getOutputCapabilities(String(req.params.id), { refresh });
+    if (!caps) {
+      res.status(404).json({ error: 'NotFound', message: 'That output is not known' });
+      return;
+    }
+    res.json({ data: caps });
+  }),
+);
+
+/**
+ * The audio path of what is playing right now: where the music comes from,
+ * what happens to it on the way, and where it comes out. Steps the server
+ * cannot see are reported as unknown — a FLAC source is no proof of a
+ * bit-perfect output (V11.4).
+ */
+playbackRouter.get(
+  '/audio-path',
+  asyncHandler(async (req: Request, res: Response) => {
+    const session = sessionOf(req, res);
+    if (!session) return;
+    res.json({ data: await describeAudioPath(session) });
+  }),
+);
+
+// The transition log: how each boundary was made and what was measured.
+playbackRouter.get('/transitions', (req: Request, res: Response) => {
+  const deviceId = typeof req.query.deviceId === 'string' ? req.query.deviceId : undefined;
+  const limit = Number(req.query.limit) || 50;
+  res.json({ data: listTransitions({ deviceId, limit }) });
+});
+
+/**
+ * A boundary made inside a browser tab (V11.4). The tab can time its own
+ * handover far more precisely than polling a renderer, but it still only
+ * measures the element swap, not the sound at the speaker — so it is stored
+ * as an observation and can never turn into a gapless verdict by itself.
+ */
+playbackRouter.post(
+  '/transitions',
+  validate({
+    body: z.object({
+      fromTrackId: z.string().max(256).nullable().optional(),
+      toTrackId: z.string().max(256).nullable().optional(),
+      gapMs: z.number().min(0).max(600_000),
+      how: z.enum(['preloaded', 'reloaded']),
+    }),
+  }),
+  (req: Request, res: Response) => {
+    const session = sessionOf(req, res);
+    if (!session) return;
+    const id = recordTransition({
+      zoneId: session.getZoneId(),
+      deviceId: 'browser',
+      fromTrackId: req.body.fromTrackId ?? null,
+      toTrackId: req.body.toTrackId ?? null,
+      handover: 'client',
+      observedGapMs: Math.round(req.body.gapMs),
+    });
+    res.json({ data: { id, note: req.body.how } });
+  },
+);
+
+// A real measurement of one boundary — the only thing that can support the
+// words "gapless verified", so it says how it was measured.
+playbackRouter.post(
+  '/transitions/:id/measurement',
+  requireAdmin,
+  validate({
+    body: z.object({
+      gapMs: z.number().min(0).max(60_000),
+      method: z.string().min(1).max(200),
+      note: z.string().max(2000).optional(),
+    }),
+  }),
+  (req: Request, res: Response) => {
+    const record = addMeasurement(Number(req.params.id), req.body);
+    if (!record) {
+      res.status(404).json({ error: 'NotFound', message: 'That transition is not in the log' });
+      return;
+    }
+    // The verdict is derived from the measurements, so it has to be re-derived.
+    forgetCapabilities(record.deviceId);
+    res.json({ data: record });
+  },
+);
 
 // Everything below mutates the household session.
 playbackRouter.use(requireClientId);

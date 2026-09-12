@@ -75,6 +75,11 @@ export class DeviceManager {
     return this.controllers.find((c) => c.deviceType === deviceType);
   }
 
+  /** The controller driving a device type, for code that asks it what it supports (V11.1). */
+  controllerFor(deviceType: string): DeviceController | undefined {
+    return this.getController(deviceType);
+  }
+
   /** Find device in cache without triggering discovery */
   private findCachedDevice(deviceId: string): OutputDevice | undefined {
     return this.cachedDevices.find((d) => d.id === deviceId);

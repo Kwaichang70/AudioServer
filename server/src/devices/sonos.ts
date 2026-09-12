@@ -3,6 +3,7 @@ const { Client: SsdpClient } = ssdp;
 import xml2js from 'xml2js';
 const { parseStringPromise } = xml2js;
 import { logger } from '../logger.js';
+import { parseSinkProtocolInfo } from './dlna.js';
 import type {
   DeviceController,
   OutputDevice,
@@ -179,6 +180,33 @@ export class SonosController implements DeviceController {
     await this.soapAction(this.baseUrl(device), 'AVTransport', 'Stop', { InstanceID: '0' });
   }
 
+  /**
+   * Hand the next track over before this one ends (V11.3). Sonos implements
+   * SetNextAVTransportURI; a failure is reported so the caller can fall back
+   * to dispatching the next track itself when the track ends.
+   */
+  async setNextUri(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void> {
+    const device = this.getDevice(deviceId);
+    await this.soapAction(this.baseUrl(device), 'AVTransport', 'SetNextAVTransportURI', {
+      InstanceID: '0',
+      NextURI: streamUrl,
+      NextURIMetaData: metadata ? this.buildDidl(streamUrl, metadata) : '',
+    });
+    logger.info(`Sonos setNextUri: ${metadata?.title || 'track'} → ${device.name}`);
+  }
+
+  /** The formats this player says it accepts (ConnectionManager GetProtocolInfo). */
+  async getSupportedFormats(deviceId: string): Promise<string[]> {
+    const device = this.getDevice(deviceId);
+    const xml = await this.soapAction(
+      this.baseUrl(device),
+      'ConnectionManager',
+      'GetProtocolInfo',
+      {},
+    );
+    return parseSinkProtocolInfo(xml);
+  }
+
   async next(deviceId: string): Promise<void> {
     const device = this.getDevice(deviceId);
     await this.soapAction(this.baseUrl(device), 'AVTransport', 'Next', { InstanceID: '0' });
@@ -266,7 +294,9 @@ export class SonosController implements DeviceController {
     const controlPath =
       service === 'AVTransport'
         ? '/MediaRenderer/AVTransport/Control'
-        : '/MediaRenderer/RenderingControl/Control';
+        : service === 'ConnectionManager'
+          ? '/MediaRenderer/ConnectionManager/Control'
+          : '/MediaRenderer/RenderingControl/Control';
 
     const res = await fetch(`${baseUrl}${controlPath}`, {
       method: 'POST',

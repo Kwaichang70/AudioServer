@@ -2,6 +2,9 @@ import type { Album, Artist, RadioStation, Track } from '@audioserver/shared';
 import { API_BASE, STORAGE_KEYS } from '../constants.js';
 import type {
   ApiResponse,
+  AudioPath,
+  OutputCapabilities,
+  TransitionRecord,
   ZoneOverview,
   ZoneSummary,
   AuthResult,
@@ -412,6 +415,31 @@ export const api = {
   getNowPlaying: (): Promise<PlaybackStateResponse> => fetchApi('/playback/now-playing'),
   // ── Zones (V10): a room with its own queue, transport and volume ──
   getZones: (): Promise<ApiResponse<ZoneOverview[]>> => fetchApi('/playback/zones'),
+
+  // ── Audio path and transitions (V11) ──
+  getOutputCapabilities: (refresh = false): Promise<ApiResponse<OutputCapabilities[]>> =>
+    fetchApi(`/playback/outputs${refresh ? '?refresh=1' : ''}`),
+  getAudioPath: (): Promise<ApiResponse<AudioPath>> => fetchApi('/playback/audio-path'),
+  getTransitions: (deviceId?: string, limit = 50): Promise<ApiResponse<TransitionRecord[]>> =>
+    fetchApi(
+      `/playback/transitions?limit=${limit}${deviceId ? `&deviceId=${encodeURIComponent(deviceId)}` : ''}`,
+    ),
+  /** Report a boundary this tab made; an observation, never a gapless verdict. */
+  reportTransition: (body: {
+    fromTrackId: string | null;
+    toTrackId: string | null;
+    gapMs: number;
+    how: 'preloaded' | 'reloaded';
+  }): Promise<ApiResponse<{ id: number | null }>> =>
+    fetchApi('/playback/transitions', { method: 'POST', body: JSON.stringify(body) }),
+  measureTransition: (
+    id: number,
+    body: { gapMs: number; method: string; note?: string },
+  ): Promise<ApiResponse<TransitionRecord>> =>
+    fetchApi(`/playback/transitions/${id}/measurement`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   createZone: (name: string, deviceId: string): Promise<ApiResponse<ZoneSummary>> =>
     fetchApi('/playback/zones', { method: 'POST', body: JSON.stringify({ name, deviceId }) }),
   renameZone: (id: string, name: string): Promise<ApiResponse<ZoneSummary>> =>

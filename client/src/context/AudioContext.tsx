@@ -937,6 +937,34 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     return () => audio.setOnEnded(null);
   }, [audio, playNext]);
 
+  // V11.4: report the boundary this tab just made. The tab can time its own
+  // handover far better than polling a speaker, but it still only measures the
+  // element swap — the server stores it as an observation, never as proof of
+  // gapless audio.
+  const lastHandover = audio.lastHandover;
+  const reportedHandoverRef = useRef(0);
+  useEffect(() => {
+    if (!lastHandover || lastHandover.at === reportedHandoverRef.current) return;
+    reportedHandoverRef.current = lastHandover.at;
+    if (selectedDeviceRef.current !== 'browser') return;
+    api
+      .reportTransition({
+        fromTrackId: previousTrackIdRef.current,
+        toTrackId: currentTrack?.id ?? null,
+        gapMs: lastHandover.gapMs,
+        how: lastHandover.how,
+      })
+      .catch(() => {});
+  }, [lastHandover, currentTrack]);
+
+  // Which track was playing before this one, for the boundary above.
+  const previousTrackIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    return () => {
+      previousTrackIdRef.current = currentTrack?.id ?? null;
+    };
+  }, [currentTrack]);
+
   // V08.3: a refused play() promise becomes a visible "press play" prompt,
   // never a playing state that is not true. The play button retries.
   useEffect(() => {

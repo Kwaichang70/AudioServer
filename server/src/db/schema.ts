@@ -207,6 +207,39 @@ export const zones = sqliteTable('zones', {
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
 });
 
+/**
+ * Track transitions (V11.4). One row per boundary between two tracks on one
+ * output: how the next track got there, what the server observed, and — only
+ * when somebody actually measured it — the real gap. Poll-resolution numbers
+ * and measured numbers are deliberately separate columns: the first can never
+ * prove gapless, the second is the only thing that can.
+ */
+export const transitionLog = sqliteTable(
+  'transition_log',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    zoneId: text('zone_id'),
+    deviceId: text('device_id').notNull(),
+    fromTrackId: text('from_track_id'),
+    toTrackId: text('to_track_id'),
+    /** 'next-uri' = handed over in advance, 'dispatch' = sent after the end, 'client' = a browser tab did it. */
+    handover: text('handover').notNull(),
+    /** When the next track was handed to the device, for a next-uri handover. */
+    armedAt: integer('armed_at'),
+    /** What the server saw, at poll resolution (seconds, not milliseconds). */
+    observedGapMs: integer('observed_gap_ms'),
+    /** A real measurement (recording, analyser); the only basis for "gapless verified". */
+    measuredGapMs: integer('measured_gap_ms'),
+    /** How it was measured, in the measurer's own words. */
+    method: text('method'),
+    note: text('note'),
+    createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
+  },
+  (table) => ({
+    deviceIdx: index('idx_transition_device').on(table.deviceId, table.id),
+  }),
+);
+
 export const playbackState = sqliteTable('playback_state', {
   /** One row per zone (V10); was a singleton row with id 1. */
   zoneId: text('zone_id').primaryKey(),
