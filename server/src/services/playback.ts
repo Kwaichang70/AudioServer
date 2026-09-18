@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { DEFAULT_ZONE_ID, getRawDb } from '../db/index.js';
 import { logger } from '../logger.js';
 import { buildShuffleRound } from './shuffle.js';
+import { getSleepTimer, noteSleepFired, stopsAtThisBoundary } from './sleep-timer.js';
 import type { NowPlaying, Track } from '@audioserver/shared';
 import type {
   DispatchStatus,
@@ -504,6 +505,20 @@ export class PlaybackService {
         serverManaged: this.state.serverManaged,
       },
       dispatch: this.getDispatch(),
+      sleep: this.sleepSummary(),
+    };
+  }
+
+  /** The sleep timer of this room, as a client needs to see it (E01). */
+  private sleepSummary(): PlaybackSnapshot['sleep'] {
+    const timer = getSleepTimer(this.zoneId);
+    if (!timer) return null;
+    return {
+      zoneId: timer.zoneId,
+      mode: timer.mode,
+      stopAt: timer.stopAt,
+      secondsRemaining: timer.secondsRemaining,
+      description: timer.description,
     };
   }
 
@@ -693,6 +708,20 @@ export class PlaybackService {
    */
   peekNext(): { itemId: string; track: TrackInfo } | null {
     if (this.queue.length === 0 || this.state.shuffle) return null;
+    // Nothing is handed over in advance when a sleep timer ends the music at
+    // this boundary: a renderer that already holds the next track would start
+    // it anyway (E01).
+    if (
+      stopsAtThisBoundary(this.zoneId, {
+        hasNext: true,
+        currentAlbumId: this.queue[this.queueIndex]?.albumId ?? null,
+        nextAlbumId:
+          this.queue[this.queueIndex + 1]?.albumId ??
+          (this.state.repeat === 'all' ? (this.queue[0]?.albumId ?? null) : null),
+      })
+    ) {
+      return null;
+    }
     if (this.state.repeat === 'one') {
       const current = this.queue[this.queueIndex];
       return current
@@ -868,6 +897,21 @@ export class PlaybackService {
 
   /** Called when the current track ends (or on "next"). Returns the next track or null. */
   advance(origin: PlaybackOrigin = SERVER_ORIGIN): TrackInfo | null {
+    // "Stop after this track" decides before anything else, and so does every
+    // boundary mode while repeat is 'one': that repeat never reaches the end
+    // of an album or a queue, so the end of this track is the only boundary
+    // the listener can have meant (E01).
+    const sleep = getSleepTimer(this.zoneId);
+    if (
+      sleep &&
+      sleep.mode !== 'in' &&
+      (sleep.mode === 'endOfTrack' || this.state.repeat === 'one')
+    ) {
+      this.finishQueue(origin);
+      noteSleepFired(this.zoneId, sleep.mode);
+      return null;
+    }
+
     if (this.queue.length === 0) {
       if (this.state.repeat === 'one' && this.currentTrack) {
         this.play(this.currentTrack, undefined, undefined, origin);
@@ -903,6 +947,19 @@ export class PlaybackService {
       // A round, not a draw with replacement: every position plays once
       // before anything comes back (V12.3).
       const shuffledIndex = this.nextShuffleIndex();
+      if (
+        this.sleepStops(
+          {
+            hasNext: shuffledIndex !== null,
+            currentAlbumId: this.queue[this.queueIndex]?.albumId ?? null,
+            nextAlbumId:
+              shuffledIndex === null ? null : (this.queue[shuffledIndex]?.albumId ?? null),
+          },
+          origin,
+        )
+      ) {
+        return null;
+      }
       if (shuffledIndex === null) {
         this.finishQueue(origin);
         return null;
@@ -912,13 +969,32 @@ export class PlaybackService {
 
     let nextIndex = this.queueIndex + 1;
 
-    if (nextIndex >= this.queue.length) {
-      if (this.state.repeat === 'all') {
-        nextIndex = 0;
-      } else {
-        this.finishQueue(origin);
-        return null; // End of queue
-      }
+    const runsOut = nextIndex >= this.queue.length;
+    if (runsOut && this.state.repeat === 'all') nextIndex = 0;
+
+    if (
+      this.sleepStops(
+        {
+          hasNext: !runsOut || this.state.repeat === 'all',
+          currentAlbumId: this.queue[this.queueIndex]?.albumId ?? null,
+          nextAlbumId:
+            runsOut && this.state.repeat !== 'all'
+              ? null
+              : (this.queue[nextIndex]?.albumId ?? null),
+          // "End of queue" means the end of the list, also when repeat would
+          // start it again: that wrap is exactly what the listener asked to
+          // stop at.
+          wraps: runsOut,
+        },
+        origin,
+      )
+    ) {
+      return null;
+    }
+
+    if (runsOut && this.state.repeat !== 'all') {
+      this.finishQueue(origin);
+      return null; // End of queue
     }
 
     return this.startIndex(nextIndex, origin);
@@ -997,6 +1073,31 @@ export class PlaybackService {
     this.shufflePlayed.add(itemId);
     const index = this.queue.findIndex((entry) => entry.itemId === itemId);
     return index >= 0 ? index : null;
+  }
+
+  /**
+   * Does a sleep timer end the music at this boundary (E01)? The session is
+   * the only place that knows both what just played and what would play
+   * next, so the decision is made here and the timer is told it fired.
+   */
+  private sleepStops(
+    context: {
+      hasNext: boolean;
+      currentAlbumId?: string | null;
+      nextAlbumId?: string | null;
+      wraps?: boolean;
+    },
+    origin: PlaybackOrigin,
+  ): boolean {
+    const mode = stopsAtThisBoundary(this.zoneId, {
+      hasNext: context.hasNext && !context.wraps,
+      currentAlbumId: context.currentAlbumId,
+      nextAlbumId: context.nextAlbumId,
+    });
+    if (!mode) return false;
+    this.finishQueue(origin);
+    noteSleepFired(this.zoneId, mode);
+    return true;
   }
 
   /** "Previous": the item before the current one (no wrap). Null when at the start. */

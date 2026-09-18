@@ -298,6 +298,16 @@ export interface ZoneOverview extends ZoneSummary {
   volume: number;
 }
 
+/** A room's sleep timer (E01); the server runs it, so it fires with the app closed. */
+export interface SleepTimer {
+  zoneId: string;
+  mode: 'in' | 'endOfTrack' | 'endOfAlbum' | 'endOfQueue';
+  stopAt: number | null;
+  secondsRemaining: number | null;
+  /** One sentence saying exactly what will happen. */
+  description: string;
+}
+
 /** Authoritative session state returned by every queue command and pushed on connect. */
 export interface PlaybackSnapshot {
   /** The room this snapshot describes (V10). */
@@ -311,6 +321,8 @@ export interface PlaybackSnapshot {
   repeat: 'off' | 'all' | 'one';
   controller: { clientId: string | null; deviceId: string; serverManaged?: boolean };
   dispatch?: DispatchStatus;
+  /** The sleep timer of this room, or null (E01). */
+  sleep?: SleepTimer | null;
 }
 
 export interface PlaybackQueueEvent {

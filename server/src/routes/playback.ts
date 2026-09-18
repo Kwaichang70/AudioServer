@@ -20,6 +20,13 @@ import {
 import { addMeasurement, listTransitions, recordTransition } from '../services/transitions.js';
 import { describeAudioPath } from '../services/audio-path.js';
 import { getAllCapabilities } from '../services/playback-resolver.js';
+import {
+  cancelSleepTimer,
+  getSleepTimer,
+  MAX_MINUTES,
+  setSleepTimer,
+  SleepTimerError,
+} from '../services/sleep-timer.js';
 
 export const playbackRouter = Router();
 
@@ -381,6 +388,13 @@ playbackRouter.post(
   },
 );
 
+/** Reading a room's sleep timer is a read: no client id needed (E01). */
+playbackRouter.get('/sleep', (req, res) => {
+  const session = sessionOf(req, res);
+  if (!session) return;
+  res.json({ data: getSleepTimer(session.getZoneId()) });
+});
+
 // Everything below mutates the household session.
 playbackRouter.use(requireClientId);
 
@@ -620,6 +634,53 @@ playbackRouter.post('/pause', (req, res) => {
   if (!session) return;
   session.pause(originOf(req));
   res.json({ data: session.getState() });
+});
+
+/**
+ * Sleep timers (E01). Per room, because "stop the music" means the room you
+ * are falling asleep in, not the whole house. The timer runs on the server,
+ * so it also fires when the tablet that set it is closed or asleep.
+ */
+const sleepSchema = z.object({
+  mode: z.enum(['in', 'endOfTrack', 'endOfAlbum', 'endOfQueue']),
+  minutes: z.number().int().min(1).max(MAX_MINUTES).optional(),
+});
+
+playbackRouter.post('/sleep', validate({ body: sleepSchema }), (req, res) => {
+  const session = sessionOf(req, res);
+  if (!session) return;
+  const snapshot = session.getSnapshot();
+  const current = snapshot.queue.find((item) => item.itemId === snapshot.currentItemId) ?? null;
+  try {
+    const timer = setSleepTimer(session.getZoneId(), {
+      mode: req.body.mode,
+      minutes: req.body.minutes,
+      current: current ? { itemId: current.itemId, albumId: current.albumId ?? null } : null,
+      userId: req.userId ?? null,
+    });
+    res.json({
+      data: timer,
+      meta: {
+        // Saying this here is cheaper than a listener discovering it at 2am.
+        note:
+          snapshot.shuffle && req.body.mode === 'endOfAlbum'
+            ? 'Shuffle is on, so the next track is rarely from this album: this will usually stop after the current track.'
+            : undefined,
+      },
+    });
+  } catch (err) {
+    if (err instanceof SleepTimerError) {
+      return res.status(409).json({ error: err.code, message: err.message });
+    }
+    throw err;
+  }
+});
+
+playbackRouter.delete('/sleep', (req, res) => {
+  const session = sessionOf(req, res);
+  if (!session) return;
+  const had = cancelSleepTimer(session.getZoneId());
+  res.json({ data: { ok: true, cancelled: had } });
 });
 
 playbackRouter.post('/stop', (req, res) => {

@@ -19,7 +19,7 @@ import { fileURLToPath } from 'url';
  * it does not understand. Databases from before this check carry version 0,
  * which every build accepts and upgrades.
  */
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 export class DatabaseVersionError extends Error {
   constructor(
@@ -167,6 +167,19 @@ export async function initDatabase(overridePath?: string) {
       value TEXT,
       updated_at INTEGER DEFAULT (unixepoch()),
       PRIMARY KEY (user_id, key)
+    )
+  `);
+  // E01: sleep timers, one per zone. Stored so a restart does not lose them;
+  // a timer that ran out while the server was down is dropped at startup.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS sleep_timers (
+      zone_id TEXT PRIMARY KEY,
+      mode TEXT NOT NULL,
+      stop_at INTEGER,
+      item_id TEXT,
+      album_id TEXT,
+      created_by TEXT,
+      created_at INTEGER DEFAULT (unixepoch())
     )
   `);
   // V05.3: one submission per listening session and service.

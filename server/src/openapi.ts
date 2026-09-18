@@ -877,6 +877,50 @@ export const openApiSpec = {
         responses: { 200: ok('mix items') },
       },
     },
+    '/playback/sleep': {
+      get: {
+        tags: ['Playback'],
+        summary: "A room's sleep timer",
+        description:
+          'The timer runs on the server, so it fires with every client closed. The zone comes ' +
+          'from X-Zone-Id, the body or the device, like every playback call.',
+        responses: { 200: ok('the timer, or null') },
+      },
+      post: {
+        tags: ['Playback'],
+        summary: 'Set a sleep timer for this room',
+        description:
+          "'in' needs minutes; 'endOfTrack', 'endOfAlbum' and 'endOfQueue' are set against what " +
+          'is playing now and answer 409 when the room is silent.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['mode'],
+                properties: {
+                  mode: {
+                    type: 'string',
+                    enum: ['in', 'endOfTrack', 'endOfAlbum', 'endOfQueue'],
+                  },
+                  minutes: { type: 'integer', minimum: 1, maximum: 720 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: ok('the timer'),
+          409: ok('no minutes, or nothing playing to stop after'),
+        },
+      },
+      delete: {
+        tags: ['Playback'],
+        summary: "Cancel this room's sleep timer",
+        responses: { 200: ok('cancelled') },
+      },
+    },
     '/recommendations/mix/save': {
       post: {
         tags: ['Playlists'],

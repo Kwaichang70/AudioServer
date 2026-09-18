@@ -14,7 +14,12 @@ import { useSocket } from '../hooks/useSocket.js';
 import { useSpotifyWebPlayback } from '../hooks/useSpotifyWebPlayback.js';
 import { useTrackPlayback } from '../hooks/useTrackPlayback.js';
 import { api, ApiError, getClientId, newCommandId, setActiveZone } from '../api/client.js';
-import type { PlaybackQueueEntry, PlaybackSnapshot, ZoneOverview } from '../api/types.js';
+import type {
+  PlaybackQueueEntry,
+  PlaybackSnapshot,
+  SleepTimer,
+  ZoneOverview,
+} from '../api/types.js';
 import { useToast } from '../components/Toast.js';
 import { getProgressSnapshot, setProgress } from './ProgressStore.js';
 import { DEVICE_POLL_INTERVAL, PROGRESS_REPORT_INTERVAL, STORAGE_KEYS } from '../constants.js';
@@ -68,6 +73,8 @@ interface AudioContextValue {
   setSelectedDeviceId: (id: string) => void;
   toggleShuffle: () => void;
   toggleRepeat: () => void;
+  /** This room's sleep timer as the server last reported it (E01). */
+  sleepTimer: SleepTimer | null;
   /** The rooms this server knows and the one this tab steers (V10). */
   zones: ZoneOverview[];
   zoneId: string | null;
@@ -363,6 +370,18 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (socket.snapshot) applySnapshotRef.current(socket.snapshot, true);
   }, [socket.snapshot]);
+
+  // The sleep timer of this room (E01). It is set on the server, so any tab
+  // (or the timer firing) is the source of truth; this only mirrors it.
+  const [sleepTimer, setSleepTimer] = useState<SleepTimer | null>(null);
+  useEffect(() => {
+    if (socket.snapshot && socket.snapshot.sleep !== undefined) {
+      setSleepTimer(socket.snapshot.sleep);
+    }
+  }, [socket.snapshot]);
+  useEffect(() => {
+    if (socket.sleep) setSleepTimer(socket.sleep.sleep);
+  }, [socket.sleep]);
 
   // Queue edits made anywhere (this tab, another tab, the server).
   useEffect(() => {
@@ -1050,6 +1069,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       setVolume: deviceSetVolume,
       seek: audio.seek,
       setSelectedDeviceId,
+      sleepTimer,
       toggleShuffle,
       toggleRepeat,
       zones: zoneList,
@@ -1087,6 +1107,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       deviceSetVolume,
       audio.seek,
       setSelectedDeviceId,
+      sleepTimer,
       toggleShuffle,
       toggleRepeat,
       zoneList,

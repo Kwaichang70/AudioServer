@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAudioContext, useProgress } from '../context/AudioContext.js';
 import { api } from '../api/client.js';
 import { formatTime } from '../utils/format.js';
+import SleepTimerMenu from './SleepTimerMenu.js';
 import {
   PlayIcon,
   PauseIcon,
@@ -277,6 +278,9 @@ export default function NowPlayingFull({ onClose }: Props) {
           >
             {repeat === 'one' ? <RepeatOneIcon size={22} /> : <RepeatIcon size={22} />}
           </button>
+          {/* The sleep timer lives next to the transport because that is what
+              it controls: when the music stops (E01). */}
+          <SleepTimerMenu />
         </div>
 
         {/* Volume + Crossfade */}

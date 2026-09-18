@@ -34,6 +34,7 @@ import type {
   PlaybackQueueResponse,
   PlaybackSnapshotResponse,
   PlaybackStateResponse,
+  SleepTimer,
   SourceCapabilities,
   QueueCommandOptions,
   AddPlaylistItem,
@@ -484,6 +485,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ tracks, startIndex, deviceId, shuffle, repeat, ...options }),
     }),
+  // ─── Sleep timer (E01) ──────────────────────────────────────
+  // Per room, and run by the server: it fires with this tab closed.
+  getSleepTimer: (): Promise<ApiResponse<SleepTimer | null>> => fetchApi('/playback/sleep'),
+  setSleepTimer: (
+    mode: SleepTimer['mode'],
+    minutes?: number,
+  ): Promise<ApiResponse<SleepTimer, ApiMeta & { note?: string }>> =>
+    fetchApi('/playback/sleep', { method: 'POST', body: JSON.stringify({ mode, minutes }) }),
+  cancelSleepTimer: (): Promise<ApiResponse<{ ok: true; cancelled: boolean }>> =>
+    fetchApi('/playback/sleep', { method: 'DELETE' }),
   clearQueue: (options: QueueCommandOptions = {}): Promise<PlaybackSnapshotResponse> =>
     fetchApi('/playback/queue/clear', { method: 'POST', body: JSON.stringify(options) }),
   removeFromQueue: (

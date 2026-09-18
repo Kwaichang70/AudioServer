@@ -17,6 +17,7 @@ import type {
   PlaybackSnapshot,
   PlaybackStateEvent,
   PlaybackTrackChangedEvent,
+  SleepTimer,
   ZoneSummary,
 } from '../api/types.js';
 
@@ -55,6 +56,7 @@ interface ServerToClientEvents {
   'playback:state': (event: PlaybackStateEvent) => void;
   'playback:track-changed': (event: PlaybackTrackChangedEvent) => void;
   'playback:dispatch': (status: DispatchStatus) => void;
+  'playback:sleep': (event: { zoneId: string; sleep: SleepTimer | null }) => void;
   'device:playback-update': (update: DevicePlaybackUpdate) => void;
   'library:scan-progress': (progress: LibraryScanProgress) => void;
   'zones:changed': (zones: ZoneSummary[]) => void;
@@ -79,6 +81,8 @@ interface UseSocketReturn {
   trackChanged: PlaybackTrackChangedEvent | null;
   /** Server-side dispatch progress/errors for the active device. */
   dispatch: DispatchStatus | null;
+  /** The sleep timer of this room, pushed when any client sets or cancels one (E01). */
+  sleep: { zoneId: string; sleep: SleepTimer | null } | null;
   scanProgress: LibraryScanProgress | null;
   subscribeDevice: (deviceId: string) => void;
   unsubscribeDevice: (deviceId: string) => void;
@@ -100,6 +104,7 @@ export function useSocket(): UseSocketReturn {
   const [stateEvent, setStateEvent] = useState<PlaybackStateEvent | null>(null);
   const [trackChanged, setTrackChanged] = useState<PlaybackTrackChangedEvent | null>(null);
   const [dispatch, setDispatch] = useState<DispatchStatus | null>(null);
+  const [sleep, setSleep] = useState<{ zoneId: string; sleep: SleepTimer | null } | null>(null);
   const [scanProgress, setScanProgress] = useState<LibraryScanProgress | null>(null);
   const [zones, setZones] = useState<ZoneSummary[]>([]);
   const subscribedDeviceRef = useRef<string | null>(null);
@@ -151,6 +156,7 @@ export function useSocket(): UseSocketReturn {
     socket.on('playback:state', mine(setStateEvent));
     socket.on('playback:track-changed', mine(setTrackChanged));
     socket.on('playback:dispatch', mine(setDispatch));
+    socket.on('playback:sleep', mine(setSleep));
     socket.on('zones:changed', setZones);
     socket.on('library:scan-progress', setScanProgress);
 
@@ -215,6 +221,7 @@ export function useSocket(): UseSocketReturn {
       stateEvent,
       trackChanged,
       dispatch,
+      sleep,
       scanProgress,
       subscribeDevice,
       unsubscribeDevice,
@@ -230,6 +237,7 @@ export function useSocket(): UseSocketReturn {
       stateEvent,
       trackChanged,
       dispatch,
+      sleep,
       scanProgress,
       subscribeDevice,
       unsubscribeDevice,

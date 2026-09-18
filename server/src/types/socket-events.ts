@@ -51,6 +51,15 @@ export interface DispatchStatus {
   updatedAt: number;
 }
 
+/** The sleep timer of a zone as clients see it (E01). */
+export interface SleepTimerSummary {
+  zoneId: string;
+  mode: 'in' | 'endOfTrack' | 'endOfAlbum' | 'endOfQueue';
+  stopAt: number | null;
+  secondsRemaining: number | null;
+  description: string;
+}
+
 export interface PlaybackSnapshot {
   /** The zone this snapshot describes (V10). */
   zoneId: string;
@@ -63,6 +72,8 @@ export interface PlaybackSnapshot {
   repeat: 'off' | 'all' | 'one';
   controller: { clientId: string | null; deviceId: string; serverManaged: boolean };
   dispatch: DispatchStatus;
+  /** The sleep timer of this room, or null when none is set (E01). */
+  sleep: SleepTimerSummary | null;
 }
 
 export interface PlaybackStateEvent extends NowPlaying {
@@ -109,6 +120,8 @@ export interface ServerToClientEvents {
   'playback:queue': (queue: PlaybackQueueEvent) => void;
   'playback:track-changed': (event: PlaybackTrackChangedEvent) => void;
   'playback:dispatch': (status: DispatchStatus) => void;
+  /** A zone's sleep timer was set, cancelled or fired (E01). */
+  'playback:sleep': (event: { zoneId: string; sleep: SleepTimerSummary | null }) => void;
   'device:playback-update': (update: DevicePlaybackUpdate) => void;
   'device:discovered': (device: { id: string; name: string; type: string }) => void;
   'device:lost': (device: { id: string; name: string }) => void;

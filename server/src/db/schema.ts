@@ -225,6 +225,22 @@ export const userPreferences = sqliteTable(
   }),
 );
 
+/**
+ * Sleep timers (E01): one per zone, stored so a restart keeps them. The
+ * boundary modes remember the item and album they were set against.
+ */
+export const sleepTimers = sqliteTable('sleep_timers', {
+  zoneId: text('zone_id').primaryKey(),
+  /** 'in' | 'endOfTrack' | 'endOfAlbum' | 'endOfQueue' */
+  mode: text('mode').notNull(),
+  /** Unix seconds for a timed sleep; NULL for the boundary modes. */
+  stopAt: integer('stop_at'),
+  itemId: text('item_id'),
+  albumId: text('album_id'),
+  createdBy: text('created_by'),
+  createdAt: integer('created_at'),
+});
+
 export const playHistory = sqliteTable('play_history', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   trackId: text('track_id')

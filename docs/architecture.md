@@ -421,6 +421,19 @@ already played. Handover in advance (V11.3) is still not offered under
 shuffle: the round fixes the next item, but a queue edit rebuilds it, and a
 renderer that already holds the old "next" would play the wrong track.
 
+**Sleep timers (E01).** `services/sleep-timer.ts` keeps one timer per zone in
+`sleep_timers`, because the feature only matters when the client that set it
+is closed or asleep. Modes: `in` (minutes), `endOfTrack`, `endOfAlbum` and
+`endOfQueue` — the last being the only one that also means something with
+repeat on. The session decides the boundary modes inside `advance()`, the one
+place that knows both what just played and what would play next, and
+`peekNext()` returns null at a boundary where the music stops so nothing is
+handed to a renderer in advance (V11.3). Firing stops the zone through its own
+session (which stops the speaker); it does not pause, clear or change volume,
+and there is no fade — the server does not control a renderer's volume
+envelope. On startup, timers are restored and one that ran out while the
+server was down is dropped rather than fired late.
+
 **SQLite + WAL.** Single-process app; better-sqlite3 in WAL mode is fast
 enough for 10k+ tracks without a separate DB process. Drizzle ORM for typed
 queries; raw SQL where pagination / aggregates need it.

@@ -4,6 +4,45 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## E01 — Sleeptimer en stoppen na een album (backlog §7)
+
+**De timer draait op de server** (`server/src/services/sleep-timer.ts`)
+
+- Het hele punt van een sleeptimer is wat er gebeurt als niemand kijkt: je valt
+  in slaap, de tablet gaat op slot. De timer staat daarom per zone op de
+  server, naast de sessie die de speaker aanstuurt — niet in een browsertab die
+  allang slaapt voordat de tijd om is.
+- Vier manieren om "stop" te zeggen: **over N minuten**, **na dit nummer**,
+  **na dit album** en **na de wachtrij**. Die laatste is de enige die ook iets
+  betekent met repeat aan, want een herhalende wachtrij raakt nooit op.
+- "Na dit nummer" wint van repeat één — dat zou anders eeuwig doorgaan. Staat
+  shuffle aan bij "na dit album", dan zegt de API er meteen bij dat het
+  volgende nummer zelden van hetzelfde album is en het dus meestal na dit
+  nummer stopt. Beter nu dan om twee uur 's nachts.
+- Bij een grens waar de muziek stopt wordt **niets vooruit doorgegeven** aan de
+  speler (V11.3): een renderer die het volgende nummer al heeft, start het
+  anders alsnog.
+- Timers overleven een herstart. Eén die afliep terwijl de server uit stond
+  wordt **niet alsnog afgevuurd**: de muziek stopte toen de server stopte, dus
+  hij wordt weggegooid en dat staat in het log. Schemaversie 12.
+- Afvuren betekent stoppen — niet pauzeren, de wachtrij wissen of het volume
+  veranderen, dus morgenochtend speel je verder waar je was. Er is geen
+  uitfade: de server geeft renderers een URL en bepaalt hun volume niet, dus
+  dat zou een belofte zijn die hij niet kan waarmaken.
+
+**Bediening** (`GET`/`POST`/`DELETE /api/playback/sleep`, `client/src/components/SleepTimerMenu.tsx`)
+
+- Per kamer, net als al het andere afspelen (`X-Zone-Id`). De timer staat in de
+  playback-snapshot en er is een socketevent, zodat elk tabblad hem ziet en kan
+  annuleren — ook het tabblad dat hem niet heeft gezet.
+- In het volledige nowplaying-scherm staat een maantje met presets (15/30/45/60/90
+  minuten), "na dit nummer", "na dit album", "na de wachtrij", een aftelling en
+  annuleren. De aftelling is cosmetisch; de server beslist.
+
+Tests: `sleep-timer.test.ts` (aflopen, per kamer, annuleren, herstart met een
+verlopen timer, de vier grenzen, geen overdracht vooraf, de HTTP-contracten) en
+`sleep-timer-menu.test.tsx` — 378 servertests, 128 clienttests.
+
 ## V12.4 — Een ontdekmix bewaren (verbeterplan sprint 12)
 
 **Een mix wordt pas iets als je hem kunt bewaren** (`server/src/routes/recommendations.ts`)
