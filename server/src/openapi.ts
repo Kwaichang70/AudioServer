@@ -877,6 +877,31 @@ export const openApiSpec = {
         responses: { 200: ok('mix items') },
       },
     },
+    '/recommendations/mix/save': {
+      post: {
+        tags: ['Playlists'],
+        summary: 'Keep a mix as an ordinary playlist',
+        description:
+          'A mix is generated per request; saving turns it into a playlist owned by the caller, ' +
+          'with a snapshot per item. Without trackIds a fresh mix is generated and saved.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  trackIds: { type: 'array', items: { type: 'string' } },
+                  limit: { type: 'integer', maximum: 100 },
+                },
+              },
+            },
+          },
+        },
+        responses: { 201: ok('the playlist'), 409: ok('nothing playable to save') },
+      },
+    },
     '/recommendations/settings': {
       get: {
         tags: ['Playlists'],

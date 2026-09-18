@@ -92,6 +92,8 @@ export default function DiscoverPage() {
   const [settings, setSettings] = useState<RecommendationSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<{ id: string; name: string } | null>(null);
+  const [saving, setSaving] = useState(false);
   const { playAlbum, playTrack } = useAudioContext();
 
   const loadMix = useCallback(() => {
@@ -144,6 +146,25 @@ export default function DiscoverPage() {
     await loadMix();
   };
 
+  // A mix is generated per request, so keeping one means turning it into an
+  // ordinary playlist (V12.4) — owned by this listener, editable like any other.
+  const saveMix = async () => {
+    if (mix.length === 0 || saving) return;
+    setSaving(true);
+    try {
+      const name = `Mix of ${new Date().toISOString().slice(0, 10)}`;
+      const res = await api.saveRecommendationMix(
+        name,
+        mix.map((item) => item.id),
+      );
+      setSaved({ id: res.data.id, name: res.data.name });
+    } catch {
+      setSaved(null);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const asTrack = (item: MixItem): TrackInfo => ({
     id: item.id,
     title: item.title,
@@ -176,16 +197,35 @@ export default function DiscoverPage() {
                 Mix from your library
               </h2>
               {mix.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => playAlbum(mix.map(asTrack))}
-                  className="text-xs px-3 py-1.5 bg-accent rounded-full hover:bg-accent-hover transition"
-                >
-                  Play mix
-                </button>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => playAlbum(mix.map(asTrack))}
+                    className="text-xs px-3 py-1.5 bg-accent rounded-full hover:bg-accent-hover transition"
+                  >
+                    Play mix
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveMix}
+                    disabled={saving}
+                    className="text-xs px-3 py-1.5 bg-surface-light border border-white/10 rounded-full hover:border-accent transition disabled:opacity-50"
+                  >
+                    {saving ? 'Saving\u2026' : 'Save as playlist'}
+                  </button>
+                </div>
               )}
             </div>
             {mixMeta && <p className="text-xs text-gray-500 mb-3">{mixMeta.basis}</p>}
+            {saved && (
+              <p className="text-xs text-accent mb-3">
+                Saved as{' '}
+                <Link to={`/playlists/${saved.id}`} className="underline">
+                  {saved.name}
+                </Link>
+                . A mix is generated fresh each time; the playlist keeps this one.
+              </p>
+            )}
             {settings && (
               <label className="flex items-center gap-2 text-xs text-gray-400 mb-3">
                 <input

@@ -1,6 +1,7 @@
 import type { Album, Artist, RadioStation, Track } from '@audioserver/shared';
 import { API_BASE, STORAGE_KEYS } from '../constants.js';
 import type {
+  ApiMeta,
   ApiResponse,
   AudioPath,
   OutputCapabilities,
@@ -823,6 +824,15 @@ export const api = {
     fetchApi(`/recommendations/mix?limit=${limit}`),
   getRecommendationSettings: (): Promise<ApiResponse<RecommendationSettings>> =>
     fetchApi('/recommendations/settings'),
+  /** Keep a generated mix as an ordinary playlist (V12.4). */
+  saveRecommendationMix: (
+    name: string,
+    trackIds: string[],
+  ): Promise<ApiResponse<StoredPlaylist, ApiMeta & { saved: number; skipped: number }>> =>
+    fetchApi('/recommendations/mix/save', {
+      method: 'POST',
+      body: JSON.stringify({ name, trackIds }),
+    }),
   updateRecommendationSettings: (
     updates: Partial<RecommendationSettings>,
   ): Promise<ApiResponse<RecommendationSettings>> =>

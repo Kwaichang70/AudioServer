@@ -4,6 +4,26 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## V12.4 — Een ontdekmix bewaren (verbeterplan sprint 12)
+
+**Een mix wordt pas iets als je hem kunt bewaren** (`server/src/routes/recommendations.ts`)
+
+- Een mix wordt per verzoek opgebouwd en is bij de volgende keer laden weg.
+  `POST /api/recommendations/mix/save` maakt er een gewone playlist van: van
+  deze gebruiker, met een snapshot per item (V12.1), af te spelen en te
+  bewerken als elke andere. De client stuurt de nummers die de luisteraar op
+  het scherm ziet; zonder die lijst wordt een verse mix gegenereerd en bewaard.
+- Een nummer dat tussen genereren en bewaren uit de bibliotheek verdween wordt
+  overgeslagen en geteld, niet stilzwijgend meegenomen — en een mix zonder
+  afspeelbare nummers levert 409 in plaats van een lege playlist.
+- De Discover-pagina heeft er een knop voor, met een link naar het resultaat.
+
+Tests: `discovery-mix.test.ts` — bewaren en afspelen, een bewaarde mix bij
+bronuitval (ontbrekend bestand én een Qobuz-nummer zonder verbinding: beide
+blijven staan met hun reden), profielscheiding (de mix van de één staat niet in
+de bibliotheek van de ander en een geraden id geeft 404) en de weigering om
+niets te bewaren — 365 servertests, 125 clienttests.
+
 ## V12.3 — Shuffle als ronde (verbeterplan sprint 12)
 
 **Niet meer trekken met teruglegging** (`server/src/services/shuffle.ts`)

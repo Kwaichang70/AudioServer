@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     getRecommendationMix: vi.fn(),
     getRecommendationSettings: vi.fn(),
     updateRecommendationSettings: vi.fn(),
+    saveRecommendationMix: vi.fn(),
   },
   audio: { playAlbum: vi.fn(), playTrack: vi.fn() },
 }));
@@ -98,6 +99,10 @@ describe('Discover page', () => {
     mocks.api.updateRecommendationSettings.mockResolvedValue({
       data: { useHistory: false, useFavorites: false },
     });
+    mocks.api.saveRecommendationMix.mockResolvedValue({
+      data: { id: 'pl-9', name: 'Mix of 2026-09-18' },
+      meta: { saved: 1, skipped: 0 },
+    });
   });
 
   it('shows the local mix with the basis of each item', async () => {
@@ -143,5 +148,19 @@ describe('Discover page', () => {
       }),
     );
     expect(mocks.api.getRecommendationMix).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a mix by saving it as a playlist', async () => {
+    render(
+      <MemoryRouter>
+        <DiscoverPage />
+      </MemoryRouter>,
+    );
+    const save = await screen.findByText('Save as playlist');
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(mocks.api.saveRecommendationMix).toHaveBeenCalledWith(expect.any(String), ['track-1']),
+    );
+    expect(await screen.findByText('Mix of 2026-09-18')).toBeTruthy();
   });
 });

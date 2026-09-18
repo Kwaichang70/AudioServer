@@ -2,7 +2,7 @@
 
 **Datum:** 7 september 2026  
 **Onderzochte versie:** commit cd3f094, lokale werkmap AudioServer  
-**Status:** analyse afgerond; V01–V03 uitgevoerd op 8 september 2026 en V04 op 9 september 2026 (zie §11), V05–V12 nog te plannen.  
+**Status:** analyse afgerond; V01–V12 uitgevoerd (zie §11). Wat resteert is NAS-acceptatie per sprint.  
 **Doel:** een betrouwbare muziekserver voor de NAS, met een voorspelbare bediening op telefoon/tablet en goede ondersteuning voor lokale muziek en externe bronnen.
 
 ## 1. Advies en afbakening
@@ -516,7 +516,7 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 - [x] **V12.1 · 2,5 dag:** playlistitems met stabiele bronreferentie en metadata-snapshot; lokale en Qobuz-nummers in dezelfde playlist, inclusief tijdelijk niet-beschikbare items.
 - [x] **V12.2 · 2 dagen:** bestaande ListenBrainz-aanbevelingen uitbreiden met direct afspeelbare matches en “waarom deze aanbeveling?”; lokale mix mogelijk zonder externe accountverbinding.
 - [x] **V12.3 · 1,5 dag:** shuffle zonder herhaling binnen één ronde; keuze voor minder recent gehoorde tracks en uitsluiten van onbeschikbare bronnen.
-- [ ] **V12.4 · 2 dagen:** opslaan/afspelen van een ontdekmix, bronuitval en profielscheiding testen; effect met de gebruiker beoordelen.
+- [x] **V12.4 · 2 dagen:** opslaan/afspelen van een ontdekmix, bronuitval en profielscheiding testen; effect met de gebruiker beoordelen.
 
 **Acceptatie:**
 
@@ -855,6 +855,18 @@ Zelfde branch en omgeving als V01–V03.
 **Bewust niet gedaan:** vooruit doorgeven van de volgende track (V11.3) blijft uit in shuffle. De ronde legt het volgende item wel vast, maar een wachtrijbewerking bouwt hem opnieuw op, en een speler die de oude "volgende" al vasthoudt zou dan het verkeerde nummer starten.
 
 **Wacht op acceptatie (NAS):** een album van tien nummers in shuffle met repeat uit helemaal uitspelen en controleren dat geen nummer twee keer klonk en dat het daarna stopt; repeat aanzetten en controleren dat de tweede ronde niet begint met het nummer dat net klonk; een bestand hernoemen zodat het `missing` wordt en zien dat shuffle het overslaat.
+
+### V12.4 — 18 september 2026
+
+**Uitgevoerd:** V12.4 in code; 365 servertests, 125 clienttests, lint/typecheck/build groen. Daarmee is V12 in code afgerond.
+
+**Een mix bestaat alleen zolang je hem niet herlaadt.** Hij wordt per verzoek opgebouwd, dus bewaren betekent er een gewone playlist van maken: van deze gebruiker, met een snapshot per item uit V12.1, af te spelen en te bewerken als elke andere. De client stuurt de nummers die op het scherm staan — niet "genereer opnieuw en bewaar dát", want dan bewaar je iets anders dan wat de luisteraar zag. Een nummer dat intussen uit de bibliotheek verdween wordt overgeslagen en geteld; een mix zonder afspeelbare nummers geeft 409 in plaats van een lege playlist achter te laten.
+
+**Wat de tests vastleggen.** Bronuitval: in een bewaarde mix wordt een lokaal bestand `missing` gemaakt en een Qobuz-nummer toegevoegd terwijl niemand verbonden is — beide blijven staan met hun snapshot en hun reden, en `meta.playable` telt alleen wat écht kan spelen. Profielscheiding: de bewaarde mix van de één staat niet in de lijst van de ander, en een geraden id geeft 404, niet 403. Afspelen: de items gaan als wachtrij de sessie in in dezelfde volgorde.
+
+**Wacht op acceptatie (NAS):** een mix bewaren, de app herladen en controleren dat de playlist er nog staat met dezelfde nummers; die playlist afspelen op de speaker; Qobuz loskoppelen en zien dat een gemengde bewaarde mix zijn externe nummers houdt met de reden erbij; met het tweede account controleren dat de bewaarde mix daar niet zichtbaar is.
+
+**Beslismoment na V12:** het verbeterplan is in code afgerond. Wat overblijft is de NAS-acceptatie per sprint (V03/V04, V10, V11, V12) en de optionele backlog uit §7 — sleeptimer, OpenSubsonic, extra apparaatprotocollen, Sonos-groeperen, klassieke metadata, transcoding, offline meenemen — die stuk voor stuk apart gepland worden.
 
 ## Bronverwijzingen naar de onderzochte code
 
