@@ -4,6 +4,56 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## V12.1 — Gemengde playlists (verbeterplan sprint 12)
+
+**Een playlistitem is niet langer een verwijzing naar een lokaal bestand**
+(`server/src/db/index.ts`, `server/src/services/playlist-items.ts`)
+
+- `playlist_tracks.track_id` was een foreign key naar de lokale `tracks`-tabel.
+  Daardoor kon een Qobuz-nummer er domweg niet in (de insert werd geweigerd) en
+  verdween een lokaal bestand dat de bibliotheek verliet stilletjes uit de
+  lijst. De tabel wordt eenmalig herbouwd — elke rij, zijn id, positie en tijd
+  blijven — en krijgt een **stabiele bronreferentie** (`track_id` + `source`),
+  een eigen `item_id` per positie en een **metadata-snapshot** (titel, artiest,
+  album, duur). Schemaversie 10.
+- Wat er nadrukkelijk **niet** in staat is een stream-URL: die van Qobuz is
+  ondertekend en verloopt binnen het uur, en een lokale stream draagt een
+  token. Een playlist vraagt zo'n URL pas op het moment van afspelen op, dus na
+  een herstart is de lijst identiek en werkt hij nog steeds.
+- Beschikbaarheid wordt per keer bepaald, nooit opgeslagen: de bibliotheek
+  wordt herscand en een dienst logt in en uit, dus het antwoord van gisteren
+  bewijst niets over vandaag.
+
+**Items die nu niet kunnen spelen blijven staan** (`server/src/routes/playlists.ts`)
+
+- `GET /api/playlists/:id/tracks` laat niets meer weg. Een bestand dat de
+  scanner niet vindt is `missing`, een nummer dat de bibliotheek verliet of een
+  dienst die niet verbonden is `unavailable` — elk met de snapshot en één zin
+  waarom. De UI toont ze grijs met die reden, slaat ze over bij "Play All" en
+  start ze niet als je erop klikt.
+- Toevoegen kan met elke bron: een lokaal id wordt door de server zelf uit de
+  bibliotheek gelezen, een extern id (`qobuz:…`, `radio:…`) moet titel en
+  artiest meesturen — anders 400, want een item zonder naam is een id dat
+  niemand kan lezen. Spotify blijft erbuiten: dat speelt via zijn eigen speler,
+  niet via een stream-URL.
+- Elk item heeft een eigen id, dus twee keer hetzelfde nummer in één playlist
+  zijn twee items: verwijderen en verslepen pakken precies de juiste. Oudere
+  clients die `trackIds` sturen blijven werken.
+
+**M3U-export benoemt zijn beperking**
+
+- Een M3U-regel is een pad of een vaste URL, en dat is precies wat een extern
+  item niet heeft. Lokale items exporteren zoals altijd; alle andere komen als
+  commentaarregel in het bestand te staan met de reden, en de respons telt ze
+  in `X-Playlist-Export-Skipped`. De beperking staat in het bestand zelf, want
+  dat is wat de server verlaat. Import van lokale paden werkt ongewijzigd en
+  legt nu ook meteen de snapshot vast.
+
+Tests: `mixed-playlists.test.ts` (gemengde lijst, snapshot zonder URL, herstart
+identiek, ontbrekende bron, item-ids, herordenen, export/import), de herbouw in
+`legacy-db-migration.test.ts` en `playlist-mixed.test.tsx` — 343 servertests,
+121 clienttests.
+
 ## V11 — Trackovergangen en een eerlijk audiopad (verbeterplan sprint 11)
 
 **Wat een uitgang echt kan** (`server/src/services/output-capabilities.ts`)

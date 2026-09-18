@@ -477,6 +477,41 @@ export interface StoredPlaylist extends Omit<Playlist, 'description' | 'source'>
   source?: ProviderType;
 }
 
+/**
+ * One item in a playlist (V12.1). It carries its own stable id, the source it
+ * came from and a snapshot of what it was when it was added, so a playlist can
+ * hold local and provider tracks side by side and an item that cannot be
+ * played right now still says what it is.
+ */
+export interface PlaylistItem extends Omit<LibraryTrack, 'availability'> {
+  playlistItemId: string;
+  playlistPosition: number;
+  source: ProviderType;
+  availability?: 'available' | 'missing' | 'unavailable';
+  /** Why it cannot be played, in one sentence; absent when it can. */
+  unavailableReason?: string;
+  /** True when the fields above are the snapshot, not a live library row. */
+  fromSnapshot?: boolean;
+}
+
+/** What the client sends when adding an item to a playlist (V12.1). */
+export interface AddPlaylistItem {
+  trackId: string;
+  title?: string;
+  artistName?: string;
+  albumTitle?: string;
+  albumId?: string | null;
+  duration?: number | null;
+  coverUrl?: string | null;
+  format?: string | null;
+}
+
+export interface PlaylistItemsMeta extends ApiMeta {
+  total: number;
+  playable: number;
+  unavailable: number;
+}
+
 export interface PlaylistImportMeta extends ApiMeta {
   total: number;
   matched: number;

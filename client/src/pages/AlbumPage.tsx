@@ -267,7 +267,7 @@ export default function AlbumPage() {
                   {formatDuration(track.duration)}
                 </td>
                 <td className="py-2.5">
-                  <AddToPlaylist trackId={track.id} />
+                  <AddToPlaylist trackId={track.id} track={track} />
                 </td>
               </tr>
             );

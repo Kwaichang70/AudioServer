@@ -32,7 +32,10 @@ import type {
   PlaybackStateResponse,
   SourceCapabilities,
   QueueCommandOptions,
+  AddPlaylistItem,
   PlaylistImportMeta,
+  PlaylistItem,
+  PlaylistItemsMeta,
   ProviderAuthResult,
   ProviderSearchResponse,
   ProviderStatuses,
@@ -645,25 +648,31 @@ export const api = {
     fetchApi(`/playlists/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deletePlaylist: (id: string): Promise<OkResponse> =>
     fetchApi(`/playlists/${id}`, { method: 'DELETE' }),
-  getPlaylistTracks: (id: string): Promise<ApiResponse<LibraryTrack[]>> =>
+  getPlaylistTracks: (id: string): Promise<ApiResponse<PlaylistItem[], PlaylistItemsMeta>> =>
     fetchApi(`/playlists/${id}/tracks`),
+  /**
+   * Add a track (V12.1). A local id needs nothing else — the server reads the
+   * library itself. An external track (Qobuz, radio) has no local row, so its
+   * title and artist travel with it and become the item's snapshot.
+   */
   addToPlaylist: (
     playlistId: string,
-    trackId: string,
-  ): Promise<ApiResponse<{ ok: true; trackCount: number }>> =>
+    track: string | AddPlaylistItem,
+  ): Promise<ApiResponse<{ ok: true; itemId: string; trackCount: number }>> =>
     fetchApi(`/playlists/${playlistId}/tracks`, {
       method: 'POST',
-      body: JSON.stringify({ trackId }),
+      body: JSON.stringify(typeof track === 'string' ? { trackId: track } : track),
     }),
+  /** `itemId` removes exactly one item; a track id removes the first with that track. */
   removeFromPlaylist: (
     playlistId: string,
-    trackId: string,
+    itemId: string,
   ): Promise<ApiResponse<{ ok: true; trackCount: number }>> =>
-    fetchApi(`/playlists/${playlistId}/tracks/${trackId}`, { method: 'DELETE' }),
-  reorderPlaylist: (playlistId: string, trackIds: string[]): Promise<OkResponse> =>
+    fetchApi(`/playlists/${playlistId}/tracks/${itemId}`, { method: 'DELETE' }),
+  reorderPlaylist: (playlistId: string, itemIds: string[]): Promise<OkResponse> =>
     fetchApi(`/playlists/${playlistId}/reorder`, {
       method: 'POST',
-      body: JSON.stringify({ trackIds }),
+      body: JSON.stringify({ itemIds }),
     }),
   exportPlaylist: (playlistId: string): string => `${API_BASE}/playlists/${playlistId}/export`,
   importPlaylist: (

@@ -6,21 +6,43 @@ interface Playlist {
   name: string;
 }
 
-interface Props {
-  trackId: string;
+/** Enough of a track to describe it later; an external one has no local row. */
+export interface AddableTrack {
+  id: string;
+  title?: string;
+  artistName?: string;
+  albumTitle?: string;
+  albumId?: string | null;
+  duration?: number | null;
+  coverUrl?: string | null;
+  format?: string | null;
 }
 
-export default function AddToPlaylist({ trackId }: Props) {
+interface Props {
+  trackId: string;
+  /**
+   * The track itself (V12.1). A Qobuz or radio track has no row on the server,
+   * so its name travels with it and becomes the playlist item's snapshot.
+   * Without it, only local tracks can be added.
+   */
+  track?: AddableTrack;
+}
+
+export default function AddToPlaylist({ trackId, track }: Props) {
   const [open, setOpen] = useState(false);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [added, setAdded] = useState('');
   const [failed, setFailed] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Playlists are local-only: playlist_tracks has a foreign key to the local
-  // tracks table, so provider/radio ids can never be added — the insert would
-  // just 500. Don't offer the button for them.
-  const isProviderTrack = /^(?:spotify|qobuz|tidal|radio):/.test(trackId);
+  // A playlist holds any source since V12.1, but an external track is only
+  // storable when the caller can say what it is: the server has no row to read
+  // it from. Spotify is the exception — it plays through its own player, never
+  // from a stream URL the server hands out, so it stays out of playlists.
+  const isExternal = /^(?:spotify|qobuz|tidal|radio):/.test(trackId);
+  const canAdd = !isExternal
+    ? true
+    : !trackId.startsWith('spotify:') && !!track?.title && !!track?.artistName;
 
   useEffect(() => {
     if (open && playlists.length === 0) {
@@ -39,11 +61,25 @@ export default function AddToPlaylist({ trackId }: Props) {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  if (isProviderTrack) return null;
+  if (!canAdd) return null;
 
   const handleAdd = async (playlistId: string, playlistName: string) => {
     try {
-      await api.addToPlaylist(playlistId, trackId);
+      await api.addToPlaylist(
+        playlistId,
+        track
+          ? {
+              trackId,
+              title: track.title,
+              artistName: track.artistName,
+              albumTitle: track.albumTitle,
+              albumId: track.albumId,
+              duration: track.duration,
+              coverUrl: track.coverUrl,
+              format: track.format,
+            }
+          : trackId,
+      );
       setFailed(false);
       setAdded(playlistName);
       setTimeout(() => {

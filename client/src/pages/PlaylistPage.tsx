@@ -5,17 +5,15 @@ import { useAudioContext } from '../context/AudioContext.js';
 import { formatDuration } from '../utils/format.js';
 import SortableList from '../components/SortableList.js';
 import { STORAGE_KEYS } from '../constants.js';
+import type { PlaylistItem } from '../api/types.js';
 
-interface Track {
-  id: string;
-  title: string;
-  artistName: string;
-  albumTitle: string;
-  albumId?: string;
-  duration?: number;
-  format?: string;
-  playlistPosition?: number;
-}
+/**
+ * A playlist can hold local and provider tracks since V12.1, and an item that
+ * cannot be played right now stays in the list instead of disappearing from
+ * it: it is shown with its snapshot and the reason, and is skipped when the
+ * playlist is played.
+ */
+type Track = PlaylistItem;
 
 interface Playlist {
   id: string;
@@ -28,6 +26,9 @@ interface SortablePlaylistTrack extends Track {
   _trackId: string;
   _index: number;
 }
+
+const isPlayable = (track: Track): boolean =>
+  track.availability === undefined || track.availability === 'available';
 
 export default function PlaylistPage() {
   const { id } = useParams<{ id: string }>();
@@ -64,10 +65,12 @@ export default function PlaylistPage() {
     return invalidateLoads;
   }, [invalidateLoads, load]);
 
-  const handleRemove = async (trackId: string) => {
+  const handleRemove = async (itemId: string) => {
     if (!id) return;
     const playlistId = id;
-    await api.removeFromPlaylist(id, trackId);
+    // By item id, so removing one of two copies of the same track removes
+    // exactly the one that was clicked.
+    await api.removeFromPlaylist(id, itemId);
     if (activePlaylistIdRef.current === playlistId) void load();
   };
 
@@ -79,7 +82,7 @@ export default function PlaylistPage() {
     if (id) {
       await api.reorderPlaylist(
         id,
-        newTracks.map((t) => t.id),
+        newTracks.map((t) => t.playlistItemId),
       );
     }
   };
@@ -108,6 +111,8 @@ export default function PlaylistPage() {
 
   if (!playlist) return <p className="text-gray-400">Loading...</p>;
 
+  const playable = tracks.filter(isPlayable);
+  const external = tracks.filter((t) => t.source && t.source !== 'local');
   const totalDuration = tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
   const totalMin = Math.floor(totalDuration / 60);
 
@@ -119,11 +124,17 @@ export default function PlaylistPage() {
         {playlist.description && <p className="text-gray-400 mb-1">{playlist.description}</p>}
         <p className="text-sm text-gray-500">
           {tracks.length} tracks &middot; {totalMin} min
+          {playable.length !== tracks.length && (
+            <span className="text-gray-600">
+              {' '}
+              &middot; {tracks.length - playable.length} not playable right now
+            </span>
+          )}
         </p>
         <div className="flex gap-3 mt-4">
-          {tracks.length > 0 && (
+          {playable.length > 0 && (
             <button
-              onClick={() => playAlbum(tracks)}
+              onClick={() => playAlbum(playable)}
               className="px-6 py-2 bg-accent rounded-full hover:bg-accent-hover transition text-sm font-medium"
             >
               Play All
@@ -138,6 +149,12 @@ export default function PlaylistPage() {
             </button>
           )}
         </div>
+        {external.length > 0 && (
+          <p className="text-xs text-gray-600 mt-3">
+            {external.length} item(s) do not come from a local file. An M3U can only reference a
+            path or a fixed URL, so those are exported as comments, not as playable lines.
+          </p>
+        )}
       </div>
 
       {tracks.length === 0 ? (
@@ -166,18 +183,31 @@ export default function PlaylistPage() {
               const track = tracks[item._index];
               if (!track) return null;
               const isCurrent = currentTrack?.id === track.id;
+              const playableHere = isPlayable(track);
+              // An unplayable item starts at its own position in the playable
+              // list, so clicking the one below it still starts the right track.
+              const playFrom = () => {
+                if (!playableHere) return;
+                playAlbum(playable, playable.indexOf(track));
+              };
               return (
                 <div
-                  onClick={() => playAlbum(tracks, item._index)}
+                  onClick={playFrom}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
-                      playAlbum(tracks, item._index);
+                      playFrom();
                     }
                   }}
                   role="button"
                   tabIndex={0}
-                  className={`group flex items-center gap-2 py-2 px-1 cursor-pointer hover:bg-surface-light rounded transition ${isCurrent ? 'text-accent' : ''}`}
+                  aria-disabled={!playableHere}
+                  title={track.unavailableReason}
+                  className={`group flex items-center gap-2 py-2 px-1 rounded transition ${
+                    playableHere
+                      ? 'cursor-pointer hover:bg-surface-light'
+                      : 'cursor-default opacity-50'
+                  } ${isCurrent ? 'text-accent' : ''}`}
                 >
                   <span className="w-6 text-sm text-gray-500 text-right shrink-0">
                     {isCurrent && isPlaying ? (
@@ -187,10 +217,22 @@ export default function PlaylistPage() {
                     )}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{track.title}</p>
+                    <p className="text-sm font-medium truncate">
+                      {track.title}
+                      {track.source && track.source !== 'local' && (
+                        <span className="ml-2 text-[10px] uppercase tracking-wide text-gray-500">
+                          {track.source}
+                        </span>
+                      )}
+                    </p>
                     <p className="text-xs text-gray-500 truncate">
                       {track.artistName} &middot; {track.albumTitle}
                     </p>
+                    {!playableHere && track.unavailableReason && (
+                      <p className="text-xs text-amber-500/80 truncate">
+                        {track.unavailableReason}
+                      </p>
+                    )}
                   </div>
                   <span className="text-sm text-gray-400 shrink-0">
                     {formatDuration(track.duration)}
@@ -198,7 +240,7 @@ export default function PlaylistPage() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleRemove(track.id);
+                      handleRemove(track.playlistItemId);
                     }}
                     className="opacity-0 group-hover:opacity-100 text-xs text-gray-600 hover:text-red-400 transition shrink-0 px-1"
                   >

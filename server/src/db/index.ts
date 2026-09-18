@@ -5,6 +5,7 @@ import { config } from '../config.js';
 import { logger } from '../logger.js';
 import * as schema from './schema.js';
 import { existsSync, mkdirSync } from 'fs';
+import { randomUUID } from 'crypto';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -18,7 +19,7 @@ import { fileURLToPath } from 'url';
  * it does not understand. Databases from before this check carry version 0,
  * which every build accepts and upgrades.
  */
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 export class DatabaseVersionError extends Error {
   constructor(
@@ -153,6 +154,9 @@ export async function initDatabase(overridePath?: string) {
     )
   `);
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_transition_device ON transition_log (device_id, id)');
+  // V12.1: playlist items carry their own source reference and snapshot, so a
+  // playlist can hold local and provider tracks side by side.
+  migratePlaylistItems(sqlite);
   // V05.3: one submission per listening session and service.
   runMigration(sqlite, 'scrobble_queue', 'session_id', 'TEXT');
   sqlite.exec(
@@ -267,6 +271,110 @@ function createZones(sqlite: InstanceType<typeof Database>): void {
   sqlite.exec(
     'CREATE INDEX IF NOT EXISTS idx_queue_zone_position ON queue_items (zone_id, position)',
   );
+}
+
+/**
+ * Mixed playlists (V12.1).
+ *
+ * `playlist_tracks` was a foreign key into the local `tracks` table: a row
+ * was nothing but a pointer at a local file. That made two things impossible.
+ * A Qobuz track could not be inserted at all (the foreign key refused it),
+ * and a local file that left the library took its own name with it, so the
+ * item silently disappeared from the playlist instead of saying it was
+ * temporarily unavailable.
+ *
+ * The rule lives inside the CREATE TABLE, where no ALTER reaches it, so the
+ * table is rebuilt once — keeping every row, its id, its position and its
+ * timestamp — and the snapshot columns are filled from the library as it is
+ * now. Detection is on the stored CREATE statement, so this runs once and is
+ * a no-op on every later start.
+ *
+ * No stream URL is stored: those expire, and are resolved at playback.
+ */
+function migratePlaylistItems(sqlite: InstanceType<typeof Database>): void {
+  const createSql =
+    (
+      sqlite
+        .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist_tracks'")
+        .get() as { sql: string | null } | undefined
+    )?.sql ?? '';
+  if (!createSql) return;
+
+  const boundToLocalTracks = /REFERENCES\s+["`']?tracks["`']?/i.test(createSql);
+  if (boundToLocalTracks) {
+    sqlite.exec(`
+      DROP TABLE IF EXISTS playlist_tracks_v12;
+      CREATE TABLE playlist_tracks_v12 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        playlist_id TEXT NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+        item_id TEXT,
+        track_id TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'local',
+        track_title TEXT,
+        artist_name TEXT,
+        album_title TEXT,
+        album_id TEXT,
+        duration REAL,
+        metadata TEXT,
+        position INTEGER NOT NULL,
+        added_at INTEGER
+      );
+      INSERT INTO playlist_tracks_v12 (id, playlist_id, track_id, position, added_at)
+        SELECT id, playlist_id, track_id, position, added_at FROM playlist_tracks;
+      DROP TABLE playlist_tracks;
+      ALTER TABLE playlist_tracks_v12 RENAME TO playlist_tracks;
+      CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist
+        ON playlist_tracks (playlist_id, position);
+    `);
+    logger.info('Migration: playlist items can hold any source now (V12)');
+  }
+
+  // Databases whose playlist_tracks never carried the foreign key still need
+  // the columns; every one of these is a no-op once it exists.
+  runMigration(sqlite, 'playlist_tracks', 'item_id', 'TEXT');
+  runMigration(sqlite, 'playlist_tracks', 'source', "TEXT NOT NULL DEFAULT 'local'");
+  runMigration(sqlite, 'playlist_tracks', 'track_title', 'TEXT');
+  runMigration(sqlite, 'playlist_tracks', 'artist_name', 'TEXT');
+  runMigration(sqlite, 'playlist_tracks', 'album_title', 'TEXT');
+  runMigration(sqlite, 'playlist_tracks', 'album_id', 'TEXT');
+  runMigration(sqlite, 'playlist_tracks', 'duration', 'REAL');
+  runMigration(sqlite, 'playlist_tracks', 'metadata', 'TEXT');
+  sqlite.exec(
+    'CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist ON playlist_tracks (playlist_id, position)',
+  );
+
+  // Every item needs a stable identity of its own: two copies of the same
+  // track in one playlist are two items, and remove/reorder must be able to
+  // tell them apart.
+  const withoutItemId = sqlite
+    .prepare("SELECT id FROM playlist_tracks WHERE item_id IS NULL OR item_id = ''")
+    .all() as Array<{ id: number }>;
+  if (withoutItemId.length > 0) {
+    const setId = sqlite.prepare('UPDATE playlist_tracks SET item_id = ? WHERE id = ?');
+    sqlite.transaction(() => {
+      for (const row of withoutItemId) setId.run(`pli-${randomUUID()}`, row.id);
+    })();
+    logger.info(`Migration: gave ${withoutItemId.length} playlist item(s) a stable id (V12)`);
+  }
+
+  // Fill the snapshot from the library as it is now. Only rows that have no
+  // snapshot yet are touched, so a snapshot taken when the item was added is
+  // never overwritten by a later scan.
+  const filled = sqlite
+    .prepare(
+      `UPDATE playlist_tracks
+          SET track_title = (SELECT title FROM tracks WHERE tracks.id = playlist_tracks.track_id),
+              artist_name = (SELECT artist_name FROM tracks WHERE tracks.id = playlist_tracks.track_id),
+              album_title = (SELECT album_title FROM tracks WHERE tracks.id = playlist_tracks.track_id),
+              album_id    = (SELECT album_id FROM tracks WHERE tracks.id = playlist_tracks.track_id),
+              duration    = (SELECT duration FROM tracks WHERE tracks.id = playlist_tracks.track_id)
+        WHERE track_title IS NULL
+          AND EXISTS (SELECT 1 FROM tracks WHERE tracks.id = playlist_tracks.track_id)`,
+    )
+    .run().changes;
+  if (filled > 0) {
+    logger.info(`Migration: snapshotted ${filled} playlist item(s) from the library (V12)`);
+  }
 }
 
 /** A device id turned into something readable inside a zone id. */

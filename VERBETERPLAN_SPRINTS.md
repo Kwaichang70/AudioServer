@@ -513,7 +513,7 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 **Doel:** meer muziek vinden en bewaren vanuit de bestaande lokale/Qobuz-ervaring.  
 **Keuzemoment:** basis betrouwbaar, gebruiker wil daadwerkelijk meer ontdekfuncties.
 
-- [ ] **V12.1 · 2,5 dag:** playlistitems met stabiele bronreferentie en metadata-snapshot; lokale en Qobuz-nummers in dezelfde playlist, inclusief tijdelijk niet-beschikbare items.
+- [x] **V12.1 · 2,5 dag:** playlistitems met stabiele bronreferentie en metadata-snapshot; lokale en Qobuz-nummers in dezelfde playlist, inclusief tijdelijk niet-beschikbare items.
 - [ ] **V12.2 · 2 dagen:** bestaande ListenBrainz-aanbevelingen uitbreiden met direct afspeelbare matches en “waarom deze aanbeveling?”; lokale mix mogelijk zonder externe accountverbinding.
 - [ ] **V12.3 · 1,5 dag:** shuffle zonder herhaling binnen één ronde; keuze voor minder recent gehoorde tracks en uitsluiten van onbeschikbare bronnen.
 - [ ] **V12.4 · 2 dagen:** opslaan/afspelen van een ontdekmix, bronuitval en profielscheiding testen; effect met de gebruiker beoordelen.
@@ -811,6 +811,22 @@ Zelfde branch en omgeving als V01–V03.
 **Wacht op acceptatie (NAS):** twintig overgangen achter elkaar op de referentiespeaker zonder herstart, dubbele dispatch of overslaan; de grens van twee aaneengesloten nummers opnemen en de gemeten pauze via `POST /api/playback/transitions/:id/measurement` vastleggen (pas daarna mag "gapless geverifieerd" verschijnen); hetzelfde in de browser; een speler die `SetNextAVTransportURI` niet ondersteunt en dus terugvalt op de gewone dispatch.
 
 **Beslismoment na V11:** V12 (gemengde playlists en ontdekken) of afronden; volledige servertranscoding blijft expliciet buiten scope tot er een proef met CPU-meting is gedaan.
+
+### V12.1 — 18 september 2026
+
+**Uitgevoerd:** V12.1 in code; 343 servertests, 121 clienttests, lint/typecheck groen. V12.2–V12.4 staan nog open.
+
+**De blokkade was het schema, niet de UI.** `playlist_tracks.track_id` was een foreign key naar de lokale `tracks`-tabel. Een Qobuz-nummer kon er daardoor niet in (de insert werd geweigerd — de client verborg de knop daarom), en een lokaal bestand dat de bibliotheek verliet verdween stilzwijgend uit de lijst, want de route liet elk item weg dat hij niet kon opzoeken. Die regel staat in de CREATE TABLE waar geen ALTER bij komt, dus de tabel is eenmalig herbouwd, net als `favorites` en `playback_state` eerder: elke rij, zijn id, positie en tijd blijven staan. Schemaversie 10.
+
+**Bronreferentie én snapshot.** Een item draagt nu `track_id` + `source` als stabiele verwijzing, een eigen `item_id` per positie (twee keer hetzelfde nummer zijn dus twee items) en een snapshot van titel, artiest, album en duur. Wat er bewust **niet** in staat is een stream-URL: die van Qobuz is ondertekend en verloopt binnen het uur. De lijst vraagt zo'n URL pas bij het afspelen op, dus na een herstart leest hij identiek terug — daar is een test voor die de database sluit en opnieuw opent.
+
+**Beschikbaarheid is een antwoord, geen opgeslagen veld.** Het wordt per keer bepaald: de bibliotheek wordt herscand en een dienst logt in en uit, dus het antwoord van gisteren bewijst niets over vandaag. Een item dat nu niet kan spelen blijft in de lijst staan met zijn snapshot en één zin waarom (`missing` voor een bestand dat de scanner niet vindt, `unavailable` voor een nummer dat de bibliotheek verliet of een dienst die niet verbonden is). De UI toont het grijs, slaat het over bij "Play All" en start het niet bij een klik.
+
+**Grenzen die expliciet benoemd worden.** Een extern nummer toevoegen kan alleen mét titel en artiest — de server kan het later nergens opzoeken, en een item zonder naam is een id dat niemand kan lezen. Spotify blijft buiten playlists: dat speelt via zijn eigen speler, niet via een stream-URL. M3U-export schrijft alleen lokale items als afspeelbare regel; alle andere komen als commentaar in het bestand met de reden, geteld in `X-Playlist-Export-Skipped`. De beperking staat in het bestand zelf, want dat is wat de server verlaat.
+
+**Wacht op acceptatie (NAS):** een playlist met lokale en Qobuz-nummers samenstellen, afspelen en na een herstart controleren dat de volgorde en de namen identiek zijn; Qobuz tijdelijk loskoppelen en zien dat die items blijven staan met de reden erbij in plaats van te verdwijnen; een lokaal bestand hernoemen zodat het `missing` wordt en controleren dat de playlist doorspeelt zonder het; die playlist exporteren en in het M3U-bestand de commentaarregels voor de externe nummers terugvinden.
+
+**Vervolg:** V12.2 (aanbevelingen met direct afspeelbare matches en "waarom deze aanbeveling?"), V12.3 (shuffle zonder herhaling) en V12.4 (ontdekmix opslaan, bronuitval en profielscheiding testen).
 
 ## Bronverwijzingen naar de onderzochte code
 

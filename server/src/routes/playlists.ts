@@ -3,9 +3,18 @@ import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
 import { getDb } from '../db/index.js';
 import { playlists, playlistTracks, tracks } from '../db/schema.js';
-import { asc, eq, or } from 'drizzle-orm';
+import { eq, or } from 'drizzle-orm';
 import { validate } from '../utils/validate.js';
 import { requireOwner } from '../utils/ownership.js';
+import {
+  MissingSnapshotError,
+  UnknownTrackError,
+  addItem,
+  itemCount,
+  listItems,
+  removeItem,
+  reorderItems,
+} from '../services/playlist-items.js';
 
 export const playlistsRouter = Router();
 
@@ -39,8 +48,31 @@ const createPlaylistSchema = z.object({
   shared: z.boolean().optional(),
 });
 const updatePlaylistSchema = createPlaylistSchema.partial();
-const addTrackSchema = z.object({ trackId: z.string().min(1) });
-const reorderSchema = z.object({ trackIds: z.array(z.string().min(1)) });
+/**
+ * Adding an item (V12.1). A local id is snapshotted from the library itself;
+ * an external id (`qobuz:…`, `radio:…`) has no local row, so the caller sends
+ * the metadata along and the server stores that snapshot verbatim. No stream
+ * URL is accepted or stored: those expire and are resolved at playback.
+ */
+const addTrackSchema = z.object({
+  trackId: z.string().min(1),
+  title: z.string().max(500).optional(),
+  artistName: z.string().max(500).optional(),
+  albumTitle: z.string().max(500).optional(),
+  albumId: z.string().max(200).nullish(),
+  duration: z.number().nonnegative().nullish(),
+  coverUrl: z.string().max(2000).nullish(),
+  format: z.string().max(50).nullish(),
+});
+/** `itemIds` is exact; `trackIds` is what older clients send. */
+const reorderSchema = z
+  .object({
+    itemIds: z.array(z.string().min(1)).optional(),
+    trackIds: z.array(z.string().min(1)).optional(),
+  })
+  .refine((v) => v.itemIds !== undefined || v.trackIds !== undefined, {
+    message: 'Send itemIds (preferred) or trackIds',
+  });
 const importSchema = z.object({
   name: z.string().min(1).max(200),
   content: z.string().min(1).max(5_000_000),
@@ -113,27 +145,25 @@ playlistsRouter.delete('/:id', (req, res) => {
   res.json({ data: { ok: true } });
 });
 
-// Get tracks in a playlist
+/**
+ * The items of a playlist (V12.1). Every item is returned, including ones
+ * that cannot be played right now: a local file the scanner cannot find, a
+ * track that left the library, a Qobuz track while nobody is connected. Each
+ * of those carries its snapshot and a reason, because an item that silently
+ * disappears from a list is the worse answer.
+ */
 playlistsRouter.get('/:id/tracks', (req, res) => {
   const found = loadPlaylist(req, res, 'read');
   if (!found) return;
-  const db = getDb();
-  const items = db
-    .select()
-    .from(playlistTracks)
-    .where(eq(playlistTracks.playlistId, found.id))
-    .orderBy(asc(playlistTracks.position))
-    .all();
-
-  // Enrich with track data
-  const enriched = items
-    .map((item) => {
-      const track = db.select().from(tracks).where(eq(tracks.id, item.trackId)).get();
-      return track ? { ...track, playlistPosition: item.position } : null;
-    })
-    .filter(Boolean);
-
-  res.json({ data: enriched, meta: { total: enriched.length } });
+  const items = listItems(found.id);
+  res.json({
+    data: items,
+    meta: {
+      total: items.length,
+      playable: items.filter((i) => i.availability === 'available').length,
+      unavailable: items.filter((i) => i.availability !== 'available').length,
+    },
+  });
 });
 
 // Add a track to a playlist
@@ -141,35 +171,25 @@ playlistsRouter.post('/:id/tracks', (req, res) => {
   const parsed = addTrackSchema.safeParse(req.body);
   if (!parsed.success)
     return res.status(400).json({ error: 'ValidationError', issues: parsed.error.issues });
-  const { trackId } = parsed.data;
   const found = loadPlaylist(req, res, 'write');
   if (!found) return;
-  const db = getDb();
-  // Get next position
-  const existing = db
-    .select()
-    .from(playlistTracks)
-    .where(eq(playlistTracks.playlistId, found.id))
-    .all();
-  const nextPos = existing.length > 0 ? Math.max(...existing.map((e) => e.position)) + 1 : 0;
 
-  db.insert(playlistTracks)
-    .values({
-      playlistId: found.id,
-      trackId,
-      position: nextPos,
-    })
-    .run();
+  let itemId: string;
+  try {
+    itemId = addItem(found.id, parsed.data);
+  } catch (err) {
+    if (err instanceof UnknownTrackError) {
+      return res.status(404).json({ error: 'Track not found' });
+    }
+    if (err instanceof MissingSnapshotError) {
+      return res.status(400).json({ error: 'MetadataRequired', message: err.message });
+    }
+    throw err;
+  }
 
-  // Update track count
-  const count = db
-    .select()
-    .from(playlistTracks)
-    .where(eq(playlistTracks.playlistId, found.id))
-    .all().length;
-  db.update(playlists).set({ trackCount: count }).where(eq(playlists.id, found.id)).run();
-
-  res.json({ data: { ok: true, trackCount: count } });
+  const count = itemCount(found.id);
+  getDb().update(playlists).set({ trackCount: count }).where(eq(playlists.id, found.id)).run();
+  res.json({ data: { ok: true, itemId, trackCount: count } });
 });
 
 // Reorder tracks in a playlist
@@ -177,59 +197,52 @@ playlistsRouter.post('/:id/reorder', (req, res) => {
   const parsed = reorderSchema.safeParse(req.body);
   if (!parsed.success)
     return res.status(400).json({ error: 'ValidationError', issues: parsed.error.issues });
-  const { trackIds } = parsed.data;
   const found = loadPlaylist(req, res, 'write');
   if (!found) return;
-  const db = getDb();
-  // Update each track's position based on the new order
-  trackIds.forEach((trackId: string, index: number) => {
-    const item = db
-      .select()
-      .from(playlistTracks)
-      .where(eq(playlistTracks.playlistId, found.id))
-      .all()
-      .find((i) => i.trackId === trackId);
-    if (item) {
-      db.update(playlistTracks)
-        .set({ position: index })
-        .where(eq(playlistTracks.id, item.id))
-        .run();
-    }
-  });
-
+  reorderItems(found.id, parsed.data.itemIds ?? parsed.data.trackIds ?? []);
   res.json({ data: { ok: true } });
 });
 
-// Export playlist as M3U
+/**
+ * Export as M3U (V12.1).
+ *
+ * An M3U line is a file path or a fixed URL, and that is exactly what an
+ * external item does not have: a Qobuz stream URL is signed per play and
+ * expires, so writing one into a file would produce a playlist that breaks
+ * within the hour. Local items are exported as before; every other item is
+ * written as a comment naming what it is and why it could not be exported,
+ * and the response says how many those were. The limitation is stated in the
+ * file itself, because the file is what leaves this server.
+ */
 playlistsRouter.get('/:id/export', (req, res) => {
   const found = loadPlaylist(req, res, 'read');
   if (!found) return;
   const playlist = found.playlist;
-  const db = getDb();
-
-  const items = db
-    .select()
-    .from(playlistTracks)
-    .where(eq(playlistTracks.playlistId, found.id))
-    .orderBy(asc(playlistTracks.position))
-    .all();
-
-  const enriched = items
-    .map((item) => {
-      return db.select().from(tracks).where(eq(tracks.id, item.trackId)).get();
-    })
-    .filter(Boolean);
+  const items = listItems(found.id);
+  const external = items.filter((i) => i.source !== 'local');
 
   let m3u = '#EXTM3U\n';
   m3u += `#PLAYLIST:${playlist.name}\n`;
-  for (const track of enriched) {
-    if (!track) continue;
-    m3u += `#EXTINF:${Math.round(track.duration || 0)},${track.artistName} - ${track.title}\n`;
-    m3u += `${track.filePath || track.id}\n`;
+  if (external.length > 0) {
+    m3u +=
+      `# ${external.length} item(s) in this playlist do not come from a local file and cannot be\n` +
+      '# exported: an M3U can only reference a path or a fixed URL, and these resolve a fresh\n' +
+      '# stream URL at playback. They are listed below as comments so nothing is lost silently.\n';
+  }
+
+  for (const item of items) {
+    m3u += `#EXTINF:${Math.round(item.duration || 0)},${item.artistName} - ${item.title}\n`;
+    if (item.source === 'local') {
+      m3u += `${item.filePath || item.id}\n`;
+    } else {
+      m3u += `# not exported (${item.source}): ${item.id}\n`;
+    }
   }
 
   res.setHeader('Content-Type', 'audio/mpegurl');
   res.setHeader('Content-Disposition', `attachment; filename="${playlist.name}.m3u"`);
+  // A client that wants to warn before downloading does not have to parse the file.
+  res.setHeader('X-Playlist-Export-Skipped', String(external.length));
   res.send(m3u);
 });
 
@@ -263,7 +276,9 @@ playlistsRouter.post('/import', validate({ body: importSchema }), (req, res) => 
     }
 
     if (track) {
-      db.insert(playlistTracks).values({ playlistId: id, trackId: track.id, position }).run();
+      // Adding through the same path as everything else, so an imported item
+      // gets its snapshot too and reads the same after a rescan.
+      addItem(id, { trackId: track.id });
       position++;
     }
   }
@@ -273,29 +288,16 @@ playlistsRouter.post('/import', validate({ body: importSchema }), (req, res) => 
   res.status(201).json({ data: created, meta: { matched: position, total: lines.length } });
 });
 
-// Remove a track from a playlist
+/**
+ * Remove one item. The parameter is an item id (exact, so one of two copies
+ * of the same track can be removed) or, for older clients, a track id — then
+ * the first item with that track goes.
+ */
 playlistsRouter.delete('/:id/tracks/:trackId', (req, res) => {
   const found = loadPlaylist(req, res, 'write');
   if (!found) return;
-  const db = getDb();
-  const items = db
-    .select()
-    .from(playlistTracks)
-    .where(eq(playlistTracks.playlistId, found.id))
-    .all();
-
-  const toRemove = items.find((i) => i.trackId === req.params.trackId);
-  if (toRemove) {
-    db.delete(playlistTracks).where(eq(playlistTracks.id, toRemove.id)).run();
-  }
-
-  // Update count
-  const count = db
-    .select()
-    .from(playlistTracks)
-    .where(eq(playlistTracks.playlistId, found.id))
-    .all().length;
-  db.update(playlists).set({ trackCount: count }).where(eq(playlists.id, found.id)).run();
-
+  removeItem(found.id, String(req.params.trackId));
+  const count = itemCount(found.id);
+  getDb().update(playlists).set({ trackCount: count }).where(eq(playlists.id, found.id)).run();
   res.json({ data: { ok: true, trackCount: count } });
 });

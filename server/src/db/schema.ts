@@ -164,6 +164,17 @@ export const playlists = sqliteTable('playlists', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(now),
 });
 
+/**
+ * One item in a playlist (V12.1).
+ *
+ * Until V12 this row was a foreign key into the local `tracks` table, which
+ * meant a playlist could hold nothing but local files: a Qobuz track could
+ * not even be inserted, and a local file that left the library took its own
+ * name with it. An item now keeps a stable source reference (`trackId` plus
+ * `source`) and a metadata snapshot, so a mixed playlist survives a restart
+ * unchanged and a temporarily unavailable item still says what it is. No
+ * stream URL is ever stored here: those expire, and are resolved at playback.
+ */
 export const playlistTracks = sqliteTable(
   'playlist_tracks',
   {
@@ -171,9 +182,23 @@ export const playlistTracks = sqliteTable(
     playlistId: text('playlist_id')
       .notNull()
       .references(() => playlists.id),
-    trackId: text('track_id')
-      .notNull()
-      .references(() => tracks.id),
+    /** Stable identity of this playlist position; survives reorders and duplicates. */
+    itemId: text('item_id'),
+    /** The source reference. NOT a foreign key: an external id has no local row. */
+    trackId: text('track_id').notNull(),
+    /** 'local' | 'qobuz' | 'spotify' | 'tidal' | 'radio'. */
+    source: text('source').notNull().default('local'),
+    // ── Metadata snapshot ──
+    // What the item was when it was added. A local row is preferred over this
+    // while the file is in the library; the snapshot is what keeps an item
+    // readable once it is not.
+    trackTitle: text('track_title'),
+    artistName: text('artist_name'),
+    albumTitle: text('album_title'),
+    albumId: text('album_id'),
+    duration: real('duration'),
+    /** JSON with the extra fields a client needs (cover, format, ReplayGain). */
+    metadata: text('metadata'),
     position: integer('position').notNull(),
     addedAt: integer('added_at', { mode: 'timestamp' }).$defaultFn(now),
   },

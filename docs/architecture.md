@@ -374,6 +374,25 @@ exists. The migration hands pre-V09 rows to the oldest admin, and rebuilds
 (`UNIQUE(item_type, item_id)`, `id INTEGER PRIMARY KEY DEFAULT 1`) live
 inside the CREATE TABLE where ALTER cannot reach them.
 
+**Playlist items (V12.1).** A playlist item is a stable source reference plus
+a metadata snapshot, not a pointer into the local library
+(`services/playlist-items.ts`). `playlist_tracks` carries `item_id` (the
+identity of that position, so two copies of one track are two items),
+`track_id` + `source`, and the title, artist, album and duration the item had
+when it was added. A local item is shown from its live library row while the
+file is there and falls back to the snapshot when it is not; an external item
+has only the snapshot, because the server has nowhere else to read it from.
+
+No stream URL is ever stored: a Qobuz URL is signed per play and expires, a
+local stream carries a token, so both are resolved at playback through
+`playback-resolver.ts`. Availability is computed per read and never written
+down — the library is rescanned and a provider logs in and out, so yesterday's
+answer is not evidence about today. An item that cannot be played keeps its
+place in the list with one sentence saying why, and is skipped when the
+playlist is played. M3U export covers local items only: an M3U line is a path
+or a fixed URL, which is exactly what an external item does not have, so those
+are written as comments and counted in `X-Playlist-Export-Skipped`.
+
 **SQLite + WAL.** Single-process app; better-sqlite3 in WAL mode is fast
 enough for 10k+ tracks without a separate DB process. Drizzle ORM for typed
 queries; raw SQL where pagination / aggregates need it.
