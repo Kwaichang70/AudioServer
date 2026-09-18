@@ -13,6 +13,9 @@ import {
   scanLibrary,
 } from '../services/scanner.js';
 
+/** Can this process make a directory unreadable to itself? */
+const canBlockDirectoryAccess = process.platform !== 'win32' && process.getuid?.() !== 0;
+
 interface TrackRow {
   id: string;
   title: string;
@@ -116,24 +119,31 @@ describe('scanner: library preservation (V06)', () => {
     expect(status.removedTracks).toBe(1);
   });
 
-  it('an unreadable subdirectory keeps its items and marks the root as failed', async () => {
-    if (process.getuid?.() === 0) return; // root ignores permission bits
-    const root = join(tmp!, 'music');
-    const locked = join(root, 'locked');
-    mkdirSync(locked, { recursive: true });
-    writeFileSync(join(root, 'open.mp3'), '');
-    insertLocalTrack('locked-track', `${locked}/inside.mp3`);
-    chmodSync(locked, 0o000);
-    try {
-      const status = await scanLibrary([root], { trigger: 'test' });
-      expect(getTrack('locked-track')?.availability).toBe('available');
-      expect(status.failedRoots).toHaveLength(1);
-      expect(status.failedRoots[0].failedDirs).toEqual([locked]);
-      expect(getTrackByPath(`${root}/open.mp3`)).toBeTruthy();
-    } finally {
-      chmodSync(locked, 0o755);
-    }
-  });
+  // Needs a directory the process really cannot read. Windows ignores the
+  // permission bits `chmod` sets on a directory, and root ignores them
+  // everywhere, so on those the scan would simply succeed and the test would
+  // assert a failure that never happened (R00.5). The behaviour it guards is
+  // POSIX-only anyway: the NAS runs Linux in Docker.
+  it.skipIf(!canBlockDirectoryAccess)(
+    'an unreadable subdirectory keeps its items and marks the root as failed',
+    async () => {
+      const root = join(tmp!, 'music');
+      const locked = join(root, 'locked');
+      mkdirSync(locked, { recursive: true });
+      writeFileSync(join(root, 'open.mp3'), '');
+      insertLocalTrack('locked-track', `${locked}/inside.mp3`);
+      chmodSync(locked, 0o000);
+      try {
+        const status = await scanLibrary([root], { trigger: 'test' });
+        expect(getTrack('locked-track')?.availability).toBe('available');
+        expect(status.failedRoots).toHaveLength(1);
+        expect(status.failedRoots[0].failedDirs).toEqual([locked]);
+        expect(getTrackByPath(`${root}/open.mp3`)).toBeTruthy();
+      } finally {
+        chmodSync(locked, 0o755);
+      }
+    },
+  );
 
   it('a deleted file stays as a missing row until an explicit purge', async () => {
     const root = join(tmp!, 'music');

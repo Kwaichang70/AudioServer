@@ -59,6 +59,22 @@ async function askBuildId(): Promise<void> {
 
 export function registerServiceWorker(): void {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+
+  // Not while developing (R00.6). The worker caches one build's shell, which
+  // is the point in production and a trap under `vite dev`: it kept serving a
+  // cached bundle, so edits did not show up in the browser and the code being
+  // looked at was not the code on disk. A worker left behind by an earlier dev
+  // session is also released here, otherwise that tab stays stuck on it.
+  // `import.meta.env.DEV` is false for `vite preview`, so the real update flow
+  // can still be exercised against a production build.
+  if (import.meta.env.DEV) {
+    navigator.serviceWorker
+      .getRegistrations()
+      .then((registrations) => registrations.forEach((r) => void r.unregister()))
+      .catch(() => {});
+    return;
+  }
+
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('/sw.js')

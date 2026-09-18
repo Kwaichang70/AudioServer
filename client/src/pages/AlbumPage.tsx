@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
@@ -145,6 +145,9 @@ export default function AlbumPage() {
 
   const totalDuration = tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
   const totalMin = Math.floor(totalDuration / 60);
+  // Only a real multi-disc release gets disc headings; a single-disc album
+  // would just gain a "Disc 1" line that says nothing.
+  const hasMultipleDiscs = new Set(tracks.map((t) => t.discNumber ?? 1)).size > 1;
 
   return (
     <div>
@@ -204,7 +207,9 @@ export default function AlbumPage() {
         </div>
       </div>
 
-      {/* Track list */}
+      {/* Track list. A multi-disc album gets a heading per disc (R00.3):
+          disc numbers were parsed by the scanner but never shown, so disc 2
+          track 1 looked like a duplicate of disc 1 track 1. */}
       <table className="w-full">
         <thead>
           <tr className="text-left text-xs text-gray-500 uppercase border-b border-white/10">
@@ -219,57 +224,72 @@ export default function AlbumPage() {
           {tracks.map((track, trackIndex) => {
             const isCurrent = currentTrack?.id === track.id;
             const missing = track.availability === 'missing';
+            const disc = track.discNumber ?? 1;
+            const previousDisc = trackIndex > 0 ? (tracks[trackIndex - 1].discNumber ?? 1) : null;
+            const startsDisc = hasMultipleDiscs && disc !== previousDisc;
             return (
-              <tr
-                key={track.id}
-                onClick={() => playAlbum(tracks, trackIndex)}
-                title={
-                  missing ? 'File not found on disk: rescan or clean up in Settings' : undefined
-                }
-                className={`cursor-pointer hover:bg-surface-light transition ${
-                  isCurrent ? 'text-accent' : ''
-                } ${missing ? 'opacity-50' : ''}`}
-              >
-                <td className="py-2.5 text-sm text-gray-500 w-12">
-                  {isCurrent && isPlaying ? (
-                    <span className="text-accent animate-pulse">&#9654;</span>
-                  ) : (
-                    track.trackNumber || '\u2014'
-                  )}
-                </td>
-                <td className="py-2.5">
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      playAlbum(tracks, trackIndex);
-                    }}
-                    className="w-full rounded text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                    aria-label={`Play ${track.title} by ${track.artistName}`}
-                  >
-                    <span className="block text-sm font-medium">
-                      {track.title}
-                      {missing && (
-                        <span className="ml-2 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-red-300">
-                          missing
-                        </span>
-                      )}
-                    </span>
-                    {track.artistName !== album.artistName && (
-                      <span className="block text-xs text-gray-500">{track.artistName}</span>
+              <Fragment key={track.id}>
+                {startsDisc && (
+                  <tr>
+                    <th
+                      scope="rowgroup"
+                      colSpan={5}
+                      className="pt-6 pb-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-500"
+                    >
+                      Disc {disc}
+                    </th>
+                  </tr>
+                )}
+                <tr
+                  onClick={() => playAlbum(tracks, trackIndex)}
+                  title={
+                    missing ? 'File not found on disk: rescan or clean up in Settings' : undefined
+                  }
+                  className={`cursor-pointer hover:bg-surface-light transition ${
+                    isCurrent ? 'text-accent' : ''
+                  } ${missing ? 'opacity-50' : ''}`}
+                >
+                  <td className="py-2.5 text-sm text-gray-500 w-12">
+                    {isCurrent && isPlaying ? (
+                      <span className="text-accent animate-pulse">&#9654;</span>
+                    ) : (
+                      track.trackNumber || '\u2014'
                     )}
-                  </button>
-                </td>
-                <td className="py-2.5 text-xs text-gray-500 hidden md:table-cell">
-                  {formatQuality(track)}
-                </td>
-                <td className="py-2.5 text-sm text-gray-400 text-right">
-                  {formatDuration(track.duration)}
-                </td>
-                <td className="py-2.5">
-                  <AddToPlaylist trackId={track.id} />
-                </td>
-              </tr>
+                  </td>
+                  <td className="py-2.5">
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        playAlbum(tracks, trackIndex);
+                      }}
+                      className="w-full rounded text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      aria-label={`Play ${track.title} by ${track.artistName}`}
+                    >
+                      <span className="block text-sm font-medium">
+                        {track.title}
+                        {missing && (
+                          <span className="ml-2 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-red-300">
+                            missing
+                          </span>
+                        )}
+                      </span>
+                      {track.artistName !== album.artistName && (
+                        <span className="block text-xs text-gray-500">{track.artistName}</span>
+                      )}
+                    </button>
+                  </td>
+                  <td className="py-2.5 text-xs text-gray-500 hidden md:table-cell">
+                    {formatQuality(track)}
+                  </td>
+                  <td className="py-2.5 text-sm text-gray-400 text-right">
+                    {formatDuration(track.duration)}
+                  </td>
+                  <td className="py-2.5">
+                    <AddToPlaylist trackId={track.id} />
+                  </td>
+                </tr>
+              </Fragment>
             );
           })}
         </tbody>

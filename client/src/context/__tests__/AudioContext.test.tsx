@@ -148,6 +148,7 @@ function Harness() {
       <button onClick={() => ctx.toggleShuffle()}>Shuffle</button>
       <button onClick={() => ctx.setVolume(0.42)}>Volume</button>
       <button onClick={() => ctx.setSelectedDeviceId('device-1')}>External Device</button>
+      <button onClick={() => ctx.setCrossfade(6)}>Crossfade On</button>
     </div>
   );
 }
@@ -614,5 +615,95 @@ describe('AudioProvider session mirroring (V03)', () => {
       expect(screen.getByTestId('queue')).toHaveTextContent('First|Second|Third|Fourth'),
     );
     expect(mocks.toast).toHaveBeenCalledWith(expect.stringMatching(/another device/), 'info');
+  });
+});
+
+// R00.1: the browser prepares the next track before the boundary. useAudio's
+// preloadNext existed since V11.2 but nothing called it, so every boundary
+// still fetched at the moment the music should continue.
+describe('AudioProvider next-track preparation (R00.1)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fakeServer = createFakePlaybackServer();
+    mocks.socket.snapshot = null;
+    mocks.socket.queueEvent = null;
+    mocks.socket.trackChanged = null;
+    localStorage.clear();
+    mocks.audio.isPlaying = false;
+    mocks.audio.getCurrentTime.mockReturnValue(0);
+    mocks.audio.getDuration.mockReturnValue(0);
+    mocks.api.getHealth.mockResolvedValue({});
+    mocks.api.getDeviceStatus.mockResolvedValue({ data: {} });
+  });
+
+  /** Start the album and put the current track near its end, then re-render. */
+  function playNearTheEnd(view: ReturnType<typeof renderHarness>, extraClick?: string) {
+    fireEvent.click(screen.getByText('Play Album'));
+    if (extraClick) fireEvent.click(screen.getByText(extraClick));
+    mocks.audio.isPlaying = true;
+    mocks.audio.getDuration.mockReturnValue(200);
+    mocks.audio.getCurrentTime.mockReturnValue(180); // 20 s left
+    view.rerender(
+      <AudioProvider>
+        <Harness />
+      </AudioProvider>,
+    );
+  }
+
+  it('prepares the next local track when the current one is nearly over', async () => {
+    const view = renderHarness();
+    playNearTheEnd(view);
+
+    await waitFor(() =>
+      expect(mocks.audio.preloadNext).toHaveBeenCalledWith('/api/library/tracks/track-2/stream'),
+    );
+  });
+
+  it('prepares nothing while the track has plenty left', async () => {
+    const view = renderHarness();
+    fireEvent.click(screen.getByText('Play Album'));
+    mocks.audio.isPlaying = true;
+    mocks.audio.getDuration.mockReturnValue(200);
+    mocks.audio.getCurrentTime.mockReturnValue(10);
+    view.rerender(
+      <AudioProvider>
+        <Harness />
+      </AudioProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('current')).toHaveTextContent('First'));
+    expect(mocks.audio.preloadNext).not.toHaveBeenCalled();
+  });
+
+  it('prepares nothing under shuffle, because the next track is not decided', async () => {
+    const view = renderHarness();
+    playNearTheEnd(view, 'Shuffle');
+
+    await waitFor(() => expect(screen.getByTestId('shuffle')).toHaveTextContent('true'));
+    expect(mocks.audio.preloadNext).not.toHaveBeenCalled();
+  });
+
+  it('prepares nothing with crossfade on, which builds its own element', async () => {
+    const view = renderHarness();
+    playNearTheEnd(view, 'Crossfade On');
+
+    await waitFor(() => expect(mocks.audio.setCrossfadeDuration).toHaveBeenCalledWith(6));
+    expect(mocks.audio.preloadNext).not.toHaveBeenCalled();
+  });
+
+  it('prepares nothing for a radio stream, which has no end', async () => {
+    const view = renderHarness();
+    fireEvent.click(screen.getByText('Play Album'));
+    mocks.audio.isPlaying = true;
+    mocks.audio.getDuration.mockReturnValue(Number.NaN);
+    mocks.audio.getCurrentTime.mockReturnValue(0);
+    view.rerender(
+      <AudioProvider>
+        <Harness />
+      </AudioProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('current')).toHaveTextContent('First'));
+    expect(mocks.audio.preloadNext).not.toHaveBeenCalled();
   });
 });

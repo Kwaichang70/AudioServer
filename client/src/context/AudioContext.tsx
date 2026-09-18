@@ -17,7 +17,14 @@ import { api, ApiError, getClientId, newCommandId, setActiveZone } from '../api/
 import type { PlaybackQueueEntry, PlaybackSnapshot, ZoneOverview } from '../api/types.js';
 import { useToast } from '../components/Toast.js';
 import { getProgressSnapshot, setProgress } from './ProgressStore.js';
-import { DEVICE_POLL_INTERVAL, PROGRESS_REPORT_INTERVAL, STORAGE_KEYS } from '../constants.js';
+import {
+  DEVICE_POLL_INTERVAL,
+  PRELOAD_CHECK_INTERVAL,
+  PRELOAD_LEAD_SECONDS,
+  PROGRESS_REPORT_INTERVAL,
+  STORAGE_KEYS,
+} from '../constants.js';
+import { peekNextIndex } from '../utils/queue.js';
 import type { TrackInfo } from '../types/playback.js';
 
 // Re-export so consumers can keep importing from this module.
@@ -215,6 +222,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     },
     [audio],
   );
+  // Stable callbacks from useAudio, named so the effects below can depend on
+  // them individually instead of on the whole player object.
+  const { preloadNext, getDuration, getCurrentTime } = audio;
   const [deviceIsPlaying, setDeviceIsPlaying] = useState(false);
   const [deviceVolume, setDeviceVolume] = useState<number | null>(null);
   const { toast } = useToast();
@@ -226,6 +236,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   currentTrackRef.current = currentTrack;
   const queueRef = useRef(queue);
   queueRef.current = queue;
+  const queueIndexRef = useRef(queueIndex);
+  queueIndexRef.current = queueIndex;
   const toastRef = useRef(toast);
   toastRef.current = toast;
 
@@ -999,6 +1011,47 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     const timer = setInterval(report, PROGRESS_REPORT_INTERVAL);
     return () => clearInterval(timer);
   }, [selectedDeviceId, isPlaying, currentTrack?.itemId]);
+
+  // R00.1: hand the next track to the player before the current one ends.
+  // `useAudio.preloadNext` and the take-over in `play()` were built in V11.2
+  // but never called, so every boundary in a tab still fetched and decoded at
+  // the moment the music should continue. Conditions, each for a reason:
+  // the browser is the output (a speaker is armed by the server instead);
+  // crossfade is off (crossfade builds its own element and would drop this
+  // one); the next item is a local file (a Qobuz url is signed per play and
+  // would be stale by the boundary); and `peekNextIndex` agrees there is a
+  // fixed next track at all.
+  useEffect(() => {
+    if (selectedDeviceId !== 'browser' || !isPlaying || crossfade > 0) return;
+    const prepare = () => {
+      const duration = getDuration();
+      if (!Number.isFinite(duration) || duration <= 0) return; // radio has no end
+      if (duration - getCurrentTime() > PRELOAD_LEAD_SECONDS) return;
+      const nextIndex = peekNextIndex(
+        queueRef.current.length,
+        queueIndexRef.current,
+        shuffle,
+        repeat,
+      );
+      if (nextIndex === null) return;
+      const next = queueRef.current[nextIndex];
+      if (!next || !isLocalTrack(next.id)) return;
+      preloadNext(api.getStreamUrl(next.id));
+    };
+    prepare();
+    const timer = setInterval(prepare, PRELOAD_CHECK_INTERVAL);
+    return () => clearInterval(timer);
+  }, [
+    selectedDeviceId,
+    isPlaying,
+    crossfade,
+    shuffle,
+    repeat,
+    currentTrack?.itemId,
+    preloadNext,
+    getDuration,
+    getCurrentTime,
+  ]);
 
   useMediaSession({
     currentTrack,

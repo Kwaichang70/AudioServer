@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client.js';
 import { useToast } from '../components/Toast.js';
 import AudioPathPanel from '../components/AudioPathPanel.js';
+import ZonesSection from '../components/ZonesSection.js';
 import { useAudioContext, type ReplayGainMode } from '../context/AudioContext.js';
 import { useAuth } from '../context/AuthContext.js';
-import { DEVICE_POLL_INTERVAL, STORAGE_KEYS } from '../constants.js';
+import { DEVICE_POLL_INTERVAL } from '../constants.js';
 import { useSocket, type LibraryScanProgress } from '../hooks/useSocket.js';
 import type { MissingTrack, MissingTrackCandidate, ScanRun } from '../api/types.js';
 import { useServiceWorkerState } from '../sw/register.js';
+import { readTheme, storeTheme, type Theme } from '../utils/theme.js';
 
 interface ProviderStatus {
   available: boolean;
@@ -675,6 +677,9 @@ export default function SettingsPage() {
         </section>
       )}
 
+      {/* Rooms (admin) — V10 shipped the endpoints without a UI (R00.4) */}
+      {isAdmin && <ZonesSection />}
+
       {/* Theme */}
       <ThemeSection />
 
@@ -812,19 +817,16 @@ function QobuzCard({
 }
 
 function ThemeSection() {
-  const [theme, setTheme] = useState(() => localStorage.getItem(STORAGE_KEYS.theme) || 'dark');
+  // The theme is applied at startup (`utils/theme.ts`, R00.2); this section
+  // only changes it, so it no longer needs an effect to paint the document.
+  const [theme, setTheme] = useState<Theme>(() => readTheme());
 
-  const applyTheme = (t: string) => {
+  const chooseTheme = (t: Theme) => {
     setTheme(t);
-    localStorage.setItem(STORAGE_KEYS.theme, t);
-    document.documentElement.setAttribute('data-theme', t);
+    storeTheme(t);
   };
 
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-  }, [theme]);
-
-  const themes = [
+  const themes: { id: Theme; label: string; desc: string }[] = [
     { id: 'dark', label: 'Dark', desc: 'Default dark theme' },
     { id: 'light', label: 'Light', desc: 'Light backgrounds' },
     { id: 'oled', label: 'OLED', desc: 'Pure black for OLED screens' },
@@ -837,7 +839,7 @@ function ThemeSection() {
         {themes.map((t) => (
           <button
             key={t.id}
-            onClick={() => applyTheme(t.id)}
+            onClick={() => chooseTheme(t.id)}
             className={`flex-1 p-3 rounded-lg border transition text-center ${
               theme === t.id
                 ? 'border-accent bg-accent/10'

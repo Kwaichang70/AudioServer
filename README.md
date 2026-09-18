@@ -294,6 +294,6 @@ Scanner finds no music:
 
 ## Sprint Status
 
-The current plan is [VERBETERPLAN_SPRINTS.md](VERBETERPLAN_SPRINTS.md) (sprints V01–V12, status per task inside the document). [SPRINT_AUDIT.md](SPRINT_AUDIT.md) is the audit of the earlier sprint series 8–20.
+The current plan is [VERBETERPLAN_SPRINTS.md](VERBETERPLAN_SPRINTS.md) (sprints V01–V12, status per task inside the document). The follow-up plan that measures the app against Roon is [VERBETERPLAN_ROON.md](VERBETERPLAN_ROON.md) (sprints R00–R10; it absorbs V12). [SPRINT_AUDIT.md](SPRINT_AUDIT.md) is the audit of the earlier sprint series 8–20.
 
 Every push runs the CI workflow (`.github/workflows/ci.yml`): clean install, lint, typecheck, tests and build on Node 22 and 24, then the production image is built, started, probed for readiness and stopped gracefully.

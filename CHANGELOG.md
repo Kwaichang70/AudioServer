@@ -4,6 +4,72 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## R00 — Directe reparaties (verbeterplan 2, sprint R00)
+
+Eerste sprint uit [VERBETERPLAN_ROON.md](VERBETERPLAN_ROON.md): de afwijkingen
+die de analyse vond en die geen ontwerp vragen.
+
+**Het volgende nummer wordt nu echt voorbereid** (`client/src/context/AudioContext.tsx`,
+`client/src/utils/queue.ts`)
+
+- V11.2 bouwde `preloadNext()` en de overname in `play()`, maar niets riep
+  `preloadNext` aan. Elke grens in de browser haalde het bestand dus alsnog op
+  het moment dat de muziek door moest; het transitielog meldde altijd
+  `reloaded`. De voorbereiding start nu dertig seconden voor het einde, op de
+  lus die er al was.
+- Voorwaarden, elk met een reden: de browser is de uitgang (een speaker krijgt
+  zijn volgende track van de server), crossfade staat uit (crossfade maakt zijn
+  eigen element en zou het voorbereide weggooien), en het volgende nummer is
+  lokaal (een Qobuz-URL is per keer ondertekend en zou bij de grens verlopen
+  zijn). Welk nummer volgt komt uit `peekNextIndex` — dezelfde regel als
+  `PlaybackService.peekNext` op de server, dus onder shuffle wordt er niets
+  voorbereid, want dan is er geen vast antwoord.
+
+**Het gekozen thema geldt overal** (`client/src/utils/theme.ts`, `client/src/main.tsx`)
+
+- `data-theme` werd alleen in de Settings-pagina gezet. Wie de app opende op een
+  andere pagina zag donker, ongeacht zijn keuze. Het thema wordt nu vóór de
+  eerste render toegepast; zonder opgeslagen keuze volgt de app
+  `prefers-color-scheme`. Settings verandert het alleen nog.
+- Geen inline script in `index.html`: de CSP staat geen inline scripts toe en
+  die policy blijft zoals ze is.
+
+**Kamers zijn te beheren vanuit de app** (`client/src/components/ZonesSection.tsx`)
+
+- V10 leverde de zone-endpoints en de kamerkiezer in de speler, maar geen manier
+  om een kamer te maken — dat vroeg `curl`. Settings → Rooms (admin) maakt,
+  hernoemt en verwijdert er een. De apparaatkiezer toont alleen uitgangen die
+  geen kamer heeft geclaimd; is een kamer elders aangemaakt, dan komt de 409 van
+  de server als tekst in beeld. De standaardkamer biedt geen verwijderknop.
+
+**Discnummers** (`client/src/pages/AlbumPage.tsx`)
+
+- De scanner leest `disc_number` sinds sprint 9, maar de albumpagina toonde het
+  nooit: op een dubbelalbum leken twee "track 1"-regels duplicaten. Er staat nu
+  een kopje per disc, alleen bij meer dan één disc.
+
+**De service worker registreert niet meer tijdens ontwikkeling** (`client/src/sw/register.ts`)
+
+- Gevonden tijdens de browsercontrole van het thema: een worker uit een eerdere
+  sessie bediende de pagina met een gecachte shell, waardoor de nieuwe code er
+  niet leek te staan. In productie is die cache het doel, onder `vite dev` is
+  het een valkuil. De registratie slaat `import.meta.env.DEV` over en ruimt een
+  achtergebleven worker op. `vite preview` is geen DEV, dus de updateflow van
+  V08.1 blijft te testen.
+
+**Onderhoud**
+
+- De scannertest "unreadable subdirectory" draait alleen waar het proces een map
+  echt onleesbaar kan maken: Windows negeert die rechten en root overal, dus
+  daar verwachtte de test een fout die niet gebeurde.
+- `spotify-stub.ts` en `tidal-stub.ts` zijn weg; het register laadde ze niet.
+  Hun interfacetest is niet weggegooid maar op de echte Tidal- en
+  Spotify-provider gericht — strengere dekking dan ervoor.
+
+Tests: 326 servertests (1 overgeslagen met reden) en 146 clienttests, 28 nieuw:
+`utils/queue`, `utils/theme`, `sw/register`, `ZonesSection`, discnummers en de
+voorbereiding van het volgende nummer. Lint, typecheck en build groen.
+
 ## V11 — Trackovergangen en een eerlijk audiopad (verbeterplan sprint 11)
 
 **Wat een uitgang echt kan** (`server/src/services/output-capabilities.ts`)

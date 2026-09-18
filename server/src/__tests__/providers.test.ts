@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { LocalProvider } from '../providers/local.js';
-import { TidalStubProvider } from '../providers/tidal-stub.js';
-import { SpotifyStubProvider } from '../providers/spotify-stub.js';
+import { TidalProvider } from '../providers/tidal.js';
+import { SpotifyProvider } from '../providers/spotify.js';
 import { QobuzProvider } from '../providers/qobuz.js';
 import type { MusicProvider } from '@audioserver/shared';
 
@@ -46,45 +46,47 @@ describe('LocalProvider', () => {
   });
 });
 
-describe('TidalStubProvider', () => {
-  const provider = new TidalStubProvider();
+// R00.5: these used to exercise `tidal-stub.ts` and `spotify-stub.ts`, two
+// files the registry never loaded. The real providers are what runs, so the
+// interface contract is checked against those instead.
+describe('TidalProvider', () => {
+  const provider = new TidalProvider();
   testProviderInterface(provider);
 
   it('type is "tidal"', () => {
     expect(provider.type).toBe('tidal');
   });
 
-  it('is not available (stub)', () => {
-    expect(provider.isAvailable).toBe(false);
+  it('needs credentials before it claims to be available', () => {
+    expect(provider.isAvailable).toBe(
+      !!(process.env.TIDAL_CLIENT_ID && process.env.TIDAL_CLIENT_SECRET),
+    );
   });
 
-  it('auth is not authenticated', () => {
+  it('hands out no stream url without a logged-in account', async () => {
     expect(provider.auth.isAuthenticated).toBe(false);
-  });
-
-  it('search returns empty results', async () => {
-    const results = await provider.search();
-    expect(results.artists).toEqual([]);
-    expect(results.albums).toEqual([]);
-    expect(results.tracks).toEqual([]);
+    await expect(provider.getStreamUrl('tidal:1')).resolves.toBeNull();
   });
 });
 
-describe('SpotifyStubProvider', () => {
-  const provider = new SpotifyStubProvider();
+describe('SpotifyProvider', () => {
+  const provider = new SpotifyProvider();
   testProviderInterface(provider);
 
   it('type is "spotify"', () => {
     expect(provider.type).toBe('spotify');
   });
 
-  it('is not available (stub)', () => {
-    expect(provider.isAvailable).toBe(false);
+  it('needs credentials before it claims to be available', () => {
+    expect(provider.isAvailable).toBe(
+      !!(process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET),
+    );
   });
 
-  it('getStreamUrl returns null', async () => {
-    const url = await provider.getStreamUrl();
-    expect(url).toBeNull();
+  // Spotify has no direct stream url: playback goes through Connect or
+  // Librespot. The playback resolver depends on this being null.
+  it('never returns a stream url', async () => {
+    await expect(provider.getStreamUrl('spotify:1')).resolves.toBeNull();
   });
 });
 

@@ -297,3 +297,66 @@ describe('detail page request ordering', () => {
     expect(screen.queryByRole('heading', { name: 'Old Smart Playlist' })).not.toBeInTheDocument();
   });
 });
+
+// R00.3: disc numbers were parsed by the scanner but never rendered, so on a
+// two-disc set both "track 1"s looked like duplicates.
+describe('album disc headings (R00.3)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.api.checkFavorite.mockResolvedValue({ data: { favorited: false } });
+    mocks.api.getAlbum.mockResolvedValue({
+      data: { id: 'a1', title: 'Double', artistName: 'Artist' },
+    });
+  });
+
+  const track = (id: string, title: string, discNumber: number, trackNumber: number) => ({
+    id,
+    title,
+    artistName: 'Artist',
+    albumTitle: 'Double',
+    albumId: 'a1',
+    discNumber,
+    trackNumber,
+    duration: 100,
+  });
+
+  it('heads each disc of a multi-disc album', async () => {
+    mocks.api.getAlbumTracks.mockResolvedValue({
+      data: [
+        track('t1', 'Opener', 1, 1),
+        track('t2', 'Closer', 1, 2),
+        track('t3', 'Second Opener', 2, 1),
+      ],
+    });
+
+    renderRoute('/albums/a1', '/albums/:id', <AlbumPage />);
+
+    expect(await screen.findByText('Disc 1')).toBeInTheDocument();
+    expect(screen.getByText('Disc 2')).toBeInTheDocument();
+  });
+
+  it('adds no heading to a single-disc album', async () => {
+    mocks.api.getAlbumTracks.mockResolvedValue({
+      data: [track('t1', 'Opener', 1, 1), track('t2', 'Closer', 1, 2)],
+    });
+
+    renderRoute('/albums/a1', '/albums/:id', <AlbumPage />);
+
+    expect(await screen.findByText('Opener')).toBeInTheDocument();
+    expect(screen.queryByText('Disc 1')).not.toBeInTheDocument();
+  });
+
+  it('adds no heading when tracks carry no disc number', async () => {
+    mocks.api.getAlbumTracks.mockResolvedValue({
+      data: [
+        { id: 't1', title: 'Opener', artistName: 'Artist', albumTitle: 'Double', albumId: 'a1' },
+        { id: 't2', title: 'Closer', artistName: 'Artist', albumTitle: 'Double', albumId: 'a1' },
+      ],
+    });
+
+    renderRoute('/albums/a1', '/albums/:id', <AlbumPage />);
+
+    expect(await screen.findByText('Opener')).toBeInTheDocument();
+    expect(screen.queryByText(/^Disc /)).not.toBeInTheDocument();
+  });
+});

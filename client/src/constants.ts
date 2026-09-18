@@ -22,6 +22,14 @@ export const DEFAULT_VOLUME = 0.7;
 export const DEVICE_POLL_INTERVAL = 2000;
 /** How often a browser that plays audio itself confirms it to the server (V05). */
 export const PROGRESS_REPORT_INTERVAL = 10_000;
+/**
+ * How long before the end of a track the browser prepares the next one
+ * (R00.1). Far enough ahead that a NAS file is buffered by the boundary, late
+ * enough that skipping through an album does not fetch a track per tap.
+ */
+export const PRELOAD_LEAD_SECONDS = 30;
+/** How often the player checks whether it is time to prepare the next track. */
+export const PRELOAD_CHECK_INTERVAL = 5000;
 export const SOCKET_RECONNECT_DELAY = 1000;
 export const SOCKET_RECONNECT_ATTEMPTS = 10;
 
