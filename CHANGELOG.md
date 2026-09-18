@@ -4,6 +4,29 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## V12.3 — Shuffle als ronde (verbeterplan sprint 12)
+
+**Niet meer trekken met teruglegging** (`server/src/services/shuffle.ts`)
+
+- Shuffle koos bij elk trackeinde een willekeurige positie in de wachtrij. Bij
+  tien nummers betekent dat gerust drie keer hetzelfde nummer voordat de vierde
+  aan de beurt is. Er is nu een **ronde**: elke wachtrijpositie komt precies
+  één keer aan bod, in willekeurige volgorde. Pas als de ronde leeg is herhaalt
+  er iets — en alleen als repeat aan staat. Met repeat uit ís de ronde de
+  wachtrij: als alles één keer geklonken heeft, stopt het afspelen.
+- Binnen een ronde gaat **minder recent gehoord** voor: wat je in de laatste
+  maand niet (of nooit) hoorde wordt vóór de rest getrokken, allebei geschud.
+  Geen strikte sortering — dat zou shuffle voorspelbaar maken.
+- Wat niet kan spelen komt niet in de ronde: een lokaal bestand dat als
+  `missing` staat en een dienst die niet verbonden is. Ze blijven in de
+  wachtrij en zijn met de hand te starten; de ronde kiest ze alleen niet.
+- Een wachtrijbewerking gooit de geplande volgorde weg maar niet het
+  geheugen: wat al geklonken heeft blijft buiten de ronde tot die afloopt.
+
+Tests: `shuffle-round.test.ts` (elke positie één keer, stoppen aan het eind van
+de ronde, nieuwe ronde bij repeat zonder twee keer hetzelfde achter elkaar,
+wachtrijbewerking, ontbrekend bestand) — 359 servertests.
+
 ## V12.2 — Aanbevelingen die zeggen waar ze vandaan komen (verbeterplan sprint 12)
 
 **Een naam is geen identiteit** (`server/src/services/recommendations.ts`)

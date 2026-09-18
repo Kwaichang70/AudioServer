@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { DEFAULT_ZONE_ID, getRawDb } from '../db/index.js';
 import { logger } from '../logger.js';
+import { buildShuffleRound } from './shuffle.js';
 import type { NowPlaying, Track } from '@audioserver/shared';
 import type {
   DispatchStatus,
@@ -180,6 +181,14 @@ const END_OVERRUN_SECONDS = 10;
 export class PlaybackService {
   private state: PersistedState;
   private queue: QueueEntry[] = [];
+  /**
+   * The shuffle round (V12.3): the queue positions still to be played before
+   * anything repeats, in the order they will be played. Empty means "build a
+   * new one on the next advance"; every queue edit and every toggle of
+   * shuffle throws the round away, because a round describes a queue.
+   */
+  private shuffleRound: string[] = [];
+  private shufflePlayed = new Set<string>();
   private queueIndex = -1;
   private currentTrack: TrackInfo | null = null;
   private hooks: PlaybackHooks = {};
@@ -649,6 +658,7 @@ export class PlaybackService {
   setShuffle(shuffle: boolean, origin: PlaybackOrigin = SERVER_ORIGIN): void {
     if (this.state.shuffle === shuffle) return;
     this.state.shuffle = shuffle;
+    this.forgetShuffleRound();
     this.bump();
     this.persistState();
     this.emitQueue(origin);
@@ -748,6 +758,7 @@ export class PlaybackService {
     deviceId?: string,
   ): void {
     this.queue = tracks.map((t, i) => this.toEntry(t, i));
+    this.forgetShuffleRound();
     this.queueIndex =
       this.queue.length === 0 ? -1 : Math.max(0, Math.min(startIndex, this.queue.length - 1));
     this.state.queueItemId = this.queue[this.queueIndex]?.itemId ?? null;
@@ -762,6 +773,7 @@ export class PlaybackService {
   addToQueue(track: TrackInfo, origin: PlaybackOrigin = SERVER_ORIGIN): QueueEntry {
     const entry = this.toEntry(track, this.queue.length);
     this.queue.push(entry);
+    this.resetShuffleRound();
     if (this.queueIndex < 0 && this.queue.length === 1) {
       // First item of an empty queue becomes "next up" without playing.
       this.queueIndex = -1;
@@ -788,6 +800,7 @@ export class PlaybackService {
 
   private removeAt(index: number, origin: PlaybackOrigin): void {
     this.queue.splice(index, 1);
+    this.resetShuffleRound();
     this.reindex();
     if (index < this.queueIndex) {
       this.queueIndex--;
@@ -814,6 +827,7 @@ export class PlaybackService {
    */
   clearQueue(origin: PlaybackOrigin = SERVER_ORIGIN): void {
     this.queue = [];
+    this.forgetShuffleRound();
     this.queueIndex = -1;
     this.state.queueItemId = null;
     this.bump();
@@ -835,6 +849,7 @@ export class PlaybackService {
     if (fromIndex === toIndex) return;
     const [item] = this.queue.splice(fromIndex, 1);
     this.queue.splice(toIndex, 0, item);
+    this.resetShuffleRound();
     this.reindex();
     if (this.queueIndex === fromIndex) {
       this.queueIndex = toIndex;
@@ -884,15 +899,18 @@ export class PlaybackService {
       return null;
     }
 
-    let nextIndex: number;
     if (this.state.shuffle) {
-      nextIndex = Math.floor(Math.random() * this.queue.length);
-      if (nextIndex === this.queueIndex && this.queue.length > 1) {
-        nextIndex = (nextIndex + 1) % this.queue.length;
+      // A round, not a draw with replacement: every position plays once
+      // before anything comes back (V12.3).
+      const shuffledIndex = this.nextShuffleIndex();
+      if (shuffledIndex === null) {
+        this.finishQueue(origin);
+        return null;
       }
-    } else {
-      nextIndex = this.queueIndex + 1;
+      return this.startIndex(shuffledIndex, origin);
     }
+
+    let nextIndex = this.queueIndex + 1;
 
     if (nextIndex >= this.queue.length) {
       if (this.state.repeat === 'all') {
@@ -906,6 +924,81 @@ export class PlaybackService {
     return this.startIndex(nextIndex, origin);
   }
 
+  /**
+   * Drop the planned order, but remember what has already been heard. A queue
+   * edit changes which positions exist, not the fact that a listener already
+   * heard four of them: those stay out until the round ends.
+   */
+  private resetShuffleRound(): void {
+    this.shuffleRound = [];
+    const inQueue = new Set(this.queue.map((entry) => entry.itemId));
+    for (const itemId of [...this.shufflePlayed]) {
+      if (!inQueue.has(itemId)) this.shufflePlayed.delete(itemId);
+    }
+  }
+
+  /** A new queue, or shuffle switched on: the round starts from nothing. */
+  private forgetShuffleRound(): void {
+    this.shuffleRound = [];
+    this.shufflePlayed.clear();
+  }
+
+  /**
+   * The next queue position under shuffle, or null when the round is over and
+   * repeat does not ask for another one. Nothing is repeated inside a round:
+   * an item that has played is out until the round ends.
+   */
+  private nextShuffleIndex(): number | null {
+    const current = this.queue[this.queueIndex]?.itemId;
+    if (current) this.shufflePlayed.add(current);
+
+    const inQueue = new Set(this.queue.map((entry) => entry.itemId));
+    this.shuffleRound = this.shuffleRound.filter(
+      (itemId) => inQueue.has(itemId) && !this.shufflePlayed.has(itemId),
+    );
+
+    if (this.shuffleRound.length === 0) {
+      const remaining = this.queue.filter(
+        (entry) => !this.shufflePlayed.has(entry.itemId) && entry.itemId !== current,
+      );
+      this.shuffleRound = buildShuffleRound(
+        remaining.map((entry) => ({
+          itemId: entry.itemId,
+          trackId: entry.trackId,
+          source: entry.source,
+        })),
+        { userId: this.state.ownerUserId },
+      );
+    }
+
+    if (this.shuffleRound.length === 0) {
+      // Everything in this queue has had its turn. Only repeat starts a new
+      // round; with repeat off the round IS the queue, so playback ends.
+      if (this.state.repeat !== 'all') return null;
+      this.shufflePlayed.clear();
+      this.shuffleRound = buildShuffleRound(
+        this.queue.map((entry) => ({
+          itemId: entry.itemId,
+          trackId: entry.trackId,
+          source: entry.source,
+        })),
+        { userId: this.state.ownerUserId },
+      );
+      if (current && this.shuffleRound.length > 1) {
+        // Not twice in a row across the seam of two rounds.
+        this.shuffleRound = this.shuffleRound.filter((itemId) => itemId !== current);
+        this.shuffleRound.push(current);
+      }
+      if (this.shuffleRound.length === 0) return null;
+    }
+
+    const itemId = this.shuffleRound.shift();
+    if (!itemId) return null;
+    this.shufflePlayed.add(itemId);
+    const index = this.queue.findIndex((entry) => entry.itemId === itemId);
+    return index >= 0 ? index : null;
+  }
+
   /** "Previous": the item before the current one (no wrap). Null when at the start. */
   previous(origin: PlaybackOrigin = SERVER_ORIGIN): TrackInfo | null {
     const prevIndex = this.queueIndex - 1;
@@ -917,6 +1010,10 @@ export class PlaybackService {
     const entry = this.queue[index];
     if (!entry) return null;
     this.queueIndex = index;
+    // Whatever started — shuffle, next, previous or a click — has had its
+    // turn in this round.
+    this.shufflePlayed.add(entry.itemId);
+    this.shuffleRound = this.shuffleRound.filter((itemId) => itemId !== entry.itemId);
     const track = this.queueEntryToTrackInfo(entry);
     this.play(track, undefined, entry.itemId, origin);
     this.emitTrackChanged(track, origin);

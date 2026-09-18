@@ -408,6 +408,19 @@ mix says so. `GET /api/recommendations/mix` builds a mix from the listener's
 own library and history alone — no external account — skipping tracks heard in
 the last month and files marked missing.
 
+**Shuffle rounds (V12.3).** `services/shuffle.ts` replaces random-with-
+replacement: a round is an order over the queue in which every position plays
+exactly once. Only an empty round repeats anything, and only when repeat is
+`all`; with repeat off the round is the queue, so playback ends when
+everything has been heard once. Inside a round, tracks the listener has not
+heard in the last month (or ever) are drawn before the rest, each group
+shuffled, and anything that cannot play — a local file marked missing, a
+provider that is not connected — is left out of the round while staying in the
+queue. A queue edit drops the planned order but keeps the memory of what has
+already played. Handover in advance (V11.3) is still not offered under
+shuffle: the round fixes the next item, but a queue edit rebuilds it, and a
+renderer that already holds the old "next" would play the wrong track.
+
 **SQLite + WAL.** Single-process app; better-sqlite3 in WAL mode is fast
 enough for 10k+ tracks without a separate DB process. Drizzle ORM for typed
 queries; raw SQL where pagination / aggregates need it.

@@ -515,7 +515,7 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 
 - [x] **V12.1 · 2,5 dag:** playlistitems met stabiele bronreferentie en metadata-snapshot; lokale en Qobuz-nummers in dezelfde playlist, inclusief tijdelijk niet-beschikbare items.
 - [x] **V12.2 · 2 dagen:** bestaande ListenBrainz-aanbevelingen uitbreiden met direct afspeelbare matches en “waarom deze aanbeveling?”; lokale mix mogelijk zonder externe accountverbinding.
-- [ ] **V12.3 · 1,5 dag:** shuffle zonder herhaling binnen één ronde; keuze voor minder recent gehoorde tracks en uitsluiten van onbeschikbare bronnen.
+- [x] **V12.3 · 1,5 dag:** shuffle zonder herhaling binnen één ronde; keuze voor minder recent gehoorde tracks en uitsluiten van onbeschikbare bronnen.
 - [ ] **V12.4 · 2 dagen:** opslaan/afspelen van een ontdekmix, bronuitval en profielscheiding testen; effect met de gebruiker beoordelen.
 
 **Acceptatie:**
@@ -841,6 +841,20 @@ Zelfde branch en omgeving als V01–V03.
 **Wacht op acceptatie (NAS):** de Discover-pagina openen zonder ListenBrainz-account en controleren dat er een mix staat met per nummer een reden; de schakelaar uitzetten en zien dat de tekst verandert en de geschiedenis niet meer gebruikt wordt; bij een verbonden ListenBrainz-account controleren dat een aanbeveling zonder zekere match geen afspeelknop heeft; met twee accounts controleren dat de mixen verschillen.
 
 **Vervolg:** V12.3 (shuffle zonder herhaling binnen één ronde, minder recent gehoorde tracks, onbeschikbare bronnen uitsluiten) en V12.4 (ontdekmix opslaan en afspelen, bronuitval en profielscheiding testen).
+
+### V12.3 — 18 september 2026
+
+**Uitgevoerd:** V12.3 in code; 359 servertests, 124 clienttests, lint/typecheck groen.
+
+**Shuffle was trekken met teruglegging.** Elk trackeinde koos een willekeurige positie uit de hele wachtrij, met als enige regel "niet dezelfde als nu". Bij tien nummers hoor je er dan gerust drie twee keer voordat de vierde aan de beurt komt. Een **ronde** lost dat op: elke positie komt één keer aan bod, in willekeurige volgorde, en pas een lege ronde laat iets terugkomen — alleen bij repeat. Met repeat uit ís de ronde de wachtrij, dus als alles één keer geklonken heeft stopt het afspelen; dat is precies wat de acceptatie vraagt.
+
+**Twee voorkeuren binnen de ronde.** Minder recent gehoord gaat voor, maar niet als strikte sortering: dat zou shuffle voorspelbaar maken. Wat je in de laatste maand niet of nooit hoorde vormt de eerste groep, de rest de tweede, en beide worden geschud. Wat niet kan spelen komt er niet in — een lokaal bestand dat `missing` is, een dienst die niet verbonden is — want een shuffle die op een foutmelding landt kost aandacht in plaats van muziek. Die items blijven wel in de wachtrij en zijn met de hand te starten.
+
+**Wat een wachtrijbewerking doet.** De geplande volgorde vervalt (die beschreef een wachtrij die niet meer bestaat), maar het geheugen niet: wat al geklonken heeft blijft buiten de ronde tot die afloopt. Anders zou één "voeg toe aan wachtrij" de hele ronde opnieuw laten beginnen.
+
+**Bewust niet gedaan:** vooruit doorgeven van de volgende track (V11.3) blijft uit in shuffle. De ronde legt het volgende item wel vast, maar een wachtrijbewerking bouwt hem opnieuw op, en een speler die de oude "volgende" al vasthoudt zou dan het verkeerde nummer starten.
+
+**Wacht op acceptatie (NAS):** een album van tien nummers in shuffle met repeat uit helemaal uitspelen en controleren dat geen nummer twee keer klonk en dat het daarna stopt; repeat aanzetten en controleren dat de tweede ronde niet begint met het nummer dat net klonk; een bestand hernoemen zodat het `missing` wordt en zien dat shuffle het overslaat.
 
 ## Bronverwijzingen naar de onderzochte code
 
