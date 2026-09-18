@@ -600,6 +600,32 @@ export interface ListenBrainzStats {
   }>;
 }
 
+/**
+ * A recommendation resolved against the local library (V12.2). Only a
+ * `certain` match may be played; a `probable` one is offered as a link,
+ * because a same-named track can be a different recording.
+ */
+export interface LocalMatch {
+  trackId: string;
+  albumId: string | null;
+  title: string;
+  artistName: string;
+  albumTitle: string;
+  duration: number | null;
+  certainty: 'certain' | 'probable';
+  playable: boolean;
+  note: string;
+}
+
+export interface DiscoverTrack {
+  title: string;
+  artist: string;
+  localTrackId: string | null;
+  localAlbumId: string | null;
+  match: LocalMatch | null;
+  why: string;
+}
+
 export interface ListenBrainzDiscover {
   configured: boolean;
   freshReleases: Array<{
@@ -607,16 +633,37 @@ export interface ListenBrainzDiscover {
     artist: string;
     releaseDate: string | null;
     localAlbumId: string | null;
+    why: string;
   }>;
   playlists: Array<{
     title: string;
-    tracks: Array<{
-      title: string;
-      artist: string;
-      localTrackId: string | null;
-      localAlbumId: string | null;
-    }>;
+    why: string;
+    tracks: DiscoverTrack[];
   }>;
+}
+
+/** One track of a local mix, with the basis that put it there (V12.2). */
+export interface MixItem {
+  id: string;
+  title: string;
+  artistName: string;
+  albumTitle: string;
+  albumId: string | null;
+  duration: number | null;
+  source: 'local';
+  why: string;
+  basis: 'history' | 'favorites' | 'library';
+}
+
+export interface MixMeta extends ApiMeta {
+  total: number;
+  basis: string;
+  personalised: boolean;
+}
+
+export interface RecommendationSettings {
+  useHistory: boolean;
+  useFavorites: boolean;
 }
 
 export interface FetchStatus {

@@ -514,7 +514,7 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 **Keuzemoment:** basis betrouwbaar, gebruiker wil daadwerkelijk meer ontdekfuncties.
 
 - [x] **V12.1 · 2,5 dag:** playlistitems met stabiele bronreferentie en metadata-snapshot; lokale en Qobuz-nummers in dezelfde playlist, inclusief tijdelijk niet-beschikbare items.
-- [ ] **V12.2 · 2 dagen:** bestaande ListenBrainz-aanbevelingen uitbreiden met direct afspeelbare matches en “waarom deze aanbeveling?”; lokale mix mogelijk zonder externe accountverbinding.
+- [x] **V12.2 · 2 dagen:** bestaande ListenBrainz-aanbevelingen uitbreiden met direct afspeelbare matches en “waarom deze aanbeveling?”; lokale mix mogelijk zonder externe accountverbinding.
 - [ ] **V12.3 · 1,5 dag:** shuffle zonder herhaling binnen één ronde; keuze voor minder recent gehoorde tracks en uitsluiten van onbeschikbare bronnen.
 - [ ] **V12.4 · 2 dagen:** opslaan/afspelen van een ontdekmix, bronuitval en profielscheiding testen; effect met de gebruiker beoordelen.
 
@@ -827,6 +827,20 @@ Zelfde branch en omgeving als V01–V03.
 **Wacht op acceptatie (NAS):** een playlist met lokale en Qobuz-nummers samenstellen, afspelen en na een herstart controleren dat de volgorde en de namen identiek zijn; Qobuz tijdelijk loskoppelen en zien dat die items blijven staan met de reden erbij in plaats van te verdwijnen; een lokaal bestand hernoemen zodat het `missing` wordt en controleren dat de playlist doorspeelt zonder het; die playlist exporteren en in het M3U-bestand de commentaarregels voor de externe nummers terugvinden.
 
 **Vervolg:** V12.2 (aanbevelingen met direct afspeelbare matches en "waarom deze aanbeveling?"), V12.3 (shuffle zonder herhaling) en V12.4 (ontdekmix opslaan, bronuitval en profielscheiding testen).
+
+### V12.2 — 18 september 2026
+
+**Uitgevoerd:** V12.2 in code; 352 servertests, 124 clienttests, lint/typecheck groen.
+
+**Het echte risico zat in het koppelen.** De bestaande aanbevelingen zochten een lokaal nummer op titel + artiest in kleine letters. Voor een link naar een album is dat prima — zit het ernaast, dan open je het verkeerde album en zie je dat meteen. Voor afspelen is het niet goed genoeg: dan klinkt er een gelijknamig nummer van een andere uitvoerende en merk je het pas als het speelt. Een match is daarom **zeker** of **waarschijnlijk**, en alleen een zekere match krijgt een afspeelknop. Een waarschijnlijke (titel komt pas overeen ná het wegvallen van "- 2011 Remaster" of "(Live)") wordt getoond mét de reden dat hij niet automatisch start.
+
+**De basis staat op het scherm.** Elk item draagt één controleerbare zin over zijn herkomst, en elke lijst zegt waar hij op gebouwd is. Dat is ook wat het uitzetten betekenisvol maakt: de schakelaar op de Discover-pagina zet de persoonlijke basis uit, en dan wordt er werkelijk niets uit de geschiedenis gelezen — de mix noemt zichzelf dan een willekeurige greep uit de bibliotheek. De voorkeur staat per account in `user_preferences` (schemaversie 11).
+
+**Een lokale mix vraagt niemand iets.** De mix komt uit de eigen bibliotheek en de eigen luistergeschiedenis: artiesten van het laatste half jaar, aangevuld met favorieten en met de bibliotheek zelf. Wat in de laatste maand gespeeld is valt af, en ontbrekende bestanden komen er niet in — een mix die niet kan spelen is geen mix. ListenBrainz is dus een aanvulling, geen voorwaarde.
+
+**Wacht op acceptatie (NAS):** de Discover-pagina openen zonder ListenBrainz-account en controleren dat er een mix staat met per nummer een reden; de schakelaar uitzetten en zien dat de tekst verandert en de geschiedenis niet meer gebruikt wordt; bij een verbonden ListenBrainz-account controleren dat een aanbeveling zonder zekere match geen afspeelknop heeft; met twee accounts controleren dat de mixen verschillen.
+
+**Vervolg:** V12.3 (shuffle zonder herhaling binnen één ronde, minder recent gehoorde tracks, onbeschikbare bronnen uitsluiten) en V12.4 (ontdekmix opslaan en afspelen, bronuitval en profielscheiding testen).
 
 ## Bronverwijzingen naar de onderzochte code
 

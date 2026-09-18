@@ -19,7 +19,7 @@ import { fileURLToPath } from 'url';
  * it does not understand. Databases from before this check carry version 0,
  * which every build accepts and upgrades.
  */
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 export class DatabaseVersionError extends Error {
   constructor(
@@ -157,6 +157,18 @@ export async function initDatabase(overridePath?: string) {
   // V12.1: playlist items carry their own source reference and snapshot, so a
   // playlist can hold local and provider tracks side by side.
   migratePlaylistItems(sqlite);
+  // V12.2: per-user preferences. Small key/value rows so a preference can be
+  // added without another migration; today it carries what a listener's
+  // recommendations may be built from.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT,
+      updated_at INTEGER DEFAULT (unixepoch()),
+      PRIMARY KEY (user_id, key)
+    )
+  `);
   // V05.3: one submission per listening session and service.
   runMigration(sqlite, 'scrobble_queue', 'session_id', 'TEXT');
   sqlite.exec(

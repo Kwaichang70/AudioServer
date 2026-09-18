@@ -8,6 +8,7 @@
 
 import { getRawDb } from '../db/index.js';
 import { logger } from '../logger.js';
+import { matchRecommendation, type LocalMatch } from './recommendations.js';
 
 const LB_API = 'https://api.listenbrainz.org/1';
 
@@ -177,16 +178,29 @@ export interface FreshRelease {
   artist: string;
   releaseDate: string | null;
   localAlbumId: string | null;
+  /** Why it is here; a fresh release is always about an artist you listen to. */
+  why: string;
 }
 export interface DiscoverTrack {
   title: string;
   artist: string;
   localTrackId: string | null;
   localAlbumId: string | null;
+  /**
+   * The local recording this recommendation resolves to, with how sure we are
+   * of it (V12.2). Only a `certain` match is playable; a `probable` one is
+   * offered as a link, never started, because a same-named track by the same
+   * artist can still be a different recording.
+   */
+  match: LocalMatch | null;
+  /** Why this track is being recommended, in one sentence. */
+  why: string;
 }
 export interface DiscoverPlaylist {
   title: string;
   tracks: DiscoverTrack[];
+  /** What this list is built from, in the listener's words. */
+  why: string;
 }
 
 /** New + upcoming releases from artists the user listens to. */
@@ -204,6 +218,7 @@ export async function freshReleases(userId: string): Promise<FreshRelease[]> {
     artist: r.artist_credit_name,
     releaseDate: r.release_date ?? null,
     localAlbumId: matchAlbum(r.release_name, r.artist_credit_name),
+    why: `ListenBrainz lists this as a new release by ${r.artist_credit_name}, an artist in your scrobbled history.`,
   }));
 }
 
@@ -231,15 +246,29 @@ export async function recommendationPlaylists(userId: string): Promise<DiscoverP
         playlist?: { track?: Array<{ title?: string; creator?: string }> };
       }>(`/playlist/${mbid}`, token);
       const tracks = (pl?.playlist?.track ?? []).slice(0, 25).map((t) => {
-        const m = t.title && t.creator ? matchTrack(t.title, t.creator) : null;
+        const trackTitle = t.title ?? '';
+        const artist = t.creator ?? '';
+        // A certain match may be played; a probable one is only offered. The
+        // old name-only lookup is kept for the album deep-link, which costs
+        // nothing if it is wrong — starting the wrong track does.
+        const match = trackTitle && artist ? matchRecommendation(trackTitle, artist) : null;
+        const fallback = trackTitle && artist ? matchTrack(trackTitle, artist) : null;
         return {
-          title: t.title ?? '',
-          artist: t.creator ?? '',
-          localTrackId: m?.id ?? null,
-          localAlbumId: m?.albumId ?? null,
+          title: trackTitle,
+          artist,
+          localTrackId: match?.playable ? match.trackId : null,
+          localAlbumId: match?.albumId ?? fallback?.albumId ?? null,
+          match,
+          why: `From "${title}", which ListenBrainz builds for you from your scrobbled listening.`,
         };
       });
-      if (tracks.length) out.push({ title, tracks });
+      if (tracks.length) {
+        out.push({
+          title,
+          tracks,
+          why: `ListenBrainz made "${title}" from the listening you scrobbled to your account. Disconnect ListenBrainz in Settings to stop receiving it.`,
+        });
+      }
     } catch {
       // a playlist that won't resolve is skipped, not fatal
     }

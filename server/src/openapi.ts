@@ -865,6 +865,44 @@ export const openApiSpec = {
         responses: { 200: ok('an M3U file') },
       },
     },
+    '/recommendations/mix': {
+      get: {
+        tags: ['Playlists'],
+        summary: 'A mix from this server alone, no external account needed',
+        description:
+          'Every item carries the basis that put it there; meta.basis says what the mix as a ' +
+          'whole was built from and meta.personalised is false when the listener switched the ' +
+          'personal basis off. Tracks whose file is missing are left out.',
+        parameters: [{ name: 'limit', in: 'query', schema: { type: 'integer', maximum: 100 } }],
+        responses: { 200: ok('mix items') },
+      },
+    },
+    '/recommendations/settings': {
+      get: {
+        tags: ['Playlists'],
+        summary: "What this listener's recommendations may be built from",
+        responses: { 200: ok('useHistory / useFavorites') },
+      },
+      patch: {
+        tags: ['Playlists'],
+        summary: 'Switch the personal basis of recommendations on or off',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  useHistory: { type: 'boolean' },
+                  useFavorites: { type: 'boolean' },
+                },
+              },
+            },
+          },
+        },
+        responses: { 200: ok('the stored setting'), 400: ok('an empty body') },
+      },
+    },
     '/providers': {
       get: {
         tags: ['Providers'],

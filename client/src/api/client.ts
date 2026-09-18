@@ -23,6 +23,9 @@ import type {
   LibraryStats,
   LibraryTrack,
   ListenBrainzDiscover,
+  MixItem,
+  MixMeta,
+  RecommendationSettings,
   ListenBrainzStats,
   LocalSearchResults,
   OkResponse,
@@ -813,6 +816,17 @@ export const api = {
     fetchApi(`/listenbrainz/stats?range=${encodeURIComponent(range)}`),
   listenbrainzDiscover: (): Promise<ApiResponse<ListenBrainzDiscover>> =>
     fetchApi('/listenbrainz/discover'),
+
+  // ─── Recommendations (V12.2) ────────────────────────────────
+  // A mix from this server alone; no external account involved.
+  getRecommendationMix: (limit = 25): Promise<ApiResponse<MixItem[], MixMeta>> =>
+    fetchApi(`/recommendations/mix?limit=${limit}`),
+  getRecommendationSettings: (): Promise<ApiResponse<RecommendationSettings>> =>
+    fetchApi('/recommendations/settings'),
+  updateRecommendationSettings: (
+    updates: Partial<RecommendationSettings>,
+  ): Promise<ApiResponse<RecommendationSettings>> =>
+    fetchApi('/recommendations/settings', { method: 'PATCH', body: JSON.stringify(updates) }),
 
   // ─── Cover art fetch ────────────────────────────────────────
   fetchCovers: (): Promise<ApiResponse<FetchStatus>> =>

@@ -4,6 +4,45 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## V12.2 — Aanbevelingen die zeggen waar ze vandaan komen (verbeterplan sprint 12)
+
+**Een naam is geen identiteit** (`server/src/services/recommendations.ts`)
+
+- Een aanbeveling werd gekoppeld aan de bibliotheek op titel + artiest in
+  kleine letters. Dat is genoeg om een album te openen, maar niet om iets te
+  starten: "Adagio" van "The Orchestra" bestaat honderd keer. Een match is nu
+  **zeker** (titel en artiest komen overeen, los van hoofdletters, accenten en
+  leestekens) of **waarschijnlijk** (ze komen pas overeen nadat een uitgaveterm
+  als "- 2011 Remaster" of "(Live)" wegvalt). Alleen een zekere match krijgt een
+  afspeelknop; een waarschijnlijke wordt getoond met de reden waarom hij niet
+  automatisch start.
+- Een bestand dat als `missing` staat is nooit afspeelbaar, ook niet bij een
+  zekere match — dat staat er dan bij.
+
+**Elke aanbeveling draagt zijn basis**
+
+- Elk item krijgt één zin: waar het vandaan komt en waarom het er staat
+  ("ListenBrainz maakte 'Weekly Jams' van wat je gescrobbeld hebt", "je hebt
+  Known Artist 4 keer gespeeld in het laatste half jaar"). De Discover-pagina
+  toont die zin onder het item, en per lijst waar de lijst zelf op gebouwd is.
+
+**Een mix zonder externe account** (`server/src/routes/recommendations.ts`)
+
+- `GET /api/recommendations/mix` bouwt een mix uit de eigen bibliotheek en de
+  eigen luistergeschiedenis: artiesten van het laatste half jaar, aangevuld met
+  favorieten en met de bibliotheek. Wat in de laatste maand gespeeld is valt af
+  (een "ontdekking" die gisteren nog aanstond is er geen), net als bestanden die
+  ontbreken. Er gaat niets naar buiten en er is geen ListenBrainz-account nodig.
+- `GET`/`PATCH /api/recommendations/settings` zetten de persoonlijke basis aan
+  of uit. Uit betekent uit: er wordt dan niets uit de geschiedenis gelezen en de
+  mix zegt zelf dat hij een willekeurige greep uit de bibliotheek is. De
+  voorkeur staat per account in de nieuwe tabel `user_preferences`
+  (schemaversie 11), dus twee mensen op één server sturen elkaars mix niet.
+
+Tests: `recommendations.test.ts` (zeker/waarschijnlijk/geen match, ontbrekend
+bestand, mix uit geschiedenis, basis uitgezet, profielscheiding) en
+`discover-page.test.tsx` — 352 servertests, 124 clienttests.
+
 ## V12.1 — Gemengde playlists (verbeterplan sprint 12)
 
 **Een playlistitem is niet langer een verwijzing naar een lokaal bestand**

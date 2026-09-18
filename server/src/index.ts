@@ -21,6 +21,7 @@ import { playlistsRouter } from './routes/playlists.js';
 import { smartPlaylistsRouter } from './routes/smart-playlists.js';
 import { scrobbleRouter } from './routes/scrobble.js';
 import { listenbrainzRouter } from './routes/listenbrainz.js';
+import { recommendationsRouter } from './routes/recommendations.js';
 import { scrobbler } from './services/scrobbler.js';
 import { closeDatabase, initDatabase } from './db/index.js';
 import { providers } from './providers/registry.js';
@@ -167,6 +168,7 @@ app.use('/api/playlists', playlistsRouter);
 app.use('/api/smart-playlists', smartPlaylistsRouter);
 app.use('/api/scrobble', scrobbleRouter);
 app.use('/api/listenbrainz', listenbrainzRouter);
+app.use('/api/recommendations', recommendationsRouter);
 app.use('/api/librespot', librespotRouter);
 
 // API 404 must precede the SPA catch-all: otherwise an unknown GET /api/*

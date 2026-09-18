@@ -207,6 +207,24 @@ export const playlistTracks = sqliteTable(
   }),
 );
 
+/**
+ * Per-user preferences (V12.2). Key/value so a preference can be added
+ * without a migration; `rec.useHistory` and `rec.useFavorites` say what a
+ * listener's recommendations may be built from.
+ */
+export const userPreferences = sqliteTable(
+  'user_preferences',
+  {
+    userId: text('user_id').notNull(),
+    key: text('key').notNull(),
+    value: text('value'),
+    updatedAt: integer('updated_at'),
+  },
+  (table) => ({
+    pk: uniqueIndex('idx_user_preferences_pk').on(table.userId, table.key),
+  }),
+);
+
 export const playHistory = sqliteTable('play_history', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   trackId: text('track_id')

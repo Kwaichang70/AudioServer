@@ -393,6 +393,21 @@ playlist is played. M3U export covers local items only: an M3U line is a path
 or a fixed URL, which is exactly what an external item does not have, so those
 are written as comments and counted in `X-Playlist-Export-Skipped`.
 
+**Recommendations (V12.2).** `services/recommendations.ts` resolves a
+recommendation against the library with a certainty: `certain` when title and
+artist agree apart from case, accents and punctuation, `probable` when they
+agree only after a release decoration ("- 2011 Remaster", "(Live)") is
+dropped. Only a certain match is playable — a probable one is offered as a
+link, because a same-named recording by the same artist can still be a
+different take, and starting the wrong one is worse than starting nothing.
+
+Every recommendation carries one sentence of basis, and a listener can switch
+the personal basis off (`user_preferences`, keys `rec.useHistory` and
+`rec.useFavorites`); with it off nothing from their history is read and the
+mix says so. `GET /api/recommendations/mix` builds a mix from the listener's
+own library and history alone — no external account — skipping tracks heard in
+the last month and files marked missing.
+
 **SQLite + WAL.** Single-process app; better-sqlite3 in WAL mode is fast
 enough for 10k+ tracks without a separate DB process. Drizzle ORM for typed
 queries; raw SQL where pagination / aggregates need it.
