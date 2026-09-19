@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api/client.js';
+import { useAudioContext } from '../context/AudioContext.js';
+import PlayActions, {
+  CardActions,
+  openRowMenuFromKey,
+  openRowMenuFromPointer,
+  shuffledCopy,
+  toTrackInfo,
+} from '../components/PlayActions.js';
 
 interface Artist {
   id: string;
@@ -29,6 +37,25 @@ export default function ArtistPage() {
   const [favorited, setFavorited] = useState(false);
   const activeArtistIdRef = useRef(id);
   activeArtistIdRef.current = id;
+  const { playAlbum } = useAudioContext();
+  const [starting, setStarting] = useState(false);
+
+  /** Start every available track of this artist, in album order or shuffled. */
+  const playArtist = async (shuffle: boolean) => {
+    if (!id) return;
+    setStarting(true);
+    try {
+      const res = await api.getArtistTracks(id);
+      const list = (res.data ?? [])
+        .filter((t) => t.availability !== 'missing')
+        .map((t) => toTrackInfo(t));
+      if (list.length > 0) playAlbum(shuffle ? shuffledCopy(list) : list, 0);
+    } catch {
+      // The buttons stay usable; the toast layer reports API errors globally.
+    } finally {
+      setStarting(false);
+    }
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -101,31 +128,57 @@ export default function ArtistPage() {
           </button>
         </div>
         <p className="text-sm text-gray-500 mt-1">{albums.length} albums</p>
+        {/* R01.2: play the artist from here — every available track, album by album */}
+        <div className="flex flex-wrap items-center gap-3 mt-4">
+          <button
+            type="button"
+            onClick={() => void playArtist(false)}
+            disabled={starting || albums.length === 0}
+            className="px-6 py-2 bg-accent rounded-full hover:bg-accent-hover transition text-sm font-medium disabled:opacity-40"
+          >
+            Play
+          </button>
+          <button
+            type="button"
+            onClick={() => void playArtist(true)}
+            disabled={starting || albums.length === 0}
+            className="px-4 py-2 rounded-full border border-white/20 text-sm hover:border-accent transition disabled:opacity-40"
+          >
+            Shuffle
+          </button>
+          <PlayActions target={{ kind: 'artist', artistId: artist.id, name: artist.name }} />
+        </div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
         {albums.map((album) => (
-          <Link
-            key={album.id}
-            to={`/albums/${album.id}`}
-            className="group bg-surface-light rounded-lg p-3 hover:bg-surface transition"
-          >
-            <div className="aspect-square bg-surface-dark rounded mb-2 overflow-hidden">
-              <img
-                src={api.getAlbumCoverUrl(album.id)}
-                alt={album.title}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                }}
-              />
-            </div>
-            <p className="text-sm font-medium truncate group-hover:text-accent transition">
-              {album.title}
-            </p>
-            {album.year && <p className="text-xs text-gray-500">{album.year}</p>}
-            {album.trackCount && <p className="text-xs text-gray-500">{album.trackCount} tracks</p>}
-          </Link>
+          <div key={album.id} data-play-actions-row className="group relative">
+            <Link
+              to={`/albums/${album.id}`}
+              onKeyDown={openRowMenuFromKey}
+              onContextMenu={openRowMenuFromPointer}
+              className="group block bg-surface-light rounded-lg p-3 hover:bg-surface transition"
+            >
+              <div className="aspect-square bg-surface-dark rounded mb-2 overflow-hidden">
+                <img
+                  src={api.getAlbumCoverUrl(album.id)}
+                  alt={album.title}
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              </div>
+              <p className="text-sm font-medium truncate group-hover:text-accent transition">
+                {album.title}
+              </p>
+              {album.year && <p className="text-xs text-gray-500">{album.year}</p>}
+              {album.trackCount && (
+                <p className="text-xs text-gray-500">{album.trackCount} tracks</p>
+              )}
+            </Link>
+            <CardActions target={{ kind: 'album', albumId: album.id, title: album.title }} />
+          </div>
         ))}
       </div>
 

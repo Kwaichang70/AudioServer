@@ -3,6 +3,11 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useInfiniteLoad, useAutoLoadMore } from '../hooks/useInfiniteLoad.js';
 import { useGridNavigation } from '../hooks/useGridNavigation.js';
+import {
+  CardActions,
+  openRowMenuFromKey,
+  openRowMenuFromPointer,
+} from '../components/PlayActions.js';
 import { DEFAULT_LIBRARY_PAGE_SIZE } from '../constants.js';
 
 interface Artist {
@@ -89,17 +94,21 @@ export default function ArtistsPage() {
         className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4"
       >
         {artists.map((artist) => (
-          <Link
-            key={artist.id}
-            to={`/artists/${artist.id}`}
-            data-grid-item
-            className="bg-surface-light rounded-lg p-4 text-center hover:bg-surface transition group focus:outline-none focus:ring-2 focus:ring-accent"
-          >
-            <ArtistImage artistId={artist.id} name={artist.name} hasImage={artist.hasImage} />
-            <p className="text-sm font-medium truncate group-hover:text-accent transition">
-              {artist.name}
-            </p>
-          </Link>
+          <div key={artist.id} data-play-actions-row className="group relative">
+            <Link
+              to={`/artists/${artist.id}`}
+              data-grid-item
+              onKeyDown={openRowMenuFromKey}
+              onContextMenu={openRowMenuFromPointer}
+              className="block bg-surface-light rounded-lg p-4 text-center hover:bg-surface transition group focus:outline-none focus:ring-2 focus:ring-accent"
+            >
+              <ArtistImage artistId={artist.id} name={artist.name} hasImage={artist.hasImage} />
+              <p className="text-sm font-medium truncate group-hover:text-accent transition">
+                {artist.name}
+              </p>
+            </Link>
+            <CardActions target={{ kind: 'artist', artistId: artist.id, name: artist.name }} />
+          </div>
         ))}
       </div>
 

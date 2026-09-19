@@ -52,6 +52,10 @@ const mocks = vi.hoisted(() => {
   });
 
   return {
+    favorites: {
+      checkFavorite: vi.fn(() => Promise.resolve({ data: { favorited: false } })),
+      toggleFavorite: vi.fn(() => Promise.resolve({ data: { favorited: true } })),
+    },
     track,
     secondTrack,
     actions,
@@ -71,6 +75,9 @@ vi.mock('../../api/client.js', () => ({
   api: {
     getAlbumCoverUrl: vi.fn((albumId: string) => `/api/library/albums/${albumId}/cover`),
     getTrackCoverUrl: vi.fn((trackId: string) => `/api/library/tracks/${trackId}/cover`),
+    // The heart for the current track (R01.3).
+    checkFavorite: (...args: unknown[]) => mocks.favorites.checkFavorite(...(args as [])),
+    toggleFavorite: (...args: unknown[]) => mocks.favorites.toggleFavorite(...(args as [])),
   },
 }));
 
@@ -200,5 +207,41 @@ describe('NowPlayingBar', () => {
 
     expect(screen.getByText('Playing on external device')).toBeInTheDocument();
     expect(screen.getByTestId('device-selector')).toHaveTextContent('Device: sonos-office');
+  });
+
+  // R01.3
+  it('toggles the heart for the track that plays', async () => {
+    renderBar();
+
+    const heart = await screen.findByRole('button', { name: 'Add Night Drive to favorites' });
+    fireEvent.click(heart);
+
+    await screen.findByRole('button', { name: 'Remove Night Drive from favorites' });
+    expect(mocks.favorites.toggleFavorite).toHaveBeenCalledWith('track', 'track-1');
+  });
+
+  it('shows no heart for a streaming track, which has no library id', () => {
+    mocks.context = mocks.makeContext({
+      currentTrack: { ...mocks.track, id: 'qobuz:42' },
+    });
+
+    renderBar();
+
+    expect(screen.queryByRole('button', { name: /favorites/ })).not.toBeInTheDocument();
+  });
+
+  it('turns the seek bar into plain progress on an output that cannot jump', () => {
+    mocks.context = mocks.makeContext({
+      selectedDeviceId: 'volumio-1',
+      seekSupport: 'unsupported',
+    });
+
+    renderBar();
+    const bar = screen.getByRole('slider', { name: 'Seek' });
+    fireEvent.keyDown(bar, { key: 'ArrowRight' });
+
+    expect(bar).toHaveAttribute('aria-disabled', 'true');
+    expect(bar).toHaveAttribute('title', 'This output cannot jump inside a track');
+    expect(mocks.actions.seek).not.toHaveBeenCalled();
   });
 });

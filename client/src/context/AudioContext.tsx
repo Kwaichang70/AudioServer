@@ -62,6 +62,24 @@ interface AudioContextValue {
   /** Jump to a queue position and play it — without replacing the queue. */
   playQueueIndex: (index: number) => void;
   addToQueue: (track: TrackInfo) => void;
+  /**
+   * Put tracks straight after the one playing (R01.1). A single track or a
+   * whole album; what is playing keeps playing.
+   */
+  playNextTracks: (tracks: TrackInfo[]) => Promise<void>;
+  /** Append tracks to the end of the queue without touching the current one. */
+  queueTracks: (tracks: TrackInfo[]) => Promise<void>;
+  /**
+   * Play these tracks now without throwing the queue away (R01.2): they go in
+   * straight after the current item and the queue moves on to them. With
+   * nothing queued it is the same as starting the list.
+   */
+  playNow: (tracks: TrackInfo[]) => Promise<void>;
+  /**
+   * Can the chosen output jump inside a track? The browser always can; a
+   * speaker says so itself (R01.1), and `unknown` means "try it".
+   */
+  seekSupport: 'supported' | 'unsupported' | 'unknown';
   clearQueue: () => void;
   removeFromQueue: (index: number) => void;
   moveInQueue: (from: number, to: number) => void;
@@ -82,6 +100,9 @@ interface AudioContextValue {
 }
 
 const AudioCtx = createContext<AudioContextValue | null>(null);
+
+/** How long a seek waits for the listener to stop pressing before it is sent. */
+const SEEK_SETTLE_MS = 350;
 
 // External local renderers (DLNA/Sonos, not the browser and not a Spotify
 // Connect target). For these the SERVER streams local tracks itself
@@ -512,6 +533,53 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     [recoverFromCommandError],
   );
 
+  // R01.1: insert without replacing. No optimistic local edit: the position
+  // of an insert depends on what the server thinks is current, so the
+  // snapshot that comes back is applied instead of a guess.
+  const insertTracks = useCallback(
+    async (
+      tracks: TrackInfo[],
+      position: 'next' | 'end',
+      what: string,
+      quiet = false,
+    ): Promise<boolean> => {
+      if (tracks.length === 0) return false;
+      try {
+        const res = await api.insertIntoQueue(tracks.map(trackToPayload), position, {
+          commandId: newCommandId(),
+        });
+        applySnapshotRef.current(res.data);
+        if (!quiet) {
+          const label = tracks.length === 1 ? `"${tracks[0].title}"` : `${tracks.length} tracks`;
+          toastRef.current(
+            position === 'next' ? `${label} plays next` : `${label} added to the queue`,
+            'success',
+          );
+        }
+        return true;
+      } catch (err) {
+        recoverFromCommandError(err, what);
+        // API errors are already shown by the global toast layer; only a
+        // failure that never reached the server needs its own message.
+        if (!(err instanceof ApiError)) toastRef.current(`${what} failed`, 'error');
+        return false;
+      }
+    },
+    [recoverFromCommandError],
+  );
+  const playNextTracks = useCallback(
+    async (tracks: TrackInfo[]) => {
+      await insertTracks(tracks, 'next', 'Play next');
+    },
+    [insertTracks],
+  );
+  const queueTracks = useCallback(
+    async (tracks: TrackInfo[]) => {
+      await insertTracks(tracks, 'end', 'Add to queue');
+    },
+    [insertTracks],
+  );
+
   const clearQueue = useCallback(() => {
     setQueue([]);
     setQueueIndex(-1);
@@ -589,6 +657,20 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       })
       .catch((err) => recoverFromCommandError(err, 'Next'));
   }, [repeat, startFromSnapshot, recoverFromCommandError]);
+
+  const playNow = useCallback(
+    async (tracks: TrackInfo[]) => {
+      if (tracks.length === 0) return;
+      // Nothing to keep: start the list the ordinary way, which also hands a
+      // speaker to the server player.
+      if (queueRef.current.length === 0 || queueIndexRef.current < 0) {
+        playTracks(tracks, 0);
+        return;
+      }
+      if (await insertTracks(tracks, 'next', 'Play now', true)) playNext();
+    },
+    [playTracks, insertTracks, playNext],
+  );
 
   // Track changes announced by the server (V03.3). Own commands were already
   // handled through their response; a change from another tab is mirrored
@@ -1066,6 +1148,86 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     playNext,
   });
 
+  // R01.1: can the chosen output jump inside a track? The browser can; a
+  // speaker is asked (its own action list, via the server), and a Spotify
+  // Connect target is steered by Spotify, not by this seek bar.
+  const [seekSupport, setSeekSupport] = useState<'supported' | 'unsupported' | 'unknown'>(
+    'supported',
+  );
+  useEffect(() => {
+    if (selectedDeviceId === 'browser') {
+      setSeekSupport('supported');
+      return;
+    }
+    if (selectedDeviceId.startsWith('spotify-connect:')) {
+      setSeekSupport('unsupported');
+      return;
+    }
+    let cancelled = false;
+    setSeekSupport('unknown');
+    api
+      .getOutputCapability(selectedDeviceId)
+      .then((res) => {
+        if (!cancelled) setSeekSupport(res.data?.seek ?? 'unknown');
+      })
+      .catch(() => {
+        if (!cancelled) setSeekSupport('unknown');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDeviceId]);
+
+  // Seek (R01.1). The bar moves at once; the command to the server — and on a
+  // speaker, the Seek to the device — waits until the listener stops pressing,
+  // because a held arrow key would otherwise fire thirty jumps a second at a
+  // renderer that answers each one over SOAP.
+  const seekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seekFromRef = useRef<{ currentTime: number; duration: number } | null>(null);
+  const audioSeek = audio.seek;
+  const seek = useCallback(
+    (time: number) => {
+      const deviceId = selectedDeviceRef.current;
+      const track = currentTrackRef.current;
+      if (deviceId.startsWith('spotify-connect:')) return;
+      if (deviceId === 'browser') {
+        audioSeek(time);
+        // Spotify in the browser is steered by its own SDK, not this queue.
+        if (!track || track.id.startsWith('spotify:')) return;
+      } else {
+        if (!seekFromRef.current) seekFromRef.current = getProgressSnapshot();
+        setProgress(time, getProgressSnapshot().duration);
+      }
+      if (seekTimerRef.current) clearTimeout(seekTimerRef.current);
+      seekTimerRef.current = setTimeout(() => {
+        seekTimerRef.current = null;
+        const before = seekFromRef.current;
+        seekFromRef.current = null;
+        api.seekPlayback(time, { commandId: newCommandId() }).catch((err: unknown) => {
+          if (deviceId === 'browser') return; // the element already moved
+          if (before) setProgress(before.currentTime, before.duration);
+          // The global toast layer already shows the server's own sentence for
+          // a 409/502; here the seek bar only learns not to offer it again.
+          if (err instanceof ApiError) {
+            if (err.code === 'SeekUnsupported') setSeekSupport('unsupported');
+            return;
+          }
+          toastRef.current(
+            `Could not jump: ${err instanceof Error ? err.message : String(err)}`,
+            'error',
+          );
+        });
+      }, SEEK_SETTLE_MS);
+    },
+    [audioSeek],
+  );
+  useEffect(
+    () => () => {
+      if (seekTimerRef.current) clearTimeout(seekTimerRef.current);
+    },
+    [],
+  );
+
   const volume = selectedDeviceId === 'browser' ? audio.volume : (deviceVolume ?? audio.volume);
 
   // Socket progress events update this provider frequently. A memoized context
@@ -1092,6 +1254,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       playAlbum,
       playQueueIndex,
       addToQueue,
+      playNextTracks,
+      queueTracks,
+      playNow,
+      seekSupport,
       clearQueue,
       removeFromQueue,
       moveInQueue,
@@ -1101,7 +1267,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       resume: deviceResume,
       stop: deviceStop,
       setVolume: deviceSetVolume,
-      seek: audio.seek,
+      seek,
       setSelectedDeviceId,
       toggleShuffle,
       toggleRepeat,
@@ -1129,6 +1295,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       playAlbum,
       playQueueIndex,
       addToQueue,
+      playNextTracks,
+      queueTracks,
+      playNow,
+      seekSupport,
       clearQueue,
       removeFromQueue,
       moveInQueue,
@@ -1138,7 +1308,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       deviceResume,
       deviceStop,
       deviceSetVolume,
-      audio.seek,
+      seek,
       setSelectedDeviceId,
       toggleShuffle,
       toggleRepeat,

@@ -7,6 +7,23 @@ import { DEFAULT_HISTORY_PAGE_SIZE } from '../constants.js';
 import { formatDuration } from '../utils/format.js';
 
 import type { HistoryEntry } from '../api/types.js';
+import PlayActions, {
+  openRowMenuFromKey,
+  openRowMenuFromPointer,
+} from '../components/PlayActions.js';
+
+/** A history row as a playable track; null when the track id is gone. */
+function historyTrack(entry: HistoryEntry): TrackInfo | null {
+  if (!entry.track_id) return null;
+  return {
+    id: entry.track_id,
+    title: entry.track_title,
+    artistName: entry.artist_name,
+    albumId: entry.album_id ?? undefined,
+    albumTitle: entry.album_title ?? '',
+    duration: entry.duration ?? undefined,
+  };
+}
 
 interface RecentAlbum {
   album_id: string;
@@ -172,58 +189,60 @@ export default function HistoryPage() {
               aria-label="Playback history"
               className="space-y-1"
             >
-              {entries.map((entry) => (
-                <button
-                  key={entry.id}
-                  data-grid-item
-                  onClick={() => {
-                    if (!entry.track_id) return;
-                    const track: TrackInfo = {
-                      id: entry.track_id,
-                      title: entry.track_title,
-                      artistName: entry.artist_name,
-                      albumId: entry.album_id ?? undefined,
-                      albumTitle: entry.album_title ?? '',
-                      duration: entry.duration ?? undefined,
-                    };
-                    playTrack(track);
-                  }}
-                  className="w-full flex items-center gap-4 px-4 py-2 rounded hover:bg-surface-light transition text-left focus:outline-none focus:ring-2 focus:ring-accent"
-                >
-                  <div className="w-10 h-10 rounded bg-surface-dark overflow-hidden flex-shrink-0">
-                    {entry.album_id && (
-                      <img
-                        src={api.getAlbumCoverUrl(entry.album_id)}
-                        alt=""
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                        decoding="async"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
+              {entries.map((entry) => {
+                const track = historyTrack(entry);
+                return (
+                  // The row is a wrapper so the menu's button can sit beside the
+                  // play button instead of inside it (R01.2).
+                  <div key={entry.id} data-play-actions-row className="flex items-center gap-1">
+                    <button
+                      data-grid-item
+                      onClick={() => {
+                        if (track) playTrack(track);
+                      }}
+                      onKeyDown={openRowMenuFromKey}
+                      onContextMenu={openRowMenuFromPointer}
+                      className="flex-1 min-w-0 flex items-center gap-4 px-4 py-2 rounded hover:bg-surface-light transition text-left focus:outline-none focus:ring-2 focus:ring-accent"
+                    >
+                      <div className="w-10 h-10 rounded bg-surface-dark overflow-hidden flex-shrink-0">
+                        {entry.album_id && (
+                          <img
+                            src={api.getAlbumCoverUrl(entry.album_id)}
+                            alt=""
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                            decoding="async"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {entry.track_title || 'Unknown Track'}
+                        </p>
+                        <p className="text-xs text-gray-400 truncate">
+                          {entry.artist_name} &middot; {entry.album_title}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        {entry.duration != null && entry.duration > 0 && (
+                          <span className="text-xs text-gray-500">
+                            {formatDuration(entry.duration)}
+                          </span>
+                        )}
+                        <span className="text-xs text-gray-600 w-20 text-right">
+                          {formatDate(entry.played_at)}
+                        </span>
+                      </div>
+                    </button>
+                    {track && (
+                      <PlayActions triggerTabIndex={-1} target={{ kind: 'track', track }} />
                     )}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">
-                      {entry.track_title || 'Unknown Track'}
-                    </p>
-                    <p className="text-xs text-gray-400 truncate">
-                      {entry.artist_name} &middot; {entry.album_title}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    {entry.duration != null && entry.duration > 0 && (
-                      <span className="text-xs text-gray-500">
-                        {formatDuration(entry.duration)}
-                      </span>
-                    )}
-                    <span className="text-xs text-gray-600 w-20 text-right">
-                      {formatDate(entry.played_at)}
-                    </span>
-                  </div>
-                </button>
-              ))}
+                );
+              })}
             </div>
             {hasMore && (
               <div className="flex justify-center mt-6">

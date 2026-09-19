@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
-import { getDb } from '../db/index.js';
+import { getDb, getRawDb } from '../db/index.js';
 import { playlists, playlistTracks, tracks } from '../db/schema.js';
 import { asc, eq, or } from 'drizzle-orm';
 import { validate } from '../utils/validate.js';
@@ -39,7 +39,15 @@ const createPlaylistSchema = z.object({
   shared: z.boolean().optional(),
 });
 const updatePlaylistSchema = createPlaylistSchema.partial();
-const addTrackSchema = z.object({ trackId: z.string().min(1) });
+// One track, or a whole list in order (R01.3, "save the queue as a playlist").
+const addTrackSchema = z
+  .object({
+    trackId: z.string().min(1).optional(),
+    trackIds: z.array(z.string().min(1)).min(1).max(5000).optional(),
+  })
+  .refine((body) => !!body.trackId || !!body.trackIds, {
+    message: 'Provide trackId or trackIds',
+  });
 const reorderSchema = z.object({ trackIds: z.array(z.string().min(1)) });
 const importSchema = z.object({
   name: z.string().min(1).max(200),
@@ -141,9 +149,50 @@ playlistsRouter.post('/:id/tracks', (req, res) => {
   const parsed = addTrackSchema.safeParse(req.body);
   if (!parsed.success)
     return res.status(400).json({ error: 'ValidationError', issues: parsed.error.issues });
-  const { trackId } = parsed.data;
   const found = loadPlaylist(req, res, 'write');
   if (!found) return;
+
+  if (parsed.data.trackIds) {
+    // A list is added in one transaction, in the order given. Only ids that
+    // are library tracks go in: a playlist row points at `tracks`, so a Qobuz
+    // or radio id would be a dangling row. The answer says how many were left
+    // out instead of pretending the whole list was saved.
+    const raw = getRawDb();
+    const wanted = parsed.data.trackIds;
+    const known = new Set<string>();
+    for (let i = 0; i < wanted.length; i += 500) {
+      const chunk = wanted.slice(i, i + 500);
+      const rows = raw
+        .prepare(`SELECT id FROM tracks WHERE id IN (${chunk.map(() => '?').join(',')})`)
+        .all(...chunk) as Array<{ id: string }>;
+      for (const row of rows) known.add(row.id);
+    }
+    const keep = wanted.filter((id) => known.has(id));
+    const insertAll = raw.transaction(() => {
+      const max = raw
+        .prepare('SELECT MAX(position) AS max FROM playlist_tracks WHERE playlist_id = ?')
+        .get(found.id) as { max: number | null };
+      let position = max.max === null ? 0 : max.max + 1;
+      const insert = raw.prepare(
+        'INSERT INTO playlist_tracks (playlist_id, track_id, position, added_at) VALUES (?, ?, ?, ?)',
+      );
+      const now = Math.floor(Date.now() / 1000);
+      for (const id of keep) insert.run(found.id, id, position++, now);
+      const count = (
+        raw
+          .prepare('SELECT COUNT(*) AS n FROM playlist_tracks WHERE playlist_id = ?')
+          .get(found.id) as { n: number }
+      ).n;
+      raw.prepare('UPDATE playlists SET track_count = ? WHERE id = ?').run(count, found.id);
+      return count;
+    });
+    const trackCount = insertAll();
+    return res.json({
+      data: { ok: true, trackCount, added: keep.length, skipped: wanted.length - keep.length },
+    });
+  }
+
+  const trackId = parsed.data.trackId!;
   const db = getDb();
   // Get next position
   const existing = db

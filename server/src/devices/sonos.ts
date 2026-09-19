@@ -3,7 +3,7 @@ const { Client: SsdpClient } = ssdp;
 import xml2js from 'xml2js';
 const { parseStringPromise } = xml2js;
 import { logger } from '../logger.js';
-import { parseSinkProtocolInfo } from './dlna.js';
+import { formatRelTime, parseSinkProtocolInfo } from './dlna.js';
 import type {
   DeviceController,
   OutputDevice,
@@ -205,6 +205,17 @@ export class SonosController implements DeviceController {
       {},
     );
     return parseSinkProtocolInfo(xml);
+  }
+
+  /** Jump inside the current track (R01.1); same AVTransport action as DLNA. */
+  async seek(deviceId: string, position: number): Promise<void> {
+    const device = this.getDevice(deviceId);
+    const result = await this.soapAction(this.baseUrl(device), 'AVTransport', 'Seek', {
+      InstanceID: '0',
+      Unit: 'REL_TIME',
+      Target: formatRelTime(position),
+    });
+    if (result.includes('Fault')) throw new Error(`${device.name} refused Seek`);
   }
 
   async next(deviceId: string): Promise<void> {

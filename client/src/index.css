@@ -94,6 +94,10 @@ body {
     min-height: 44px;
     min-width: 44px;
   }
+  /* Controls that appear on hover elsewhere have no hover to wait for here (R01.2). */
+  .touch-visible {
+    opacity: 1 !important;
+  }
 }
 
 /* Prevent text selection on playback controls */

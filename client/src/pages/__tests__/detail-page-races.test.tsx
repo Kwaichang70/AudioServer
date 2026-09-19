@@ -43,7 +43,10 @@ vi.mock('../../api/client.js', () => ({ api: mocks.api }));
 vi.mock('../../context/AudioContext.js', () => ({
   useAudioContext: () => mocks.audio,
 }));
-vi.mock('../../components/AddToPlaylist.js', () => ({ default: () => null }));
+vi.mock('../../components/PlayActions.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../components/PlayActions.js')>()),
+  default: () => null,
+}));
 vi.mock('../../components/AlbumCover.js', () => ({
   default: ({ title }: { title: string }) => <div data-testid="album-cover">{title}</div>,
 }));

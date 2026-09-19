@@ -4,6 +4,7 @@ import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
 import { formatDuration } from '../utils/format.js';
 import SortableList from '../components/SortableList.js';
+import PlayActions, { toTrackInfo } from '../components/PlayActions.js';
 import { STORAGE_KEYS } from '../constants.js';
 
 interface Track {
@@ -195,6 +196,16 @@ export default function PlaylistPage() {
                   <span className="text-sm text-gray-400 shrink-0">
                     {formatDuration(track.duration)}
                   </span>
+                  {/* R01.2: the row still plays from here on click; the menu adds
+                      play next and add to queue without replacing the queue. */}
+                  <PlayActions
+                    target={{
+                      kind: 'track',
+                      track: toTrackInfo(track),
+                      list: tracks.map((t) => toTrackInfo(t)),
+                      index: item._index,
+                    }}
+                  />
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

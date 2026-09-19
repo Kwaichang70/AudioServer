@@ -285,6 +285,9 @@ export const api = {
     fetchApi(`/library/artists/${id}`),
   getArtistAlbums: (id: string): Promise<ApiResponse<LibraryAlbum[]>> =>
     fetchApi(`/library/artists/${id}/albums`),
+  /** Every available track of an artist, album by album (R01.1). */
+  getArtistTracks: (id: string): Promise<ApiResponse<LibraryTrack[]>> =>
+    fetchApi(`/library/artists/${id}/tracks`),
   getSimilarArtists: (id: string): Promise<ApiResponse<SimilarArtistsResult>> =>
     fetchApi(`/library/artists/${id}/similar`),
   getAlbums: (page = 1, limit = 50): Promise<PaginatedResponse<LibraryAlbum>> =>
@@ -419,6 +422,9 @@ export const api = {
   // ── Audio path and transitions (V11) ──
   getOutputCapabilities: (refresh = false): Promise<ApiResponse<OutputCapabilities[]>> =>
     fetchApi(`/playback/outputs${refresh ? '?refresh=1' : ''}`),
+  /** What one output can do; the player uses it to offer seek only where it works. */
+  getOutputCapability: (deviceId: string): Promise<ApiResponse<OutputCapabilities>> =>
+    fetchApi(`/playback/outputs/${encodeURIComponent(deviceId)}`),
   getAudioPath: (): Promise<ApiResponse<AudioPath>> => fetchApi('/playback/audio-path'),
   getTransitions: (deviceId?: string, limit = 50): Promise<ApiResponse<TransitionRecord[]>> =>
     fetchApi(
@@ -461,6 +467,31 @@ export const api = {
     fetchApi('/playback/queue/add', {
       method: 'POST',
       body: JSON.stringify({ track, ...options }),
+    }),
+  /**
+   * Put one or more tracks in the queue without replacing it (R01.1).
+   * `next` lands straight behind what is playing; `end` appends.
+   */
+  insertIntoQueue: (
+    tracks: object[],
+    position: 'next' | 'end',
+    options: QueueCommandOptions = {},
+  ): Promise<PlaybackSnapshotResponse> =>
+    fetchApi('/playback/queue/add', {
+      method: 'POST',
+      body: JSON.stringify({ tracks, position, ...options }),
+    }),
+  /**
+   * Jump inside the current track (R01.1). A speaker without Seek answers
+   * 409 `SeekUnsupported`; one that refuses answers 502 `SeekFailed`.
+   */
+  seekPlayback: (
+    position: number,
+    options: QueueCommandOptions = {},
+  ): Promise<PlaybackSnapshotResponse> =>
+    fetchApi('/playback/seek', {
+      method: 'POST',
+      body: JSON.stringify({ position, ...options }),
     }),
   // Replace the household queue and make startIndex current. For external
   // local devices the server then drives playback itself (auto-advance from
@@ -654,6 +685,18 @@ export const api = {
     fetchApi(`/playlists/${playlistId}/tracks`, {
       method: 'POST',
       body: JSON.stringify({ trackId }),
+    }),
+  /**
+   * Add a list of library tracks in order (R01.3). Ids that are not library
+   * tracks — Qobuz, radio — are left out and counted in `skipped`.
+   */
+  addTracksToPlaylist: (
+    playlistId: string,
+    trackIds: string[],
+  ): Promise<ApiResponse<{ ok: true; trackCount: number; added: number; skipped: number }>> =>
+    fetchApi(`/playlists/${playlistId}/tracks`, {
+      method: 'POST',
+      body: JSON.stringify({ trackIds }),
     }),
   removeFromPlaylist: (
     playlistId: string,

@@ -134,7 +134,13 @@ describe('permissions matrix', () => {
   });
 });
 
-describe('session lifecycle', () => {
+// These tests hash and compare real passwords at bcrypt cost 12 — about half a
+// second each on a desktop CPU — and the password-change test does roughly
+// nine of them in a row. That sits right at vitest's default 5 s, so it passed
+// or failed by a few hundred milliseconds, and because the later tests log in
+// with the password the first one sets, one timeout failed all three. The cost
+// is deliberate (it is what production uses), so the budget moves instead.
+describe('session lifecycle', { timeout: 20_000 }, () => {
   let app: Express;
   let teardown: () => void;
   let admin: TestUser;

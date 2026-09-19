@@ -120,6 +120,22 @@ export class DeviceManager {
     }
   }
 
+  /**
+   * Jump inside the current track on a speaker (R01.1). Returns false when
+   * this output has no seek at all — the browser seeks itself, and a
+   * controller without the method cannot be asked. A device that has the
+   * method but refuses throws, because that is a failure the caller must
+   * report rather than swallow.
+   */
+  async seek(deviceId: string, position: number): Promise<boolean> {
+    const device = this.findCachedDevice(deviceId);
+    if (!device || device.type === 'browser') return false;
+    const controller = this.getController(device.type);
+    if (!controller?.seek) return false;
+    await controller.seek(deviceId, position);
+    return true;
+  }
+
   async pause(deviceId: string): Promise<void> {
     const device = this.findCachedDevice(deviceId);
     if (!device || device.type === 'browser') return;

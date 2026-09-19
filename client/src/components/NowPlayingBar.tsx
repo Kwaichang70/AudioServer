@@ -5,6 +5,8 @@ import { api } from '../api/client.js';
 import DeviceSelector from './DeviceSelector.js';
 import { formatTime } from '../utils/format.js';
 import SortableList from './SortableList.js';
+import SeekBar, { seekDisabledReason } from './player/SeekBar.js';
+import FavoriteTrackButton from './player/FavoriteTrackButton.js';
 import {
   PlayIcon,
   PauseIcon,
@@ -18,6 +20,8 @@ import {
 
 interface NowPlayingBarProps {
   onExpandClick?: () => void;
+  /** Open the full player on its lyrics (R01.3). */
+  onLyricsClick?: () => void;
 }
 
 interface SortableQueueTrack extends TrackInfo {
@@ -57,7 +61,7 @@ function TrackThumb({ track }: { track: TrackInfo }) {
   );
 }
 
-export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
+export default function NowPlayingBar({ onExpandClick, onLyricsClick }: NowPlayingBarProps) {
   const navigate = useNavigate();
   const {
     currentTrack,
@@ -72,6 +76,7 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
     playPrevious,
     queue,
     queueIndex,
+    seekSupport,
     selectedDeviceId,
     setSelectedDeviceId,
     shuffle,
@@ -166,6 +171,11 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
             {external && <span className="truncate text-accent">Playing on external device</span>}
           </p>
         </div>
+        {/* R01.3: the heart for what is playing. Desktop only — the phone bar
+            has no room left, and the full player (tap the cover) has it. */}
+        <span className="hidden md:inline-flex">
+          <FavoriteTrackButton trackId={currentTrack.id} title={currentTrack.title} />
+        </span>
       </div>
 
       {/* Controls */}
@@ -236,32 +246,12 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
         ) : (
           <div className="hidden md:flex w-full max-w-lg items-center gap-2 text-xs text-gray-400">
             <span className="w-10 text-right tabular-nums">{formatTime(currentTime)}</span>
-            <div
-              role="slider"
-              tabIndex={0}
-              aria-label="Seek"
-              aria-valuemin={0}
-              aria-valuemax={Math.round(duration)}
-              aria-valuenow={Math.round(currentTime)}
-              className="flex-1 relative h-1 bg-white/10 rounded group cursor-pointer focus:outline-none focus:ring-1 focus:ring-accent"
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const pos = (e.clientX - rect.left) / rect.width;
-                seek(pos * duration);
-              }}
-              onKeyDown={(e) => {
-                // Arrow keys scrub ±5s; Home/End jump to start/end.
-                if (e.key === 'ArrowRight') seek(Math.min(duration, currentTime + 5));
-                else if (e.key === 'ArrowLeft') seek(Math.max(0, currentTime - 5));
-                else if (e.key === 'Home') seek(0);
-                else if (e.key === 'End') seek(duration);
-                else return;
-                e.preventDefault();
-              }}
-            >
-              <div
-                className="absolute left-0 top-0 h-full bg-accent rounded"
-                style={{ width: `${progress}%` }}
+            <div className="flex-1">
+              <SeekBar
+                currentTime={currentTime}
+                duration={duration}
+                onSeek={seek}
+                disabledReason={seekDisabledReason(seekSupport, currentTrack.id)}
               />
             </div>
             <span className="w-10 tabular-nums">{formatTime(duration)}</span>
@@ -273,6 +263,17 @@ export default function NowPlayingBar({ onExpandClick }: NowPlayingBarProps) {
           used to live in a desktop-only block, so there was no way to send the
           music to a speaker from the player itself. */}
       <div className="flex items-center gap-1.5 md:gap-2 shrink-0 md:w-64">
+        {onLyricsClick && !isRadio && (
+          <button
+            type="button"
+            onClick={onLyricsClick}
+            className="hidden md:block text-xs px-2 py-0.5 rounded text-gray-500 hover:text-white transition"
+            title="Show lyrics"
+            aria-label="Show lyrics"
+          >
+            Lyrics
+          </button>
+        )}
         {queue.length > 0 && (
           <>
             {/* Phone: the desktop queue popup does not fit, so open the page. */}

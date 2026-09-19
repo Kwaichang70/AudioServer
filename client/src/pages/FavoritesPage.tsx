@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
+import PlayActions, {
+  openRowMenuFromKey,
+  openRowMenuFromPointer,
+  toTrackInfo,
+} from '../components/PlayActions.js';
 import AlbumCover from '../components/AlbumCover.js';
 import { useAudioContext, type TrackInfo } from '../context/AudioContext.js';
 import { useGridNavigation } from '../hooks/useGridNavigation.js';
@@ -205,34 +210,48 @@ export default function FavoritesPage() {
             className="space-y-1"
           >
             {tracks.map((track, trackIndex) => (
-              <button
-                key={track.id}
-                data-grid-item
-                onClick={() => playAlbum(tracks as TrackInfo[], trackIndex)}
-                className="w-full flex items-center gap-4 px-4 py-2 rounded hover:bg-surface-light transition text-left focus:outline-none focus:ring-2 focus:ring-accent"
-              >
-                <div className="w-10 h-10 rounded bg-surface-dark overflow-hidden flex-shrink-0">
-                  <img
-                    src={api.getAlbumCoverUrl(track.albumId)}
-                    alt=""
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                    decoding="async"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
-                    }}
-                  />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{track.title}</p>
-                  <p className="text-xs text-gray-400 truncate">
-                    {track.artistName} &middot; {track.albumTitle}
-                  </p>
-                </div>
-                <span className="text-xs text-gray-500 flex-shrink-0">
-                  {track.duration ? formatDuration(track.duration) : ''}
-                </span>
-              </button>
+              // A button cannot hold the menu's button, so the row is a wrapper
+              // with the play button and the trigger side by side (R01.2).
+              <div key={track.id} data-play-actions-row className="flex items-center gap-1">
+                <button
+                  data-grid-item
+                  onClick={() => playAlbum(tracks as TrackInfo[], trackIndex)}
+                  onKeyDown={openRowMenuFromKey}
+                  onContextMenu={openRowMenuFromPointer}
+                  className="flex-1 min-w-0 flex items-center gap-4 px-4 py-2 rounded hover:bg-surface-light transition text-left focus:outline-none focus:ring-2 focus:ring-accent"
+                >
+                  <div className="w-10 h-10 rounded bg-surface-dark overflow-hidden flex-shrink-0">
+                    <img
+                      src={api.getAlbumCoverUrl(track.albumId)}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{track.title}</p>
+                    <p className="text-xs text-gray-400 truncate">
+                      {track.artistName} &middot; {track.albumTitle}
+                    </p>
+                  </div>
+                  <span className="text-xs text-gray-500 flex-shrink-0">
+                    {track.duration ? formatDuration(track.duration) : ''}
+                  </span>
+                </button>
+                <PlayActions
+                  triggerTabIndex={-1}
+                  target={{
+                    kind: 'track',
+                    track: toTrackInfo(track as TrackInfo),
+                    list: (tracks as TrackInfo[]).map((t) => toTrackInfo(t)),
+                    index: trackIndex,
+                  }}
+                />
+              </div>
             ))}
           </div>
         ))}

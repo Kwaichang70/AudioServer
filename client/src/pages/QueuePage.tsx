@@ -1,5 +1,8 @@
-import { Link } from 'react-router-dom';
+import { useState, type FormEvent } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { api } from '../api/client.js';
 import { useAudioContext, type TrackInfo } from '../context/AudioContext.js';
+import { useToast } from '../components/Toast.js';
 import SortableList from '../components/SortableList.js';
 import { formatDuration } from '../utils/format.js';
 
@@ -24,6 +27,38 @@ export default function QueuePage() {
     currentTrack,
     isPlaying,
   } = useAudioContext();
+  const { toast } = useToast();
+  const navigate = useNavigate();
+  const [saving, setSaving] = useState<false | 'naming' | 'busy'>(false);
+  const [name, setName] = useState('');
+
+  // R01.3: keep what you built. Only library tracks can go in a playlist
+  // today (a playlist row points at the library); streaming items are named
+  // in the result instead of silently dropped.
+  const saveAsPlaylist = async (event: FormEvent) => {
+    event.preventDefault();
+    const title = name.trim();
+    if (!title) return;
+    setSaving('busy');
+    try {
+      const created = await api.createPlaylist(title);
+      const ids = queue.map((t) => t.id);
+      const res = await api.addTracksToPlaylist(created.data.id, ids);
+      const { added, skipped } = res.data;
+      toast(
+        skipped > 0
+          ? `Saved ${added} tracks to "${title}"; ${skipped} streaming tracks cannot be stored in a playlist yet`
+          : `Saved ${added} tracks to "${title}"`,
+        skipped > 0 ? 'info' : 'success',
+      );
+      setSaving(false);
+      setName('');
+      navigate(`/playlists/${created.data.id}`);
+    } catch {
+      // The global toast layer shows the server's answer; keep the form open.
+      setSaving('naming');
+    }
+  };
 
   if (queue.length === 0) {
     return (
@@ -34,7 +69,8 @@ export default function QueuePage() {
           <Link to="/albums" className="text-accent hover:underline">
             album
           </Link>{' '}
-          or add tracks with the <span className="text-gray-300">+</span> button to build one.
+          or use the <span className="text-gray-300">&#8943;</span> menu on any track, album or
+          artist to add it to the queue.
         </p>
       </div>
     );
@@ -52,13 +88,50 @@ export default function QueuePage() {
             {queue.length} tracks &middot; {totalMin} min
           </p>
         </div>
-        <button
-          type="button"
-          onClick={clearQueue}
-          className="min-h-[44px] px-4 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-red-400 hover:text-red-400 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          Clear queue
-        </button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {saving ? (
+            <form onSubmit={saveAsPlaylist} className="flex items-center gap-2">
+              <input
+                // eslint-disable-next-line jsx-a11y/no-autofocus -- opened by an explicit click
+                autoFocus
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Playlist name"
+                aria-label="Playlist name"
+                className="min-h-[44px] px-3 py-1.5 text-sm bg-surface-dark border border-white/10 rounded text-white placeholder-gray-500 focus:outline-none focus:border-accent"
+              />
+              <button
+                type="submit"
+                disabled={saving === 'busy' || !name.trim()}
+                className="min-h-[44px] px-4 py-1.5 text-sm bg-accent rounded hover:bg-accent-hover transition disabled:opacity-40"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                onClick={() => setSaving(false)}
+                className="min-h-[44px] px-3 py-1.5 text-sm text-gray-400 hover:text-white transition"
+              >
+                Cancel
+              </button>
+            </form>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setSaving('naming')}
+              className="min-h-[44px] px-4 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-accent transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              Save as playlist
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={clearQueue}
+            className="min-h-[44px] px-4 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-red-400 hover:text-red-400 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            Clear queue
+          </button>
+        </div>
       </div>
 
       <SortableList

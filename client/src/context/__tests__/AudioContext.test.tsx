@@ -110,7 +110,7 @@ vi.mock('../../api/client.js', () => ({
   newCommandId: () => `cmd-${Math.random()}`,
 }));
 
-const { AudioProvider, useAudioContext } = await import('../AudioContext.js');
+const { AudioProvider, useAudioContext, useProgress } = await import('../AudioContext.js');
 
 const tracks: TrackInfo[] = [
   { id: 'track-1', title: 'First', artistName: 'Artist A', albumTitle: 'Album' },
@@ -123,8 +123,12 @@ const spotifyTracks: TrackInfo[] = [
   { id: 'spotify:spotify-2', title: 'Spotify Second', artistName: 'Artist', albumTitle: 'Album' },
 ];
 
+const ninth: TrackInfo = { id: 'track-9', title: 'Ninth', artistName: 'X', albumTitle: 'Y' };
+const tenth: TrackInfo = { id: 'track-10', title: 'Tenth', artistName: 'X', albumTitle: 'Y' };
+
 function Harness() {
   const ctx = useAudioContext();
+  const progress = useProgress();
   return (
     <div>
       <output data-testid="current">{ctx.currentTrack?.title ?? 'none'}</output>
@@ -133,6 +137,8 @@ function Harness() {
       <output data-testid="repeat">{ctx.repeat}</output>
       <output data-testid="shuffle">{String(ctx.shuffle)}</output>
       <output data-testid="volume">{ctx.volume}</output>
+      <output data-testid="seek-support">{ctx.seekSupport}</output>
+      <output data-testid="position">{progress.currentTime}</output>
       <button onClick={() => ctx.playTrack(tracks[0])}>Play Track</button>
       <button onClick={() => ctx.playAlbum(tracks)}>Play Album</button>
       <button onClick={() => ctx.playAlbum(spotifyTracks)}>Play Spotify Album</button>
@@ -149,6 +155,10 @@ function Harness() {
       <button onClick={() => ctx.setVolume(0.42)}>Volume</button>
       <button onClick={() => ctx.setSelectedDeviceId('device-1')}>External Device</button>
       <button onClick={() => ctx.setCrossfade(6)}>Crossfade On</button>
+      <button onClick={() => void ctx.playNextTracks([ninth])}>Play Ninth Next</button>
+      <button onClick={() => void ctx.queueTracks([ninth, tenth])}>Queue Ninth Tenth</button>
+      <button onClick={() => void ctx.playNow([ninth])}>Play Ninth Now</button>
+      <button onClick={() => ctx.seek(42)}>Seek 42</button>
     </div>
   );
 }
@@ -705,5 +715,118 @@ describe('AudioProvider next-track preparation (R00.1)', () => {
 
     await waitFor(() => expect(screen.getByTestId('current')).toHaveTextContent('First'));
     expect(mocks.audio.preloadNext).not.toHaveBeenCalled();
+  });
+});
+
+// R01.1/R01.2: insert without replacing, and seek that tells the truth.
+describe('AudioProvider play actions and seek (R01)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fakeServer = createFakePlaybackServer();
+    mocks.socket.snapshot = null;
+    mocks.socket.queueEvent = null;
+    mocks.socket.trackChanged = null;
+    localStorage.clear();
+    mocks.audio.isPlaying = false;
+    mocks.audio.getCurrentTime.mockReturnValue(0);
+    mocks.audio.getDuration.mockReturnValue(0);
+    mocks.api.getHealth.mockResolvedValue({});
+    mocks.api.getDeviceStatus.mockResolvedValue({ data: {} });
+  });
+
+  it('puts a track after the current one and keeps the rest of the queue', async () => {
+    renderHarness();
+    fireEvent.click(screen.getByText('Play Album'));
+
+    fireEvent.click(screen.getByText('Play Ninth Next'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('queue')).toHaveTextContent('First|Ninth|Second|Third'),
+    );
+    expect(screen.getByTestId('current')).toHaveTextContent('First');
+    expect(mocks.toast).toHaveBeenCalledWith('"Ninth" plays next', 'success');
+  });
+
+  it('appends several tracks at the end', async () => {
+    renderHarness();
+    fireEvent.click(screen.getByText('Play Album'));
+
+    fireEvent.click(screen.getByText('Queue Ninth Tenth'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('queue')).toHaveTextContent('First|Second|Third|Ninth|Tenth'),
+    );
+    expect(mocks.toast).toHaveBeenCalledWith('2 tracks added to the queue', 'success');
+  });
+
+  it('"play now" keeps the queue: it inserts, then moves on to the new track', async () => {
+    renderHarness();
+    fireEvent.click(screen.getByText('Play Album'));
+
+    fireEvent.click(screen.getByText('Play Ninth Now'));
+
+    await waitFor(() => expect(screen.getByTestId('current')).toHaveTextContent('Ninth'));
+    expect(screen.getByTestId('queue')).toHaveTextContent('First|Ninth|Second|Third');
+  });
+
+  it('"play now" on an empty queue simply starts the track', async () => {
+    renderHarness();
+
+    fireEvent.click(screen.getByText('Play Ninth Now'));
+
+    await waitFor(() => expect(screen.getByTestId('current')).toHaveTextContent('Ninth'));
+    expect(screen.getByTestId('queue')).toHaveTextContent('Ninth');
+  });
+
+  it('seeks the browser element at once and tells the server afterwards', async () => {
+    renderHarness();
+    fireEvent.click(screen.getByText('Play Album'));
+    const seekPlayback = vi.spyOn(fakeServer.api, 'seekPlayback');
+
+    fireEvent.click(screen.getByText('Seek 42'));
+
+    expect(mocks.audio.seek).toHaveBeenCalledWith(42);
+    await waitFor(() => expect(seekPlayback).toHaveBeenCalledWith(42, expect.anything()), {
+      timeout: 1500,
+    });
+  });
+
+  it('sends one seek after a burst of presses, not one per press', async () => {
+    renderHarness();
+    fireEvent.click(screen.getByText('Play Album'));
+    const seekPlayback = vi.spyOn(fakeServer.api, 'seekPlayback');
+
+    for (let i = 0; i < 5; i++) fireEvent.click(screen.getByText('Seek 42'));
+
+    await waitFor(() => expect(seekPlayback).toHaveBeenCalledTimes(1), { timeout: 1500 });
+    await new Promise((r) => setTimeout(r, 500));
+    expect(seekPlayback).toHaveBeenCalledTimes(1);
+  });
+
+  it('on a speaker that refuses, jumps the bar back and stops offering seek', async () => {
+    fakeServer.api.seekPlayback = (() =>
+      Promise.reject(
+        new FakeApiError('This output cannot jump inside a track.', 409, 'SeekUnsupported'),
+      )) as unknown as typeof fakeServer.api.seekPlayback;
+    renderHarness();
+    fireEvent.click(screen.getByText('External Device'));
+    fireEvent.click(screen.getByText('Play Album'));
+    await waitFor(() =>
+      expect(screen.getByTestId('seek-support')).toHaveTextContent(/^supported$/),
+    );
+
+    fireEvent.click(screen.getByText('Seek 42'));
+    // The bar moves at once...
+    expect(screen.getByTestId('position')).toHaveTextContent('42');
+
+    // ...and returns when the speaker says no.
+    await waitFor(
+      () => expect(screen.getByTestId('seek-support')).toHaveTextContent('unsupported'),
+      {
+        timeout: 1500,
+      },
+    );
+    expect(screen.getByTestId('position')).not.toHaveTextContent('42');
+    expect(mocks.audio.seek).not.toHaveBeenCalled();
   });
 });

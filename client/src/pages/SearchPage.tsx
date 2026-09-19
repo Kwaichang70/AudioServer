@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { Playability, ProviderType, SearchSourceStatus, SourceRef } from '@audioserver/shared';
 import { api, type SearchFilters } from '../api/client.js';
+import PlayActions, { toTrackInfo } from '../components/PlayActions.js';
 import { useAudioContext, type TrackInfo } from '../context/AudioContext.js';
 import { SOURCE_COLORS } from '../constants.js';
 
@@ -291,21 +292,29 @@ export default function SearchPage() {
               </h3>
               <div className="flex gap-3 flex-wrap">
                 {results.artists.map((a, i) => (
-                  <Link
-                    key={`${a.source}-${a.id}-${i}`}
-                    to={
-                      a.source === 'local'
-                        ? `/artists/${a.id}`
-                        : `/search?q=${encodeURIComponent(a.name)}`
-                    }
-                    className="flex items-center gap-2 px-4 py-2 bg-surface-light rounded-full text-sm hover:bg-surface hover:text-accent transition"
-                  >
-                    {a.imageUrl && (
-                      <img src={a.imageUrl} alt="" className="w-6 h-6 rounded-full object-cover" />
+                  <span key={`${a.source}-${a.id}-${i}`} className="inline-flex items-center gap-1">
+                    <Link
+                      to={
+                        a.source === 'local'
+                          ? `/artists/${a.id}`
+                          : `/search?q=${encodeURIComponent(a.name)}`
+                      }
+                      className="flex items-center gap-2 px-4 py-2 bg-surface-light rounded-full text-sm hover:bg-surface hover:text-accent transition"
+                    >
+                      {a.imageUrl && (
+                        <img
+                          src={a.imageUrl}
+                          alt=""
+                          className="w-6 h-6 rounded-full object-cover"
+                        />
+                      )}
+                      {a.name}
+                      <SourceBadges source={a.source} availableOn={a.availableOn} />
+                    </Link>
+                    {a.source === 'local' && (
+                      <PlayActions target={{ kind: 'artist', artistId: a.id, name: a.name }} />
                     )}
-                    {a.name}
-                    <SourceBadges source={a.source} availableOn={a.availableOn} />
-                  </Link>
+                  </span>
                 ))}
               </div>
             </section>
@@ -318,41 +327,52 @@ export default function SearchPage() {
               </h3>
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
                 {results.albums.map((a, i) => (
-                  <Link
-                    key={`${a.source}-${a.id}-${i}`}
-                    to={`/albums/${a.id}`}
-                    className="bg-surface-light rounded-lg p-3 hover:bg-surface transition group"
-                  >
-                    <div className="aspect-square bg-surface-dark rounded mb-2 overflow-hidden">
-                      {a.coverUrl ? (
-                        <img
-                          src={a.coverUrl}
-                          alt={a.title}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                          decoding="async"
+                  <div key={`${a.source}-${a.id}-${i}`} className="relative">
+                    <Link
+                      to={`/albums/${a.id}`}
+                      className="block bg-surface-light rounded-lg p-3 hover:bg-surface transition group"
+                    >
+                      <div className="aspect-square bg-surface-dark rounded mb-2 overflow-hidden">
+                        {a.coverUrl ? (
+                          <img
+                            src={a.coverUrl}
+                            alt={a.title}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                            decoding="async"
+                          />
+                        ) : a.source === 'local' ? (
+                          <img
+                            src={api.getAlbumCoverUrl(a.id)}
+                            alt={a.title}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                            decoding="async"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        ) : null}
+                      </div>
+                      <div className="flex items-center gap-1 mb-0.5">
+                        <p className="text-sm font-medium truncate group-hover:text-accent transition flex-1">
+                          {a.title}
+                        </p>
+                        <SourceBadges source={a.source} availableOn={a.availableOn} />
+                      </div>
+                      <p className="text-xs text-gray-400 truncate">{a.artistName}</p>
+                    </Link>
+                    {/* A button may not sit inside a link, so it overlays the card. Only
+                      library albums: the actions fetch the album's tracks from the library. */}
+                    {a.source === 'local' && (
+                      <div className="absolute top-4 right-4">
+                        <PlayActions
+                          target={{ kind: 'album', albumId: a.id, title: a.title }}
+                          className="flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                         />
-                      ) : a.source === 'local' ? (
-                        <img
-                          src={api.getAlbumCoverUrl(a.id)}
-                          alt={a.title}
-                          className="w-full h-full object-cover"
-                          loading="lazy"
-                          decoding="async"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).style.display = 'none';
-                          }}
-                        />
-                      ) : null}
-                    </div>
-                    <div className="flex items-center gap-1 mb-0.5">
-                      <p className="text-sm font-medium truncate group-hover:text-accent transition flex-1">
-                        {a.title}
-                      </p>
-                      <SourceBadges source={a.source} availableOn={a.availableOn} />
-                    </div>
-                    <p className="text-xs text-gray-400 truncate">{a.artistName}</p>
-                  </Link>
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
             </section>
@@ -429,6 +449,10 @@ export default function SearchPage() {
                             </button>
                           ))}
                       </span>
+                    )}
+                    {/* R01.2: play next / add to queue without losing the queue */}
+                    {isPlayableTrack(t) && (
+                      <PlayActions target={{ kind: 'track', track: toTrackInfo(t) }} />
                     )}
                   </div>
                 ))}

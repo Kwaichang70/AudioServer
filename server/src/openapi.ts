@@ -435,6 +435,17 @@ export const openApiSpec = {
         },
       },
     },
+    '/playback/queue/add': {
+      post: {
+        tags: ['Playback'],
+        summary:
+          'Add one track or a whole album to the queue; position=next puts it straight after the current item',
+        parameters: [
+          { name: 'X-Client-Id', in: 'header', required: true, schema: { type: 'string' } },
+        ],
+        responses: { 200: ok('PlaybackSnapshot') },
+      },
+    },
     '/playback/queue/remove': {
       post: {
         tags: ['Playback'],
@@ -497,6 +508,20 @@ export const openApiSpec = {
           { name: 'X-Client-Id', in: 'header', required: true, schema: { type: 'string' } },
         ],
         responses: { 200: ok('PlaybackSnapshot') },
+      },
+    },
+    '/playback/seek': {
+      post: {
+        tags: ['Playback'],
+        summary: 'Jump inside the current track; 409 when the output has no Seek',
+        parameters: [
+          { name: 'X-Client-Id', in: 'header', required: true, schema: { type: 'string' } },
+        ],
+        responses: {
+          200: ok('PlaybackSnapshot'),
+          409: ok('SeekUnsupported; snapshot in data'),
+          502: ok('SeekFailed; the output refused'),
+        },
       },
     },
     '/playback/progress': {
@@ -718,6 +743,14 @@ export const openApiSpec = {
         tags: ['Library'],
         summary: 'List artists (paginated)',
         responses: { 200: ok('artists page') },
+      },
+    },
+    '/library/artists/{id}/tracks': {
+      get: {
+        tags: ['Library'],
+        summary: 'Every available track of one artist, ordered by album, disc and track',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('Track[]') },
       },
     },
     '/library/tracks/{id}/stream': {

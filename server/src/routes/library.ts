@@ -1,7 +1,7 @@
 import { Router, type Response } from 'express';
 import { getDb, getRawDb } from '../db/index.js';
 import { artists, albums, tracks } from '../db/schema.js';
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import {
   scanLibrary,
   getScanStatus,
@@ -182,6 +182,25 @@ libraryRouter.get('/albums/:id/tracks', (req, res) => {
     .from(tracks)
     .where(eq(tracks.albumId, req.params.id))
     .orderBy(tracks.discNumber, tracks.trackNumber)
+    .all();
+  res.json({ data: result, meta: { total: result.length } });
+});
+
+/**
+ * Every track of an artist, album by album (R01.1).
+ *
+ * "Play artist" and "add artist to queue" need one list, not one request per
+ * album: a client that fetched each album separately would fire thirty
+ * requests and still have to sort them. Missing files are left out — putting
+ * a track in the queue that has no file only produces a skip.
+ */
+libraryRouter.get('/artists/:id/tracks', (req, res) => {
+  const db = getDb();
+  const result = db
+    .select()
+    .from(tracks)
+    .where(and(eq(tracks.artistId, req.params.id), eq(tracks.availability, 'available')))
+    .orderBy(tracks.albumTitle, tracks.discNumber, tracks.trackNumber)
     .all();
   res.json({ data: result, meta: { total: result.length } });
 });

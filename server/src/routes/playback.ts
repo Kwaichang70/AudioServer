@@ -16,7 +16,10 @@ import {
   forgetCapabilities,
   getAllOutputCapabilities,
   getOutputCapabilities,
+  noteSeekFailed,
+  supportsSeek,
 } from '../services/output-capabilities.js';
+import { deviceManager } from '../devices/manager.js';
 import { addMeasurement, listTransitions, recordTransition } from '../services/transitions.js';
 import { describeAudioPath } from '../services/audio-path.js';
 import { getAllCapabilities } from '../services/playback-resolver.js';
@@ -386,14 +389,31 @@ playbackRouter.use(requireClientId);
 
 // ─── Queue commands ──────────────────────────────────────────────
 
+// Add to the queue. `track` (one) or `tracks` (a whole album) both work, and
+// `position` decides where they land: at the end, or directly after what is
+// playing — the "play next" a listener means (R01.1). Repeated "play next"
+// therefore stacks in the order asked, each one right behind the current item.
 playbackRouter.post(
   '/queue/add',
-  validate({ body: z.object({ track: trackSchema, ...commandFields }) }),
+  validate({
+    body: z
+      .object({
+        track: trackSchema.optional(),
+        tracks: z.array(trackSchema).max(2000).optional(),
+        position: z.enum(['next', 'end']).optional(),
+        ...commandFields,
+      })
+      .refine((body) => !!body.track || !!body.tracks?.length, {
+        message: 'Provide a track or a non-empty tracks array',
+      }),
+  }),
   (req, res) => {
     const session = sessionOf(req, res);
     if (!session) return;
+    const list = (req.body.tracks ?? [req.body.track]).map(withMetadata);
     runCommand(res, session, req.body.commandId, () => {
-      session.addToQueue(withMetadata(req.body.track), originOf(req));
+      if (req.body.position === 'next') session.insertNext(list, originOf(req));
+      else session.appendTracks(list, originOf(req));
     });
   },
 );
@@ -640,6 +660,62 @@ playbackRouter.post(
     session.setVolume(req.body.volume, originOf(req));
     res.json({ data: session.getState() });
   },
+);
+
+/**
+ * Jump inside the current track (R01.1).
+ *
+ * The browser seeks its own audio element, so for that output this only
+ * records where the listener went — which keeps listened time honest. A
+ * speaker has to be asked, and it may not be able to: an output that says it
+ * has no Seek is refused with 409 rather than pretending, and one that
+ * refuses the action is remembered so the UI stops offering it.
+ */
+playbackRouter.post(
+  '/seek',
+  validate({ body: z.object({ position: z.number().min(0).max(86400), ...commandFields }) }),
+  asyncHandler(async (req: Request, res: Response) => {
+    const session = sessionOf(req, res);
+    if (!session) return;
+    const origin = originOf(req);
+    const deviceId = session.getState().deviceId;
+    const position = req.body.position as number;
+
+    if (deviceId && isServerManagedDevice(deviceId)) {
+      if (!(await supportsSeek(deviceId))) {
+        res.status(409).json({
+          error: 'SeekUnsupported',
+          message: 'This output cannot jump inside a track.',
+          data: session.getSnapshot(),
+        });
+        return;
+      }
+      try {
+        const accepted = await deviceManager.seek(deviceId, position);
+        if (!accepted) {
+          noteSeekFailed(deviceId);
+          res.status(409).json({
+            error: 'SeekUnsupported',
+            message: 'This output cannot jump inside a track.',
+            data: session.getSnapshot(),
+          });
+          return;
+        }
+      } catch (err) {
+        noteSeekFailed(deviceId);
+        res.status(502).json({
+          error: 'SeekFailed',
+          message: `The output refused to jump: ${err instanceof Error ? err.message : String(err)}`,
+          data: session.getSnapshot(),
+        });
+        return;
+      }
+    }
+
+    runCommand(res, session, req.body.commandId, () => {
+      session.seekTo(position, origin);
+    });
+  }),
 );
 
 playbackRouter.post(

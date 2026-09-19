@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
-import AddToPlaylist from '../components/AddToPlaylist.js';
+import PlayActions, { toTrackInfo } from '../components/PlayActions.js';
 import AlbumCover from '../components/AlbumCover.js';
 import { formatDuration, formatQuality } from '../utils/format.js';
 
@@ -41,7 +41,7 @@ export default function AlbumPage() {
   const [album, setAlbum] = useState<Album | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [favorited, setFavorited] = useState(false);
-  const { playAlbum, currentTrack, isPlaying } = useAudioContext();
+  const { playAlbum, playNextTracks, queueTracks, currentTrack, isPlaying } = useAudioContext();
   const activeAlbumIdRef = useRef(id);
   activeAlbumIdRef.current = id;
 
@@ -148,6 +148,10 @@ export default function AlbumPage() {
   // Only a real multi-disc release gets disc headings; a single-disc album
   // would just gain a "Disc 1" line that says nothing.
   const hasMultipleDiscs = new Set(tracks.map((t) => t.discNumber ?? 1)).size > 1;
+  // What goes into the queue: the player's fields only, and for "play next" /
+  // "add to queue" only files that are actually there (R01.2).
+  const trackInfos = tracks.map((t) => toTrackInfo(t));
+  const playable = tracks.filter((t) => t.availability !== 'missing').map((t) => toTrackInfo(t));
 
   return (
     <div>
@@ -178,12 +182,28 @@ export default function AlbumPage() {
           <p className="text-sm text-gray-500 mt-1">
             {tracks.length} tracks &middot; {totalMin} min
           </p>
-          <div className="flex items-center gap-3 mt-4">
+          <div className="flex flex-wrap items-center gap-3 mt-4">
             <button
               onClick={() => playAlbum(tracks)}
               className="px-6 py-2 bg-accent rounded-full hover:bg-accent-hover transition text-sm font-medium"
             >
               Play Album
+            </button>
+            <button
+              type="button"
+              onClick={() => void playNextTracks(playable)}
+              disabled={playable.length === 0}
+              className="px-4 py-2 rounded-full border border-white/20 text-sm hover:border-accent transition disabled:opacity-40"
+            >
+              Play next
+            </button>
+            <button
+              type="button"
+              onClick={() => void queueTracks(playable)}
+              disabled={playable.length === 0}
+              className="px-4 py-2 rounded-full border border-white/20 text-sm hover:border-accent transition disabled:opacity-40"
+            >
+              Add to queue
             </button>
             <button
               type="button"
@@ -286,7 +306,16 @@ export default function AlbumPage() {
                     {formatDuration(track.duration)}
                   </td>
                   <td className="py-2.5">
-                    <AddToPlaylist trackId={track.id} />
+                    {!missing && (
+                      <PlayActions
+                        target={{
+                          kind: 'track',
+                          track: trackInfos[trackIndex],
+                          list: trackInfos,
+                          index: trackIndex,
+                        }}
+                      />
+                    )}
                   </td>
                 </tr>
               </Fragment>

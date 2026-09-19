@@ -10,7 +10,11 @@ import { join } from 'path';
  * injected sink and Socket.IO is never imported from the service.
  */
 describe('playback service import order', () => {
-  it('loads and works without socketio ever being imported', async () => {
+  // This test resets the module registry and runs every migration on a fresh
+  // database, so it pays a full cold import. It checks import ORDER, not
+  // speed; on a busy desktop that cold start alone took 8.8 s (19 Sept 2026),
+  // so the default 5 s budget failed it for a reason it does not test.
+  it('loads and works without socketio ever being imported', { timeout: 30_000 }, async () => {
     vi.resetModules();
     const loaded: string[] = [];
     vi.doMock('../socketio.js', () => {

@@ -264,6 +264,25 @@ export async function supportsNextUri(deviceId: string): Promise<boolean> {
   return !!caps && caps.nextUri !== 'unsupported';
 }
 
+/**
+ * May this output be asked to jump inside a track (R01.1)? Same rule as
+ * `supportsNextUri`: only an explicit "no" from the device counts as no.
+ * Unknown means try it, and the attempt itself teaches us the answer.
+ */
+export async function supportsSeek(deviceId: string): Promise<boolean> {
+  const caps = await getOutputCapabilities(deviceId);
+  return !!caps && caps.seek !== 'unsupported';
+}
+
+/** A refused Seek is the device telling us it cannot; remember that. */
+export function noteSeekFailed(deviceId: string): void {
+  const cached = cache.get(deviceId);
+  if (!cached) return;
+  if (cached.value.seek === 'unsupported') return;
+  cached.value.seek = 'unsupported';
+  cached.value.limits.push('This output refused a request to jump inside a track.');
+}
+
 /** A failed handover is the device telling us it cannot; remember that. */
 export function noteNextUriFailed(deviceId: string): void {
   const cached = cache.get(deviceId);

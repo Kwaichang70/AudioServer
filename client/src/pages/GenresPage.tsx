@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import AlbumCover from '../components/AlbumCover.js';
+import {
+  CardActions,
+  openRowMenuFromKey,
+  openRowMenuFromPointer,
+} from '../components/PlayActions.js';
 
 interface Genre {
   genre: string;
@@ -127,20 +132,24 @@ function GenreDetail({ genre }: { genre: string }) {
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
         {albums.map((album) => (
-          <Link
-            key={album.id}
-            to={`/albums/${album.id}`}
-            className="group bg-surface-light rounded-lg p-3 hover:bg-surface transition"
-          >
-            <div className="mb-2">
-              <AlbumCover albumId={album.id} title={album.title} artistName={album.artistName} />
-            </div>
-            <p className="text-sm font-medium truncate group-hover:text-accent transition">
-              {album.title}
-            </p>
-            <p className="text-xs text-gray-400 truncate">{album.artistName}</p>
-            {album.year && <p className="text-xs text-gray-500">{album.year}</p>}
-          </Link>
+          <div key={album.id} data-play-actions-row className="group relative">
+            <Link
+              to={`/albums/${album.id}`}
+              onKeyDown={openRowMenuFromKey}
+              onContextMenu={openRowMenuFromPointer}
+              className="group block bg-surface-light rounded-lg p-3 hover:bg-surface transition"
+            >
+              <div className="mb-2">
+                <AlbumCover albumId={album.id} title={album.title} artistName={album.artistName} />
+              </div>
+              <p className="text-sm font-medium truncate group-hover:text-accent transition">
+                {album.title}
+              </p>
+              <p className="text-xs text-gray-400 truncate">{album.artistName}</p>
+              {album.year && <p className="text-xs text-gray-500">{album.year}</p>}
+            </Link>
+            <CardActions target={{ kind: 'album', albumId: album.id, title: album.title }} />
+          </div>
         ))}
       </div>
     </div>

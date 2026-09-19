@@ -104,6 +104,17 @@ export function createFakePlaybackServer() {
       revision++;
       return respond();
     },
+    // R01.1: same rule as PlaybackService.insertNext / appendTracks.
+    insertIntoQueue: (tracks: Record<string, unknown>[], position: 'next' | 'end') => {
+      const at = position === 'next' ? (index < 0 ? 0 : index + 1) : queue.length;
+      queue.splice(at, 0, ...tracks.map((t, i) => entry(t, at + i)));
+      revision++;
+      return respond();
+    },
+    seekPlayback: () => respond(),
+    // The fake room plays in the browser, which can always seek.
+    getOutputCapability: (id: string) =>
+      Promise.resolve({ data: { deviceId: id, seek: 'supported' as const } }),
     removeFromQueue: (itemId: string) => {
       const i = queue.findIndex((q) => q.itemId === itemId);
       if (i >= 0) {

@@ -121,6 +121,18 @@ export class VolumioController implements DeviceController {
     await fetch(`${this.baseUrl(device)}/api/v1/commands/?cmd=stop`);
   }
 
+  /**
+   * Jump inside the current track (R01.1). Volumio takes seconds directly,
+   * so there is no REL_TIME string here.
+   */
+  async seek(deviceId: string, position: number): Promise<void> {
+    const device = this.getDevice(deviceId);
+    const res = await fetch(
+      `${this.baseUrl(device)}/api/v1/commands/?cmd=seek&position=${Math.max(0, Math.floor(position))}`,
+    );
+    if (!res.ok) throw new Error(`${device.name} refused seek (HTTP ${res.status})`);
+  }
+
   async next(deviceId: string): Promise<void> {
     const device = this.getDevice(deviceId);
     await fetch(`${this.baseUrl(device)}/api/v1/commands/?cmd=next`);

@@ -4,6 +4,70 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## R01 — Speelacties, seek en de speler (verbeterplan 2, sprint R01)
+
+**Speel hierna en zet in wachtrij, zonder de wachtrij te verliezen**
+(`server/src/services/playback.ts`, `server/src/routes/playback.ts`)
+
+- `POST /playback/queue/add` neemt één `track` of een hele lijst `tracks`, en
+  `position: 'next' | 'end'`. "Next" landt direct achter wat speelt; wat
+  speelt blijft spelen. Twee keer "speel hierna" zet het nieuwste vooraan,
+  zoals je het bedoelt als je het twee keer zegt.
+- **Een belofte die ook onder shuffle geldt.** De test bracht aan het licht
+  dat "speel hierna" met shuffle aan niet hierna speelde: de server koos dan
+  een willekeurig volgend nummer. Ingevoegde items gaan nu voor, ook onder
+  shuffle en repeat-one, en `peekNext` geeft ze door aan de gapless-overdracht,
+  zodat de speaker het nummer klaarzet dat daarna ook echt komt.
+- "Speel hierna" wordt niet geweigerd op een verouderde revisie: de plek is
+  relatief aan wat nu speelt, en dat weet alleen de server.
+
+**Seek op speakers** (`server/src/devices/*.ts`, `POST /playback/seek`)
+
+- DLNA en Sonos springen met AVTransport `Seek` (`REL_TIME`), Volumio met
+  `cmd=seek`. Een uitgang die zelf zegt dat hij het niet kan krijgt 409
+  `SeekUnsupported`; een die weigert 502 `SeekFailed`, en dat wordt onthouden.
+  Een SOAP-fault telt als weigering, anders sprong de balk naar een positie
+  waar de speaker nooit heen ging.
+- De eigen klok van de server (voor renderers die geen positie melden) wordt
+  bij elke sprong herijkt. Zonder dat dacht de sessie na een sprong terug dat
+  het nummer bijna af was, en schakelde ze door.
+
+**Eén menu op elke rij** (`client/src/components/PlayActions.tsx`, `ui/Menu.tsx`)
+
+- Speel nu, Speel hierna, Zet in wachtrij, Speel vanaf hier, Voeg toe aan
+  playlist en het hart, op tracks, albums en artiesten: zoeken, album,
+  playlist, favorieten, geschiedenis, slimme playlists en de kaartrasters.
+  Klikken op een rij doet wat het altijd deed.
+- "Speel nu" gooit de wachtrij niet weg: het nummer komt achter het huidige
+  en de wachtrij gaat erheen.
+- Het menu staat in een portal, zodat tabellen en de scrollende wachtrij het
+  niet afknippen, en houdt klikken en toetsen weg van de rij eronder en van
+  de globale sneltoetsen (spatie = afspelen/pauzeren).
+- Rechtsklik opent het; in toetsenbordlijsten ook de contextmenutoets en
+  Shift+F10. Op een telefoon is het een sheet van onderen en is de ⋯-knop
+  altijd zichtbaar. Geen long-press: op iOS opent dat het linkvoorbeeld.
+- Streamingtracks krijgen geen hart en geen playlistkeuze: ze hebben geen
+  bibliotheek-id. Albums en artiesten gaan naar de wachtrij zonder
+  ontbrekende bestanden en zonder bestandspaden in de wachtrijdata.
+- De oude `AddToPlaylist`-knop is opgegaan in het menu.
+- Nieuw: `GET /library/artists/:id/tracks`; "speel artiest" is één verzoek.
+
+**De speler** (`client/src/components/NowPlayingFull.tsx`, `NowPlayingBar.tsx`, `player/*`)
+
+- Volledig scherm: hart, lyrics, kamerkiezer en een audiopad-indicator die de
+  minst zekere stap volgt en naar de details linkt.
+- Eén gedeelde seekbalk. Op een uitgang zonder Seek, of bij Spotify, is hij
+  voortgang met de reden erbij. Op een speaker beweegt hij direct, stuurt het
+  commando pas als het drukken stopt, en springt terug als de speaker weigert.
+- Balk: hart en een lyricsknop die het volledige scherm op de lyrics opent
+  (desktop; op de telefoon staat het in het volledige scherm).
+- Wachtrij: "Bewaar als playlist", in één verzoek en in volgorde.
+  Streamingitems gaan er nog niet in; de melding zegt hoeveel.
+
+**Onderhoud:** twee servertests kregen een realistisch tijdsbudget met de reden
+erbij: de sessietests rekenen met echte bcrypt-kosten 12, en de importtest laadt
+alle modules koud en draait elke migratie. Beide meten iets anders dan snelheid.
+
 ## R00 — Directe reparaties (verbeterplan 2, sprint R00)
 
 Eerste sprint uit [VERBETERPLAN_ROON.md](VERBETERPLAN_ROON.md): de afwijkingen

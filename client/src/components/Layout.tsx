@@ -27,7 +27,10 @@ const navItems = [
 
 export default function Layout() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [showFullscreen, setShowFullscreen] = useState(false);
+  // Which view the full player opens on; false = closed (R01.3 adds lyrics).
+  const [fullscreen, setFullscreen] = useState<false | 'upnext' | 'lyrics'>(false);
+  const showFullscreen = fullscreen !== false;
+  const setShowFullscreen = (open: boolean) => setFullscreen(open ? 'upnext' : false);
   const { user, signOut } = useAuth();
 
   useEffect(() => {
@@ -131,11 +134,17 @@ export default function Layout() {
         </main>
 
         {/* Bottom: Now Playing bar */}
-        <NowPlayingBar onExpandClick={() => setShowFullscreen(true)} />
+        <NowPlayingBar
+          onExpandClick={() => setFullscreen('upnext')}
+          onLyricsClick={() => setFullscreen('lyrics')}
+        />
         <KeyboardShortcuts />
         {showFullscreen && (
           <Suspense fallback={null}>
-            <NowPlayingFull onClose={() => setShowFullscreen(false)} />
+            <NowPlayingFull
+              initialView={fullscreen === 'lyrics' ? 'lyrics' : 'upnext'}
+              onClose={() => setFullscreen(false)}
+            />
           </Suspense>
         )}
       </div>

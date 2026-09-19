@@ -4,6 +4,7 @@ import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
 import { formatDuration } from '../utils/format.js';
 import { useToast } from '../components/Toast.js';
+import PlayActions, { openRowMenuFromPointer, toTrackInfo } from '../components/PlayActions.js';
 
 interface Rule {
   field: string;
@@ -461,39 +462,57 @@ function SmartPlaylistDetail({ id }: { id: string }) {
           {tracks.map((track, i) => {
             const isCurrent = currentTrack?.id === track.id;
             return (
-              <button
+              <div
                 key={`${track.id}-${i}`}
-                onClick={() => playAlbum(tracks, i)}
-                className={`w-full flex items-center gap-4 px-4 py-2 rounded hover:bg-surface-light transition text-left ${isCurrent ? 'text-accent' : ''}`}
+                data-play-actions-row
+                className="flex items-center gap-1"
               >
-                <span className="w-6 text-sm text-gray-500 text-right shrink-0">
-                  {isCurrent && isPlaying ? <span className="animate-pulse">&#9654;</span> : i + 1}
-                </span>
-                <div className="w-8 h-8 rounded bg-surface-dark overflow-hidden shrink-0">
-                  {track.albumId && (
-                    <img
-                      src={api.getAlbumCoverUrl(track.albumId)}
-                      alt=""
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
+                <button
+                  onClick={() => playAlbum(tracks, i)}
+                  onContextMenu={openRowMenuFromPointer}
+                  className={`flex-1 min-w-0 flex items-center gap-4 px-4 py-2 rounded hover:bg-surface-light transition text-left ${isCurrent ? 'text-accent' : ''}`}
+                >
+                  <span className="w-6 text-sm text-gray-500 text-right shrink-0">
+                    {isCurrent && isPlaying ? (
+                      <span className="animate-pulse">&#9654;</span>
+                    ) : (
+                      i + 1
+                    )}
+                  </span>
+                  <div className="w-8 h-8 rounded bg-surface-dark overflow-hidden shrink-0">
+                    {track.albumId && (
+                      <img
+                        src={api.getAlbumCoverUrl(track.albumId)}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{track.title}</p>
+                    <p className="text-xs text-gray-500 truncate">
+                      {track.artistName} &middot; {track.albumTitle}
+                    </p>
+                  </div>
+                  {track.format && (
+                    <span className="text-[10px] text-gray-600 shrink-0">{track.format}</span>
                   )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{track.title}</p>
-                  <p className="text-xs text-gray-500 truncate">
-                    {track.artistName} &middot; {track.albumTitle}
-                  </p>
-                </div>
-                {track.format && (
-                  <span className="text-[10px] text-gray-600 shrink-0">{track.format}</span>
-                )}
-                <span className="text-sm text-gray-400 shrink-0">
-                  {formatDuration(track.duration)}
-                </span>
-              </button>
+                  <span className="text-sm text-gray-400 shrink-0">
+                    {formatDuration(track.duration)}
+                  </span>
+                </button>
+                <PlayActions
+                  target={{
+                    kind: 'track',
+                    track: toTrackInfo(track),
+                    list: tracks.map((t) => toTrackInfo(t)),
+                    index: i,
+                  }}
+                />
+              </div>
             );
           })}
         </div>

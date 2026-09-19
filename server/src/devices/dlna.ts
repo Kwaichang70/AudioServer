@@ -49,6 +49,15 @@ export function parseSinkProtocolInfo(xml: string): string[] {
   return [...formats].sort();
 }
 
+/** Seconds → `H:MM:SS`, the REL_TIME format AVTransport expects. */
+export function formatRelTime(position: number): string {
+  const total = Math.max(0, Math.floor(position));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
 export class DlnaController implements DeviceController {
   readonly deviceType = 'dlna' as const;
   private devices = new Map<string, DlnaDevice>();
@@ -338,6 +347,27 @@ export class DlnaController implements DeviceController {
       NextURIMetaData: didl,
     });
     logger.info(`DLNA setNextUri: ${metadata?.title || 'track'} → ${device.name}`);
+  }
+
+  /**
+   * Jump inside the current track (R01.1). `REL_TIME` is the unit every
+   * AVTransport renderer that supports Seek at all understands; the target is
+   * a wall-clock string, not seconds.
+   */
+  async seek(deviceId: string, position: number): Promise<void> {
+    const device = this.getDevice(deviceId);
+    const result = await this.sendAction(device.controlUrl, 'Seek', {
+      InstanceID: '0',
+      Unit: 'REL_TIME',
+      Target: formatRelTime(position),
+    });
+    // A renderer that does not implement Seek answers with a SOAP fault
+    // instead of failing the request; without this the caller would think it
+    // worked and the UI would jump to a position the speaker never went to.
+    if (result.includes('Fault')) {
+      throw new Error(`${device.name} refused Seek`);
+    }
+    logger.info(`DLNA seek: ${device.name} → ${formatRelTime(position)}`);
   }
 
   /**

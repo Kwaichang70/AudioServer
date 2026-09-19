@@ -2,7 +2,10 @@ import { useState, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAudioContext, useProgress } from '../context/AudioContext.js';
 import { api } from '../api/client.js';
-import { formatTime } from '../utils/format.js';
+import DeviceSelector from './DeviceSelector.js';
+import SeekBar, { seekDisabledReason } from './player/SeekBar.js';
+import FavoriteTrackButton from './player/FavoriteTrackButton.js';
+import AudioPathBadge from './player/AudioPathBadge.js';
 import {
   PlayIcon,
   PauseIcon,
@@ -20,9 +23,11 @@ const LyricsDisplay = lazy(() => import('./LyricsDisplay.js'));
 
 interface Props {
   onClose: () => void;
+  /** Open straight on the lyrics, as the player bar's lyrics button asks (R01.3). */
+  initialView?: 'upnext' | 'lyrics';
 }
 
-export default function NowPlayingFull({ onClose }: Props) {
+export default function NowPlayingFull({ onClose, initialView = 'upnext' }: Props) {
   const navigate = useNavigate();
   const {
     currentTrack,
@@ -43,14 +48,16 @@ export default function NowPlayingFull({ onClose }: Props) {
     toggleRepeat,
     crossfade,
     setCrossfade,
+    selectedDeviceId,
+    setSelectedDeviceId,
+    seekSupport,
   } = useAudioContext();
   const { currentTime, duration } = useProgress();
 
-  const [showLyrics, setShowLyrics] = useState(false);
+  const [showLyrics, setShowLyrics] = useState(initialView === 'lyrics');
 
   if (!currentTrack) return null;
 
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
   const isRadio = currentTrack.id.startsWith('radio:');
   const coverUrl = currentTrack.albumId
     ? api.getAlbumCoverUrl(currentTrack.albumId)
@@ -82,13 +89,17 @@ export default function NowPlayingFull({ onClose }: Props) {
           <ChevronDownIcon size={26} />
         </button>
         <p className="text-xs text-gray-500 uppercase tracking-widest">Now Playing</p>
-        <button
-          onClick={() => setShowLyrics(!showLyrics)}
-          className={`text-sm px-3 py-1 rounded transition ${showLyrics ? 'bg-accent text-white' : 'text-gray-500 hover:text-white'}`}
-          title="Toggle lyrics"
-        >
-          Lyrics
-        </button>
+        <div className="flex items-center gap-3">
+          <FavoriteTrackButton trackId={currentTrack.id} title={currentTrack.title} size="lg" />
+          <button
+            onClick={() => setShowLyrics(!showLyrics)}
+            className={`text-sm px-3 py-1 rounded transition ${showLyrics ? 'bg-accent text-white' : 'text-gray-500 hover:text-white'}`}
+            title="Toggle lyrics"
+            aria-pressed={showLyrics}
+          >
+            Lyrics
+          </button>
+        </div>
       </div>
 
       {/* Main content */}
@@ -128,6 +139,17 @@ export default function NowPlayingFull({ onClose }: Props) {
                 )}
               </div>
             )}
+            {/* R01.3: how sure the server is of the path this track takes */}
+            <div className="mt-3">
+              <AudioPathBadge
+                trackId={currentTrack.id}
+                deviceId={selectedDeviceId}
+                onDetails={() => {
+                  onClose();
+                  navigate('/settings');
+                }}
+              />
+            </div>
           </div>
 
           {/* Lyrics or Up Next */}
@@ -186,41 +208,14 @@ export default function NowPlayingFull({ onClose }: Props) {
           </div>
         ) : (
           <div className="max-w-2xl mx-auto mb-4">
-            <div
-              role="slider"
-              tabIndex={0}
-              aria-label="Seek"
-              aria-valuemin={0}
-              aria-valuemax={Math.round(duration)}
-              aria-valuenow={Math.round(currentTime)}
-              className="relative h-1.5 bg-white/10 rounded-full cursor-pointer group focus:outline-none focus:ring-1 focus:ring-accent"
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const pos = (e.clientX - rect.left) / rect.width;
-                seek(pos * duration);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'ArrowRight') seek(Math.min(duration, currentTime + 5));
-                else if (e.key === 'ArrowLeft') seek(Math.max(0, currentTime - 5));
-                else if (e.key === 'Home') seek(0);
-                else if (e.key === 'End') seek(duration);
-                else return;
-                e.preventDefault();
-              }}
-            >
-              <div
-                className="absolute left-0 top-0 h-full bg-accent rounded-full transition-all"
-                style={{ width: `${progress}%` }}
-              />
-              <div
-                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition"
-                style={{ left: `${progress}%`, marginLeft: '-6px' }}
-              />
-            </div>
-            <div className="flex justify-between text-xs text-gray-500 mt-1">
-              <span>{formatTime(currentTime)}</span>
-              <span>{formatTime(duration)}</span>
-            </div>
+            <SeekBar
+              size="lg"
+              showTimes
+              currentTime={currentTime}
+              duration={duration}
+              onSeek={seek}
+              disabledReason={seekDisabledReason(seekSupport, currentTrack.id)}
+            />
           </div>
         )}
 
@@ -279,8 +274,10 @@ export default function NowPlayingFull({ onClose }: Props) {
           </button>
         </div>
 
-        {/* Volume + Crossfade */}
-        <div className="flex items-center justify-center gap-6 mt-4">
+        {/* Room + Volume + Crossfade. The room picker lives here too (R01.3):
+            the full screen used to be the one place you could not change it. */}
+        <div className="flex flex-wrap items-center justify-center gap-6 mt-4">
+          <DeviceSelector selectedDeviceId={selectedDeviceId} onSelect={setSelectedDeviceId} />
           <div className="flex items-center gap-2">
             <VolumeIcon size={18} className="text-gray-400" />
             <input

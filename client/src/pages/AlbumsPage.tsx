@@ -3,6 +3,11 @@ import { api } from '../api/client.js';
 import { useInfiniteLoad, useAutoLoadMore } from '../hooks/useInfiniteLoad.js';
 import { useGridNavigation } from '../hooks/useGridNavigation.js';
 import AlbumCover from '../components/AlbumCover.js';
+import {
+  CardActions,
+  openRowMenuFromKey,
+  openRowMenuFromPointer,
+} from '../components/PlayActions.js';
 import { formatQuality } from '../utils/format.js';
 import { DEFAULT_LIBRARY_PAGE_SIZE } from '../constants.js';
 
@@ -83,34 +88,38 @@ export default function AlbumsPage() {
             className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"
           >
             {albums.map((album) => (
-              <Link
-                key={album.id}
-                to={`/albums/${album.id}`}
-                data-grid-item
-                className="group bg-surface-light rounded-lg p-3 hover:bg-surface transition focus:outline-none focus:ring-2 focus:ring-accent"
-              >
-                <div className="mb-2">
-                  <AlbumCover
-                    albumId={album.id}
-                    title={album.title}
-                    artistName={album.artistName}
-                    coverUrl={album.coverUrl}
-                    hasCover={album.hasCover}
-                  />
-                </div>
-                <p className="text-sm font-medium truncate group-hover:text-accent transition">
-                  {album.title}
-                </p>
-                <p className="text-xs text-gray-400 truncate">{album.artistName}</p>
-                <div className="flex items-center gap-1.5">
-                  {album.year && <span className="text-xs text-gray-500">{album.year}</span>}
-                  {formatQuality(album) && (
-                    <span className="text-[10px] px-1 py-0.5 rounded bg-white/5 text-gray-500 truncate">
-                      {formatQuality(album)}
-                    </span>
-                  )}
-                </div>
-              </Link>
+              <div key={album.id} data-play-actions-row className="group relative">
+                <Link
+                  to={`/albums/${album.id}`}
+                  data-grid-item
+                  onKeyDown={openRowMenuFromKey}
+                  onContextMenu={openRowMenuFromPointer}
+                  className="group block bg-surface-light rounded-lg p-3 hover:bg-surface transition focus:outline-none focus:ring-2 focus:ring-accent"
+                >
+                  <div className="mb-2">
+                    <AlbumCover
+                      albumId={album.id}
+                      title={album.title}
+                      artistName={album.artistName}
+                      coverUrl={album.coverUrl}
+                      hasCover={album.hasCover}
+                    />
+                  </div>
+                  <p className="text-sm font-medium truncate group-hover:text-accent transition">
+                    {album.title}
+                  </p>
+                  <p className="text-xs text-gray-400 truncate">{album.artistName}</p>
+                  <div className="flex items-center gap-1.5">
+                    {album.year && <span className="text-xs text-gray-500">{album.year}</span>}
+                    {formatQuality(album) && (
+                      <span className="text-[10px] px-1 py-0.5 rounded bg-white/5 text-gray-500 truncate">
+                        {formatQuality(album)}
+                      </span>
+                    )}
+                  </div>
+                </Link>
+                <CardActions target={{ kind: 'album', albumId: album.id, title: album.title }} />
+              </div>
             ))}
           </div>
 

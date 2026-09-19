@@ -199,6 +199,14 @@ export class PlaybackService {
    */
   private playedMs = 0;
   private playingSince: number | null = null;
+  /**
+   * Items put in with "play next" that have not played yet, newest first
+   * (R01.4). Their position already makes them next without shuffle; this
+   * list is what keeps the promise WITH shuffle, where the next index would
+   * otherwise be random. Kept in memory only: after a restart an unplayed
+   * "play next" is an ordinary queue item again.
+   */
+  private playNextIds: string[] = [];
   private dispatch: DispatchStatus = idleDispatch();
 
   /**
@@ -646,6 +654,30 @@ export class PlaybackService {
     this.persistState();
   }
 
+  /**
+   * Jump inside the current track (R01.1).
+   *
+   * The position is only half the job: the server times the track itself for
+   * renderers that report nothing (see `playedMs`), and that clock decides
+   * when the queue advances. Without re-basing it here, a jump backwards
+   * would leave the session convinced the track was nearly over and it would
+   * skip on within seconds. The clamp keeps a jump past the end from acting
+   * as a "next" the listener did not ask for.
+   */
+  seekTo(position: number, origin: PlaybackOrigin = SERVER_ORIGIN): number {
+    const duration = this.currentTrack?.duration;
+    const target = Math.max(
+      0,
+      duration && duration > 0 ? Math.min(position, Math.max(0, duration - 1)) : position,
+    );
+    this.state.position = target;
+    this.playedMs = target * 1000;
+    this.playingSince = this.state.state === 'playing' ? Date.now() : null;
+    this.persistState();
+    this.emitState(origin);
+    return target;
+  }
+
   setShuffle(shuffle: boolean, origin: PlaybackOrigin = SERVER_ORIGIN): void {
     if (this.state.shuffle === shuffle) return;
     this.state.shuffle = shuffle;
@@ -682,7 +714,15 @@ export class PlaybackService {
    * so it returns null and the track is dispatched at the end instead.
    */
   peekNext(): { itemId: string; track: TrackInfo } | null {
-    if (this.queue.length === 0 || this.state.shuffle) return null;
+    if (this.queue.length === 0) return null;
+    // An explicit "play next" is a fixed answer even under shuffle, so it can
+    // be handed to a speaker in advance like any other next track.
+    const promised = this.firstPlayNextIndex();
+    if (promised >= 0) {
+      const entry = this.queue[promised];
+      return { itemId: entry.itemId, track: this.queueEntryToTrackInfo(entry) };
+    }
+    if (this.state.shuffle) return null;
     if (this.state.repeat === 'one') {
       const current = this.queue[this.queueIndex];
       return current
@@ -748,6 +788,7 @@ export class PlaybackService {
     deviceId?: string,
   ): void {
     this.queue = tracks.map((t, i) => this.toEntry(t, i));
+    this.playNextIds = [];
     this.queueIndex =
       this.queue.length === 0 ? -1 : Math.max(0, Math.min(startIndex, this.queue.length - 1));
     this.state.queueItemId = this.queue[this.queueIndex]?.itemId ?? null;
@@ -771,6 +812,44 @@ export class PlaybackService {
     this.persistState();
     this.emitQueue(origin);
     return { ...entry };
+  }
+
+  /**
+   * Put tracks straight after the one playing (R01.1, "play next").
+   *
+   * Each call lands directly behind the current item, so a second "play next"
+   * goes in front of the first — the same order a listener means by "and then
+   * this one". The current item is untouched, so what is playing keeps
+   * playing; `queueIndex` does not move because everything lands after it.
+   */
+  insertNext(tracks: TrackInfo[], origin: PlaybackOrigin = SERVER_ORIGIN): QueueEntry[] {
+    if (tracks.length === 0) return [];
+    const at = this.queueIndex < 0 ? 0 : this.queueIndex + 1;
+    const entries = tracks.map((t, i) => this.toEntry(t, at + i));
+    this.queue.splice(at, 0, ...entries);
+    this.reindex();
+    this.playNextIds = [...entries.map((e) => e.itemId), ...this.playNextIds];
+    this.bump();
+    this.persistQueue();
+    this.persistState();
+    this.emitQueue(origin);
+    return entries.map((e) => ({ ...e }));
+  }
+
+  /** Append several tracks at the end, leaving the current item alone (R01.1). */
+  appendTracks(tracks: TrackInfo[], origin: PlaybackOrigin = SERVER_ORIGIN): QueueEntry[] {
+    if (tracks.length === 0) return [];
+    const entries = tracks.map((t, i) => this.toEntry(t, this.queue.length + i));
+    this.queue.push(...entries);
+    if (this.queueIndex < 0) {
+      // Items added to an idle session are "next up", not "now playing".
+      this.queueIndex = -1;
+    }
+    this.bump();
+    this.persistQueue();
+    this.persistState();
+    this.emitQueue(origin);
+    return entries.map((e) => ({ ...e }));
   }
 
   /** Remove one occurrence. Returns false when the item is unknown (already gone). */
@@ -814,6 +893,7 @@ export class PlaybackService {
    */
   clearQueue(origin: PlaybackOrigin = SERVER_ORIGIN): void {
     this.queue = [];
+    this.playNextIds = [];
     this.queueIndex = -1;
     this.state.queueItemId = null;
     this.bump();
@@ -869,6 +949,14 @@ export class PlaybackService {
       return null;
     }
 
+    // "Play next" was asked for explicitly, so it wins over shuffle and over
+    // repeat-one: the listener said which track comes after this one.
+    const promised = this.firstPlayNextIndex();
+    if (promised >= 0) {
+      this.playNextIds = this.playNextIds.filter((id) => id !== this.queue[promised].itemId);
+      return this.startIndex(promised, origin);
+    }
+
     if (this.state.repeat === 'one') {
       const current = this.queue[this.queueIndex];
       const track =
@@ -911,6 +999,21 @@ export class PlaybackService {
     const prevIndex = this.queueIndex - 1;
     if (prevIndex < 0 || prevIndex >= this.queue.length) return null;
     return this.startIndex(prevIndex, origin);
+  }
+
+  /**
+   * Queue position of the "play next" that should come first: the most
+   * recently asked for, which is also the one right behind the current item.
+   * Ids that were removed from the queue, or that are playing now, are dropped
+   * on the way. -1 when nothing was promised.
+   */
+  private firstPlayNextIndex(): number {
+    while (this.playNextIds.length > 0) {
+      const index = this.queue.findIndex((item) => item.itemId === this.playNextIds[0]);
+      if (index >= 0 && index !== this.queueIndex) return index;
+      this.playNextIds.shift();
+    }
+    return -1;
   }
 
   private startIndex(index: number, origin: PlaybackOrigin): TrackInfo | null {
