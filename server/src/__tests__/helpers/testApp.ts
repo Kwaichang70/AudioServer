@@ -16,6 +16,7 @@ import { historyRouter } from '../../routes/history.js';
 import { smartPlaylistsRouter } from '../../routes/smart-playlists.js';
 import { zones } from '../../services/zones.js';
 import { listenbrainzRouter } from '../../routes/listenbrainz.js';
+import { recommendationsRouter } from '../../routes/recommendations.js';
 import { scrobbleRouter } from '../../routes/scrobble.js';
 import { librespotRouter } from '../../routes/librespot.js';
 import { openApiSpec } from '../../openapi.js';
@@ -91,6 +92,7 @@ export async function createTestApp(options: TestAppOptions = {}) {
   app.use('/api/history', historyRouter);
   app.use('/api/smart-playlists', smartPlaylistsRouter);
   app.use('/api/listenbrainz', listenbrainzRouter);
+  app.use('/api/recommendations', recommendationsRouter);
   app.use('/api/scrobble', scrobbleRouter);
   app.use('/api/librespot', librespotRouter);
   app.use('/api', notFoundHandler);

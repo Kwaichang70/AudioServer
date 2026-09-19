@@ -329,3 +329,93 @@ describe('turning the household session into zones', () => {
     expect(db.prepare('SELECT COUNT(*) as n FROM queue_items').get()).toEqual({ n: 2 });
   });
 });
+
+/**
+ * V12.1: `playlist_tracks.track_id` was a foreign key into the local `tracks`
+ * table, so a playlist could hold nothing but local files and an item whose
+ * file left the library disappeared with it. The rebuild has to keep every
+ * row exactly where it was and give each one a stable id and a snapshot.
+ */
+describe('rebuilding playlist items for mixed sources', () => {
+  let dir: string;
+  let path: string;
+
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'audioserver-v12-db-'));
+    path = join(dir, 'playlists.db');
+    const db = new Database(path);
+    db.exec(`
+      CREATE TABLE artists (id TEXT PRIMARY KEY, name TEXT NOT NULL, image_url TEXT, source TEXT NOT NULL DEFAULT 'local', created_at INTEGER, updated_at INTEGER);
+      CREATE TABLE albums (id TEXT PRIMARY KEY, title TEXT NOT NULL, artist_id TEXT NOT NULL, artist_name TEXT NOT NULL, year INTEGER, genre TEXT, cover_url TEXT, track_count INTEGER DEFAULT 0, source TEXT NOT NULL DEFAULT 'local', created_at INTEGER, updated_at INTEGER);
+      CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT NOT NULL, album_id TEXT NOT NULL, album_title TEXT NOT NULL, artist_id TEXT NOT NULL, artist_name TEXT NOT NULL, track_number INTEGER, disc_number INTEGER DEFAULT 1, duration REAL, format TEXT, sample_rate INTEGER, bit_depth INTEGER, file_path TEXT, cover_url TEXT, source TEXT NOT NULL DEFAULT 'local', created_at INTEGER, updated_at INTEGER);
+      CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', created_at INTEGER DEFAULT (unixepoch()));
+      CREATE TABLE playlists (id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, track_count INTEGER DEFAULT 0, created_at INTEGER, updated_at INTEGER);
+      CREATE TABLE playlist_tracks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        playlist_id TEXT NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+        track_id TEXT NOT NULL REFERENCES tracks(id),
+        position INTEGER NOT NULL,
+        added_at INTEGER DEFAULT (unixepoch())
+      );
+      INSERT INTO artists (id, name) VALUES ('ar', 'Old Artist');
+      INSERT INTO albums (id, title, artist_id, artist_name) VALUES ('al', 'Old Album', 'ar', 'Old Artist');
+      INSERT INTO tracks (id, title, album_id, album_title, artist_id, artist_name, duration, file_path) VALUES ('t1', 'Kept Track', 'al', 'Old Album', 'ar', 'Old Artist', 250, '//diskstation/Music/kept.flac');
+      INSERT INTO users (id, username, password_hash, role) VALUES ('u1', 'danny', 'h', 'admin');
+      INSERT INTO playlists (id, name) VALUES ('pl', 'Old Playlist');
+      INSERT INTO playlist_tracks (id, playlist_id, track_id, position, added_at) VALUES (42, 'pl', 't1', 3, 1700000000);
+    `);
+    db.close();
+    await initDatabase(path);
+  });
+
+  afterAll(() => {
+    closeDatabase();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('keeps the row, its id, its position and its time, and adds the snapshot', () => {
+    const row = getRawDb().prepare('SELECT * FROM playlist_tracks WHERE id = 42').get() as Record<
+      string,
+      unknown
+    >;
+    expect(row).toMatchObject({
+      id: 42,
+      playlist_id: 'pl',
+      track_id: 't1',
+      position: 3,
+      added_at: 1700000000,
+      source: 'local',
+      track_title: 'Kept Track',
+      artist_name: 'Old Artist',
+      album_title: 'Old Album',
+      duration: 250,
+    });
+    expect(String(row.item_id)).toMatch(/^pli-/);
+  });
+
+  it('accepts a track the local library does not have', () => {
+    expect(() =>
+      getRawDb()
+        .prepare(
+          `INSERT INTO playlist_tracks (playlist_id, item_id, track_id, source, track_title, artist_name, position)
+           VALUES ('pl', 'pli-external', 'qobuz:1', 'qobuz', 'Remote', 'Remote Artist', 4)`,
+        )
+        .run(),
+    ).not.toThrow();
+  });
+
+  it('leaves the rebuilt table alone on the next start', async () => {
+    const before = getRawDb()
+      .prepare('SELECT item_id FROM playlist_tracks WHERE id = 42')
+      .get() as {
+      item_id: string;
+    };
+    closeDatabase();
+    await initDatabase(path);
+    const after = getRawDb().prepare('SELECT item_id FROM playlist_tracks WHERE id = 42').get() as {
+      item_id: string;
+    };
+    expect(after.item_id).toBe(before.item_id);
+    expect(getRawDb().prepare('SELECT COUNT(*) as c FROM playlist_tracks').get()).toEqual({ c: 2 });
+  });
+});

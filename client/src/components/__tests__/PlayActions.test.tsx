@@ -190,13 +190,39 @@ describe('PlayActions', () => {
     expect(mocks.audio.playNextTracks).not.toHaveBeenCalled();
   });
 
-  it('offers no heart and no playlist for a streaming track', () => {
+  it('offers no heart for a streaming track, which has no library id', () => {
     render(<PlayActions target={{ kind: 'track', track: { ...track, id: 'qobuz:123' } }} />);
     openMenu();
 
     expect(screen.queryByRole('menuitem', { name: /favorites/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('menuitem', { name: /playlist/ })).not.toBeInTheDocument();
     expect(mocks.api.checkFavorite).not.toHaveBeenCalled();
+  });
+
+  it('stores a Qobuz track in a playlist with its snapshot (V12.1)', async () => {
+    render(<PlayActions target={{ kind: 'track', track: { ...track, id: 'qobuz:123' } }} />);
+    openMenu();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: /Add to playlist/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Sunday' }));
+
+    await waitFor(() =>
+      expect(mocks.api.addToPlaylist).toHaveBeenCalledWith(
+        'pl-1',
+        expect.objectContaining({
+          trackId: 'qobuz:123',
+          title: 'So What',
+          artistName: 'Miles Davis',
+        }),
+      ),
+    );
+  });
+
+  it('keeps Spotify out of playlists, as everywhere', () => {
+    render(<PlayActions target={{ kind: 'track', track: { ...track, id: 'spotify:abc' } }} />);
+    openMenu();
+
+    expect(screen.queryByRole('menuitem', { name: /playlist/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /favorites/ })).not.toBeInTheDocument();
   });
 
   it('shows whether the track is already a favorite, and toggles it', async () => {

@@ -131,10 +131,18 @@ export default function PlayActions({ target, triggerTabIndex, className }: Prop
   const [busy, setBusy] = useState(false);
 
   const isProviderTrack = target.kind === 'track' && PROVIDER_PREFIX.test(target.track.id);
-  // Favorites and server playlists hold library items; a Qobuz or radio row
-  // has no library id to store, so those two actions are not offered there.
+  // Favorites hold library items only: a Qobuz or radio row has no library id.
   const canFavorite = !isProviderTrack;
-  const canAddToPlaylist = target.kind === 'track' && !isProviderTrack;
+  // A playlist holds any source since V12.1, as long as the item can describe
+  // itself: an external track has no row on the server, so its title and
+  // artist travel with it. Spotify stays out — it plays through its own
+  // player, never from a stream the server hands out.
+  const canAddToPlaylist =
+    target.kind === 'track' &&
+    (!isProviderTrack ||
+      (!target.track.id.startsWith('spotify:') &&
+        !!target.track.title &&
+        !!target.track.artistName));
 
   const close = () => {
     setOpen(false);
@@ -205,8 +213,24 @@ export default function PlayActions({ target, triggerTabIndex, className }: Prop
 
   const addToPlaylist = async (playlist: StoredPlaylist) => {
     if (target.kind !== 'track') return;
+    const t = target.track;
     try {
-      await api.addToPlaylist(playlist.id, target.track.id);
+      // A local id is enough, the server reads the library itself; an external
+      // track brings its snapshot along (V12.1).
+      await api.addToPlaylist(
+        playlist.id,
+        isProviderTrack
+          ? {
+              trackId: t.id,
+              title: t.title,
+              artistName: t.artistName,
+              albumTitle: t.albumTitle,
+              albumId: t.albumId ?? null,
+              duration: t.duration ?? null,
+              format: t.format ?? null,
+            }
+          : t.id,
+      );
       toast(`Added to "${playlist.name}"`, 'success');
     } catch (err) {
       if (!isApiError(err)) {

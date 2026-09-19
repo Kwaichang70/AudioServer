@@ -2,7 +2,7 @@
 
 **Datum:** 18 september 2026
 **Onderzochte versie:** commit 1e3690d op `master` (na V11), werkmap schoon
-**Vervolg op:** [VERBETERPLAN_SPRINTS.md](VERBETERPLAN_SPRINTS.md) (V01–V11 uitgevoerd, V12 open)
+**Vervolg op:** [VERBETERPLAN_SPRINTS.md](VERBETERPLAN_SPRINTS.md) (V01–V12 uitgevoerd; V12 bleek bij het samenvoegen al gebouwd, zie het uitvoeringslog)
 **Doel:** AudioServer laten aanvoelen als Roon voor de dagelijkse luisteraar: rijke, gekoppelde metadata, één bibliotheek over lokaal en Qobuz heen, speelacties die overal werken, en een speler die laat zien wat hij doet.
 
 ## 1. Advies in het kort
@@ -405,3 +405,15 @@ _Status: gehaald op Windows (473 tests, 1 overgeslagen met reden); Linux via CI.
 **Wacht op acceptatie (NAS):** spoelen op de Cocktail Audio, de Sonos en de Volumio, of een zichtbare weigering waar het niet kan; "speel hierna" vanuit zoeken, album en playlist tijdens een album op een speaker, met de tablet daarna dicht; "speel hierna" met shuffle aan op een speaker, en kijken of het klaargezette nummer ook het nummer is dat komt; de wachtrij opslaan als playlist met een Qobuz-nummer erin.
 
 **Beslismoment na R01:** R02 (navigatie, zoekbalk, thema) kan starten. De NAS-acceptatie van V03–V11 en R01 blijft de voorwaarde voor R09.
+
+### Samenvoeging met V12 — 19 september 2026
+
+**Correctie op dit plan.** De analyse van 18 september las de lokale werkmap, en die liep achter op GitHub. Een andere sessie had die ochtend V12.1–V12.4 al gebouwd en naar master gepusht: gemengde playlists met bronverwijzing en momentopname, aanbevelingen met herkomst en een lokale mix, shuffle als ronde, en een ontdekmix bewaren. Een sleeptimer (E01) staat op de branch `claude/verbeterplan-sprints-uitvoering-tdav7i`, niet op master. Gevolgen voor dit plan: **R07.3** (gemengde playlists) en **R08.3** (shuffle zonder herhaling) zijn al gedaan, **R08.2** deels, en **R09.3** (slaaptimer) ligt klaar op die branch.
+
+**Wat het samenvoegen vroeg.** Zes conflicten, en drie plekken waar de code wel samenging maar de betekenis niet:
+
+- **Shuffle.** De ronde van V12.3 en de "speel hierna"-belofte van R01 werken samen: de belofte gaat voor, en een beloofd nummer telt als gehoord in de ronde. Mijn invoegfuncties gooiden de ronde niet weg zoals elke andere wachtrijbewerking dat doet; nu wel.
+- **Playlists.** V12.1 laat Qobuz- en radio-items in een playlist toe. "Bewaar als playlist" en het menu volgen dat model: externe items gaan mee met hun momentopname, Spotify blijft erbuiten, en een lijst wordt item voor item via V12.1's eigen regels opgeslagen, in één transactie.
+- **Playlistpagina.** V12.1 speelt vanaf een rij alleen wat nu kan spelen; het menu gebruikt nu diezelfde lijst, zodat een onbeschikbaar item nooit via "speel vanaf hier" in de wachtrij komt.
+
+**Gecontroleerd:** lint en typecheck groen; client 190 tests groen; server 402 tests groen en 1 bewust overgeslagen. Eén testbestand van V12.4 (`discovery-mix`) meldt daarna een fout bij het opruimen: al zijn zes tests slagen, maar Windows laat de tijdelijke databasemap niet verwijderen. Dat bestand gebruikt de gewijzigde lijst-variant niet; de Linux-CI op GitHub is voor dit punt de maatstaf.

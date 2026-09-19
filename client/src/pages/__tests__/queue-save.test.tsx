@@ -5,12 +5,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   api: {
     createPlaylist: vi.fn(),
-    addTracksToPlaylist: vi.fn(),
+    addItemsToPlaylist: vi.fn(),
   },
   audio: {
     queue: [
       { id: 't1', title: 'One', artistName: 'A', albumTitle: 'X', itemId: 'i1' },
       { id: 'qobuz:9', title: 'Streamed', artistName: 'B', albumTitle: 'Y', itemId: 'i2' },
+      { id: 'spotify:5', title: 'Spotted', artistName: 'C', albumTitle: 'Z', itemId: 'i4' },
       { id: 't2', title: 'Two', artistName: 'A', albumTitle: 'X', itemId: 'i3' },
     ],
     queueIndex: 0,
@@ -43,16 +44,16 @@ function renderQueue() {
 }
 
 /**
- * R01.3: keep the queue you built. A playlist row points at the library, so a
- * streaming item cannot go in yet — and the listener is told, instead of
- * finding a playlist that is quietly shorter than the queue was.
+ * R01.3: keep the queue you built. Since V12.1 a playlist holds Qobuz and
+ * radio items too, with their snapshot; Spotify stays out, as everywhere. What
+ * is left out is counted in the message, never dropped silently.
  */
 describe('save the queue as a playlist', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.api.createPlaylist.mockResolvedValue({ data: { id: 'pl-7', name: 'Evening' } });
-    mocks.api.addTracksToPlaylist.mockResolvedValue({
-      data: { ok: true, trackCount: 2, added: 2, skipped: 1 },
+    mocks.api.addItemsToPlaylist.mockResolvedValue({
+      data: { ok: true, trackCount: 3, added: 3, skipped: 0, skippedItems: [] },
     });
   });
 
@@ -63,11 +64,26 @@ describe('save the queue as a playlist', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(mocks.api.createPlaylist).toHaveBeenCalledWith('Evening'));
-    expect(mocks.api.addTracksToPlaylist).toHaveBeenCalledWith('pl-7', ['t1', 'qobuz:9', 't2']);
+    const [, items] = mocks.api.addItemsToPlaylist.mock.calls[0] as unknown as [
+      string,
+      Array<{ trackId: string; title?: string }>,
+    ];
+    // In queue order, Qobuz with its snapshot (V12.1), Spotify left out.
+    expect(items.map((item) => item.trackId)).toEqual(['t1', 'qobuz:9', 't2']);
+    expect(items[1]).toMatchObject({ title: 'Streamed', artistName: 'B' });
     expect(await screen.findByText('Playlist opened')).toBeInTheDocument();
   });
 
-  it('names the streaming tracks it could not store', async () => {
+  it('names what it could not store: Spotify, and what the server refused', async () => {
+    mocks.api.addItemsToPlaylist.mockResolvedValue({
+      data: {
+        ok: true,
+        trackCount: 2,
+        added: 2,
+        skipped: 1,
+        skippedItems: [{ trackId: 'qobuz:9', reason: 'no title' }],
+      },
+    });
     renderQueue();
     fireEvent.click(screen.getByRole('button', { name: 'Save as playlist' }));
     fireEvent.change(screen.getByLabelText('Playlist name'), { target: { value: 'Evening' } });
@@ -75,7 +91,7 @@ describe('save the queue as a playlist', () => {
 
     await waitFor(() =>
       expect(mocks.toast).toHaveBeenCalledWith(
-        'Saved 2 tracks to "Evening"; 1 streaming tracks cannot be stored in a playlist yet',
+        'Saved 2 tracks to "Evening"; 2 could not be stored',
         'info',
       ),
     );

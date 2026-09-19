@@ -32,24 +32,37 @@ export default function QueuePage() {
   const [saving, setSaving] = useState<false | 'naming' | 'busy'>(false);
   const [name, setName] = useState('');
 
-  // R01.3: keep what you built. Only library tracks can go in a playlist
-  // today (a playlist row points at the library); streaming items are named
-  // in the result instead of silently dropped.
+  // R01.3: keep what you built. Since V12.1 a playlist holds any source, so
+  // Qobuz and radio items go in with their snapshot. Spotify stays out, as it
+  // does everywhere: it plays through its own player, not from a stream. What
+  // is left out is counted in the message, never dropped silently.
   const saveAsPlaylist = async (event: FormEvent) => {
     event.preventDefault();
     const title = name.trim();
     if (!title) return;
     setSaving('busy');
     try {
+      const storable = queue.filter((t) => !t.id.startsWith('spotify:'));
+      const spotify = queue.length - storable.length;
       const created = await api.createPlaylist(title);
-      const ids = queue.map((t) => t.id);
-      const res = await api.addTracksToPlaylist(created.data.id, ids);
-      const { added, skipped } = res.data;
+      const res = await api.addItemsToPlaylist(
+        created.data.id,
+        storable.map((t) => ({
+          trackId: t.id,
+          title: t.title,
+          artistName: t.artistName,
+          albumTitle: t.albumTitle,
+          albumId: t.albumId ?? null,
+          duration: t.duration ?? null,
+          format: t.format ?? null,
+        })),
+      );
+      const left = res.data.skipped + spotify;
       toast(
-        skipped > 0
-          ? `Saved ${added} tracks to "${title}"; ${skipped} streaming tracks cannot be stored in a playlist yet`
-          : `Saved ${added} tracks to "${title}"`,
-        skipped > 0 ? 'info' : 'success',
+        left > 0
+          ? `Saved ${res.data.added} tracks to "${title}"; ${left} could not be stored`
+          : `Saved ${res.data.added} tracks to "${title}"`,
+        left > 0 ? 'info' : 'success',
       );
       setSaving(false);
       setName('');

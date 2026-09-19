@@ -1,6 +1,7 @@
 import type { Album, Artist, RadioStation, Track } from '@audioserver/shared';
 import { API_BASE, STORAGE_KEYS } from '../constants.js';
 import type {
+  ApiMeta,
   ApiResponse,
   AudioPath,
   OutputCapabilities,
@@ -23,6 +24,9 @@ import type {
   LibraryStats,
   LibraryTrack,
   ListenBrainzDiscover,
+  MixItem,
+  MixMeta,
+  RecommendationSettings,
   ListenBrainzStats,
   LocalSearchResults,
   OkResponse,
@@ -32,7 +36,10 @@ import type {
   PlaybackStateResponse,
   SourceCapabilities,
   QueueCommandOptions,
+  AddPlaylistItem,
   PlaylistImportMeta,
+  PlaylistItem,
+  PlaylistItemsMeta,
   ProviderAuthResult,
   ProviderSearchResponse,
   ProviderStatuses,
@@ -676,37 +683,52 @@ export const api = {
     fetchApi(`/playlists/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deletePlaylist: (id: string): Promise<OkResponse> =>
     fetchApi(`/playlists/${id}`, { method: 'DELETE' }),
-  getPlaylistTracks: (id: string): Promise<ApiResponse<LibraryTrack[]>> =>
+  getPlaylistTracks: (id: string): Promise<ApiResponse<PlaylistItem[], PlaylistItemsMeta>> =>
     fetchApi(`/playlists/${id}/tracks`),
+  /**
+   * Add a track (V12.1). A local id needs nothing else — the server reads the
+   * library itself. An external track (Qobuz, radio) has no local row, so its
+   * title and artist travel with it and become the item's snapshot.
+   */
   addToPlaylist: (
     playlistId: string,
-    trackId: string,
-  ): Promise<ApiResponse<{ ok: true; trackCount: number }>> =>
+    track: string | AddPlaylistItem,
+  ): Promise<ApiResponse<{ ok: true; itemId: string; trackCount: number }>> =>
     fetchApi(`/playlists/${playlistId}/tracks`, {
       method: 'POST',
-      body: JSON.stringify({ trackId }),
+      body: JSON.stringify(typeof track === 'string' ? { trackId: track } : track),
     }),
   /**
-   * Add a list of library tracks in order (R01.3). Ids that are not library
-   * tracks — Qobuz, radio — are left out and counted in `skipped`.
+   * Add a list in order, in one request (R01.3, "save the queue"). Each entry
+   * has the single-add shape (V12.1): a local id alone, an external one with
+   * its title and artist. What the server refuses comes back in `skippedItems`.
    */
-  addTracksToPlaylist: (
+  addItemsToPlaylist: (
     playlistId: string,
-    trackIds: string[],
-  ): Promise<ApiResponse<{ ok: true; trackCount: number; added: number; skipped: number }>> =>
+    items: AddPlaylistItem[],
+  ): Promise<
+    ApiResponse<{
+      ok: true;
+      trackCount: number;
+      added: number;
+      skipped: number;
+      skippedItems: Array<{ trackId: string; reason: string }>;
+    }>
+  > =>
     fetchApi(`/playlists/${playlistId}/tracks`, {
       method: 'POST',
-      body: JSON.stringify({ trackIds }),
+      body: JSON.stringify({ items }),
     }),
+  /** `itemId` removes exactly one item; a track id removes the first with that track. */
   removeFromPlaylist: (
     playlistId: string,
-    trackId: string,
+    itemId: string,
   ): Promise<ApiResponse<{ ok: true; trackCount: number }>> =>
-    fetchApi(`/playlists/${playlistId}/tracks/${trackId}`, { method: 'DELETE' }),
-  reorderPlaylist: (playlistId: string, trackIds: string[]): Promise<OkResponse> =>
+    fetchApi(`/playlists/${playlistId}/tracks/${itemId}`, { method: 'DELETE' }),
+  reorderPlaylist: (playlistId: string, itemIds: string[]): Promise<OkResponse> =>
     fetchApi(`/playlists/${playlistId}/reorder`, {
       method: 'POST',
-      body: JSON.stringify({ trackIds }),
+      body: JSON.stringify({ itemIds }),
     }),
   exportPlaylist: (playlistId: string): string => `${API_BASE}/playlists/${playlistId}/export`,
   importPlaylist: (
@@ -847,6 +869,26 @@ export const api = {
     fetchApi(`/listenbrainz/stats?range=${encodeURIComponent(range)}`),
   listenbrainzDiscover: (): Promise<ApiResponse<ListenBrainzDiscover>> =>
     fetchApi('/listenbrainz/discover'),
+
+  // ─── Recommendations (V12.2) ────────────────────────────────
+  // A mix from this server alone; no external account involved.
+  getRecommendationMix: (limit = 25): Promise<ApiResponse<MixItem[], MixMeta>> =>
+    fetchApi(`/recommendations/mix?limit=${limit}`),
+  getRecommendationSettings: (): Promise<ApiResponse<RecommendationSettings>> =>
+    fetchApi('/recommendations/settings'),
+  /** Keep a generated mix as an ordinary playlist (V12.4). */
+  saveRecommendationMix: (
+    name: string,
+    trackIds: string[],
+  ): Promise<ApiResponse<StoredPlaylist, ApiMeta & { saved: number; skipped: number }>> =>
+    fetchApi('/recommendations/mix/save', {
+      method: 'POST',
+      body: JSON.stringify({ name, trackIds }),
+    }),
+  updateRecommendationSettings: (
+    updates: Partial<RecommendationSettings>,
+  ): Promise<ApiResponse<RecommendationSettings>> =>
+    fetchApi('/recommendations/settings', { method: 'PATCH', body: JSON.stringify(updates) }),
 
   // ─── Cover art fetch ────────────────────────────────────────
   fetchCovers: (): Promise<ApiResponse<FetchStatus>> =>

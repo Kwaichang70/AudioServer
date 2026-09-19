@@ -477,6 +477,41 @@ export interface StoredPlaylist extends Omit<Playlist, 'description' | 'source'>
   source?: ProviderType;
 }
 
+/**
+ * One item in a playlist (V12.1). It carries its own stable id, the source it
+ * came from and a snapshot of what it was when it was added, so a playlist can
+ * hold local and provider tracks side by side and an item that cannot be
+ * played right now still says what it is.
+ */
+export interface PlaylistItem extends Omit<LibraryTrack, 'availability'> {
+  playlistItemId: string;
+  playlistPosition: number;
+  source: ProviderType;
+  availability?: 'available' | 'missing' | 'unavailable';
+  /** Why it cannot be played, in one sentence; absent when it can. */
+  unavailableReason?: string;
+  /** True when the fields above are the snapshot, not a live library row. */
+  fromSnapshot?: boolean;
+}
+
+/** What the client sends when adding an item to a playlist (V12.1). */
+export interface AddPlaylistItem {
+  trackId: string;
+  title?: string;
+  artistName?: string;
+  albumTitle?: string;
+  albumId?: string | null;
+  duration?: number | null;
+  coverUrl?: string | null;
+  format?: string | null;
+}
+
+export interface PlaylistItemsMeta extends ApiMeta {
+  total: number;
+  playable: number;
+  unavailable: number;
+}
+
 export interface PlaylistImportMeta extends ApiMeta {
   total: number;
   matched: number;
@@ -565,6 +600,32 @@ export interface ListenBrainzStats {
   }>;
 }
 
+/**
+ * A recommendation resolved against the local library (V12.2). Only a
+ * `certain` match may be played; a `probable` one is offered as a link,
+ * because a same-named track can be a different recording.
+ */
+export interface LocalMatch {
+  trackId: string;
+  albumId: string | null;
+  title: string;
+  artistName: string;
+  albumTitle: string;
+  duration: number | null;
+  certainty: 'certain' | 'probable';
+  playable: boolean;
+  note: string;
+}
+
+export interface DiscoverTrack {
+  title: string;
+  artist: string;
+  localTrackId: string | null;
+  localAlbumId: string | null;
+  match: LocalMatch | null;
+  why: string;
+}
+
 export interface ListenBrainzDiscover {
   configured: boolean;
   freshReleases: Array<{
@@ -572,16 +633,37 @@ export interface ListenBrainzDiscover {
     artist: string;
     releaseDate: string | null;
     localAlbumId: string | null;
+    why: string;
   }>;
   playlists: Array<{
     title: string;
-    tracks: Array<{
-      title: string;
-      artist: string;
-      localTrackId: string | null;
-      localAlbumId: string | null;
-    }>;
+    why: string;
+    tracks: DiscoverTrack[];
   }>;
+}
+
+/** One track of a local mix, with the basis that put it there (V12.2). */
+export interface MixItem {
+  id: string;
+  title: string;
+  artistName: string;
+  albumTitle: string;
+  albumId: string | null;
+  duration: number | null;
+  source: 'local';
+  why: string;
+  basis: 'history' | 'favorites' | 'library';
+}
+
+export interface MixMeta extends ApiMeta {
+  total: number;
+  basis: string;
+  personalised: boolean;
+}
+
+export interface RecommendationSettings {
+  useHistory: boolean;
+  useFavorites: boolean;
 }
 
 export interface FetchStatus {

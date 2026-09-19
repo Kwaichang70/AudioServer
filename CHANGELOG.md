@@ -46,10 +46,12 @@ the kind of change, not semver — there are no releases yet.
 - Rechtsklik opent het; in toetsenbordlijsten ook de contextmenutoets en
   Shift+F10. Op een telefoon is het een sheet van onderen en is de ⋯-knop
   altijd zichtbaar. Geen long-press: op iOS opent dat het linkvoorbeeld.
-- Streamingtracks krijgen geen hart en geen playlistkeuze: ze hebben geen
-  bibliotheek-id. Albums en artiesten gaan naar de wachtrij zonder
-  ontbrekende bestanden en zonder bestandspaden in de wachtrijdata.
-- De oude `AddToPlaylist`-knop is opgegaan in het menu.
+- Streamingtracks krijgen geen hart: een favoriet is een bibliotheekitem.
+  In een playlist mogen ze wel, met hun momentopname (V12.1); Spotify niet,
+  dat speelt via zijn eigen speler. Albums en artiesten gaan naar de
+  wachtrij zonder ontbrekende bestanden en zonder bestandspaden.
+- De oude `AddToPlaylist`-knop is opgegaan in het menu, inclusief de
+  V12.1-regel voor externe nummers.
 - Nieuw: `GET /library/artists/:id/tracks`; "speel artiest" is één verzoek.
 
 **De speler** (`client/src/components/NowPlayingFull.tsx`, `NowPlayingBar.tsx`, `player/*`)
@@ -61,8 +63,9 @@ the kind of change, not semver — there are no releases yet.
   commando pas als het drukken stopt, en springt terug als de speaker weigert.
 - Balk: hart en een lyricsknop die het volledige scherm op de lyrics opent
   (desktop; op de telefoon staat het in het volledige scherm).
-- Wachtrij: "Bewaar als playlist", in één verzoek en in volgorde.
-  Streamingitems gaan er nog niet in; de melding zegt hoeveel.
+- Wachtrij: "Bewaar als playlist", in één verzoek, in volgorde en in één
+  transactie. Qobuz- en radio-items gaan mee met hun momentopname (V12.1);
+  wat niet kan, zoals Spotify, wordt genoemd in plaats van stil weggelaten.
 
 **Onderhoud:** twee servertests kregen een realistisch tijdsbudget met de reden
 erbij: de sessietests rekenen met echte bcrypt-kosten 12, en de importtest laadt
@@ -133,6 +136,138 @@ die de analyse vond en die geen ontwerp vragen.
 Tests: 326 servertests (1 overgeslagen met reden) en 146 clienttests, 28 nieuw:
 `utils/queue`, `utils/theme`, `sw/register`, `ZonesSection`, discnummers en de
 voorbereiding van het volgende nummer. Lint, typecheck en build groen.
+
+## V12.4 — Een ontdekmix bewaren (verbeterplan sprint 12)
+
+**Een mix wordt pas iets als je hem kunt bewaren** (`server/src/routes/recommendations.ts`)
+
+- Een mix wordt per verzoek opgebouwd en is bij de volgende keer laden weg.
+  `POST /api/recommendations/mix/save` maakt er een gewone playlist van: van
+  deze gebruiker, met een snapshot per item (V12.1), af te spelen en te
+  bewerken als elke andere. De client stuurt de nummers die de luisteraar op
+  het scherm ziet; zonder die lijst wordt een verse mix gegenereerd en bewaard.
+- Een nummer dat tussen genereren en bewaren uit de bibliotheek verdween wordt
+  overgeslagen en geteld, niet stilzwijgend meegenomen — en een mix zonder
+  afspeelbare nummers levert 409 in plaats van een lege playlist.
+- De Discover-pagina heeft er een knop voor, met een link naar het resultaat.
+
+Tests: `discovery-mix.test.ts` — bewaren en afspelen, een bewaarde mix bij
+bronuitval (ontbrekend bestand én een Qobuz-nummer zonder verbinding: beide
+blijven staan met hun reden), profielscheiding (de mix van de één staat niet in
+de bibliotheek van de ander en een geraden id geeft 404) en de weigering om
+niets te bewaren — 365 servertests, 125 clienttests.
+
+## V12.3 — Shuffle als ronde (verbeterplan sprint 12)
+
+**Niet meer trekken met teruglegging** (`server/src/services/shuffle.ts`)
+
+- Shuffle koos bij elk trackeinde een willekeurige positie in de wachtrij. Bij
+  tien nummers betekent dat gerust drie keer hetzelfde nummer voordat de vierde
+  aan de beurt is. Er is nu een **ronde**: elke wachtrijpositie komt precies
+  één keer aan bod, in willekeurige volgorde. Pas als de ronde leeg is herhaalt
+  er iets — en alleen als repeat aan staat. Met repeat uit ís de ronde de
+  wachtrij: als alles één keer geklonken heeft, stopt het afspelen.
+- Binnen een ronde gaat **minder recent gehoord** voor: wat je in de laatste
+  maand niet (of nooit) hoorde wordt vóór de rest getrokken, allebei geschud.
+  Geen strikte sortering — dat zou shuffle voorspelbaar maken.
+- Wat niet kan spelen komt niet in de ronde: een lokaal bestand dat als
+  `missing` staat en een dienst die niet verbonden is. Ze blijven in de
+  wachtrij en zijn met de hand te starten; de ronde kiest ze alleen niet.
+- Een wachtrijbewerking gooit de geplande volgorde weg maar niet het
+  geheugen: wat al geklonken heeft blijft buiten de ronde tot die afloopt.
+
+Tests: `shuffle-round.test.ts` (elke positie één keer, stoppen aan het eind van
+de ronde, nieuwe ronde bij repeat zonder twee keer hetzelfde achter elkaar,
+wachtrijbewerking, ontbrekend bestand) — 359 servertests.
+
+## V12.2 — Aanbevelingen die zeggen waar ze vandaan komen (verbeterplan sprint 12)
+
+**Een naam is geen identiteit** (`server/src/services/recommendations.ts`)
+
+- Een aanbeveling werd gekoppeld aan de bibliotheek op titel + artiest in
+  kleine letters. Dat is genoeg om een album te openen, maar niet om iets te
+  starten: "Adagio" van "The Orchestra" bestaat honderd keer. Een match is nu
+  **zeker** (titel en artiest komen overeen, los van hoofdletters, accenten en
+  leestekens) of **waarschijnlijk** (ze komen pas overeen nadat een uitgaveterm
+  als "- 2011 Remaster" of "(Live)" wegvalt). Alleen een zekere match krijgt een
+  afspeelknop; een waarschijnlijke wordt getoond met de reden waarom hij niet
+  automatisch start.
+- Een bestand dat als `missing` staat is nooit afspeelbaar, ook niet bij een
+  zekere match — dat staat er dan bij.
+
+**Elke aanbeveling draagt zijn basis**
+
+- Elk item krijgt één zin: waar het vandaan komt en waarom het er staat
+  ("ListenBrainz maakte 'Weekly Jams' van wat je gescrobbeld hebt", "je hebt
+  Known Artist 4 keer gespeeld in het laatste half jaar"). De Discover-pagina
+  toont die zin onder het item, en per lijst waar de lijst zelf op gebouwd is.
+
+**Een mix zonder externe account** (`server/src/routes/recommendations.ts`)
+
+- `GET /api/recommendations/mix` bouwt een mix uit de eigen bibliotheek en de
+  eigen luistergeschiedenis: artiesten van het laatste half jaar, aangevuld met
+  favorieten en met de bibliotheek. Wat in de laatste maand gespeeld is valt af
+  (een "ontdekking" die gisteren nog aanstond is er geen), net als bestanden die
+  ontbreken. Er gaat niets naar buiten en er is geen ListenBrainz-account nodig.
+- `GET`/`PATCH /api/recommendations/settings` zetten de persoonlijke basis aan
+  of uit. Uit betekent uit: er wordt dan niets uit de geschiedenis gelezen en de
+  mix zegt zelf dat hij een willekeurige greep uit de bibliotheek is. De
+  voorkeur staat per account in de nieuwe tabel `user_preferences`
+  (schemaversie 11), dus twee mensen op één server sturen elkaars mix niet.
+
+Tests: `recommendations.test.ts` (zeker/waarschijnlijk/geen match, ontbrekend
+bestand, mix uit geschiedenis, basis uitgezet, profielscheiding) en
+`discover-page.test.tsx` — 352 servertests, 124 clienttests.
+
+## V12.1 — Gemengde playlists (verbeterplan sprint 12)
+
+**Een playlistitem is niet langer een verwijzing naar een lokaal bestand**
+(`server/src/db/index.ts`, `server/src/services/playlist-items.ts`)
+
+- `playlist_tracks.track_id` was een foreign key naar de lokale `tracks`-tabel.
+  Daardoor kon een Qobuz-nummer er domweg niet in (de insert werd geweigerd) en
+  verdween een lokaal bestand dat de bibliotheek verliet stilletjes uit de
+  lijst. De tabel wordt eenmalig herbouwd — elke rij, zijn id, positie en tijd
+  blijven — en krijgt een **stabiele bronreferentie** (`track_id` + `source`),
+  een eigen `item_id` per positie en een **metadata-snapshot** (titel, artiest,
+  album, duur). Schemaversie 10.
+- Wat er nadrukkelijk **niet** in staat is een stream-URL: die van Qobuz is
+  ondertekend en verloopt binnen het uur, en een lokale stream draagt een
+  token. Een playlist vraagt zo'n URL pas op het moment van afspelen op, dus na
+  een herstart is de lijst identiek en werkt hij nog steeds.
+- Beschikbaarheid wordt per keer bepaald, nooit opgeslagen: de bibliotheek
+  wordt herscand en een dienst logt in en uit, dus het antwoord van gisteren
+  bewijst niets over vandaag.
+
+**Items die nu niet kunnen spelen blijven staan** (`server/src/routes/playlists.ts`)
+
+- `GET /api/playlists/:id/tracks` laat niets meer weg. Een bestand dat de
+  scanner niet vindt is `missing`, een nummer dat de bibliotheek verliet of een
+  dienst die niet verbonden is `unavailable` — elk met de snapshot en één zin
+  waarom. De UI toont ze grijs met die reden, slaat ze over bij "Play All" en
+  start ze niet als je erop klikt.
+- Toevoegen kan met elke bron: een lokaal id wordt door de server zelf uit de
+  bibliotheek gelezen, een extern id (`qobuz:…`, `radio:…`) moet titel en
+  artiest meesturen — anders 400, want een item zonder naam is een id dat
+  niemand kan lezen. Spotify blijft erbuiten: dat speelt via zijn eigen speler,
+  niet via een stream-URL.
+- Elk item heeft een eigen id, dus twee keer hetzelfde nummer in één playlist
+  zijn twee items: verwijderen en verslepen pakken precies de juiste. Oudere
+  clients die `trackIds` sturen blijven werken.
+
+**M3U-export benoemt zijn beperking**
+
+- Een M3U-regel is een pad of een vaste URL, en dat is precies wat een extern
+  item niet heeft. Lokale items exporteren zoals altijd; alle andere komen als
+  commentaarregel in het bestand te staan met de reden, en de respons telt ze
+  in `X-Playlist-Export-Skipped`. De beperking staat in het bestand zelf, want
+  dat is wat de server verlaat. Import van lokale paden werkt ongewijzigd en
+  legt nu ook meteen de snapshot vast.
+
+Tests: `mixed-playlists.test.ts` (gemengde lijst, snapshot zonder URL, herstart
+identiek, ontbrekende bron, item-ids, herordenen, export/import), de herbouw in
+`legacy-db-migration.test.ts` en `playlist-mixed.test.tsx` — 343 servertests,
+121 clienttests.
 
 ## V11 — Trackovergangen en een eerlijk audiopad (verbeterplan sprint 11)
 

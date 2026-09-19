@@ -816,9 +816,23 @@ export const openApiSpec = {
       },
     },
     '/playlists/{id}/tracks': {
+      get: {
+        tags: ['Playlists'],
+        summary: 'Playlist items, including ones that cannot be played right now',
+        description:
+          'Every item carries playlistItemId, source, a metadata snapshot and availability ' +
+          "('available' | 'missing' | 'unavailable') with a reason. Nothing is dropped: an " +
+          'item whose file or provider is unavailable keeps its snapshot. No stream URL is ' +
+          'returned; those are resolved at playback.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('items'), 404: ok('not found') },
+      },
       post: {
         tags: ['Playlists'],
-        summary: 'Add a track to a playlist',
+        summary: 'Add a track to a playlist (local or external source)',
+        description:
+          'A local id is snapshotted from the library. An external id (qobuz:…, radio:…) has ' +
+          'no local row, so title and artistName are required; the server stores that snapshot.',
         parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
         requestBody: {
           required: true,
@@ -827,12 +841,124 @@ export const openApiSpec = {
               schema: {
                 type: 'object',
                 required: ['trackId'],
-                properties: { trackId: { type: 'string', minLength: 1 } },
+                properties: {
+                  trackId: { type: 'string', minLength: 1 },
+                  title: { type: 'string' },
+                  artistName: { type: 'string' },
+                  albumTitle: { type: 'string' },
+                  albumId: { type: 'string', nullable: true },
+                  duration: { type: 'number', nullable: true },
+                  coverUrl: { type: 'string', nullable: true },
+                  format: { type: 'string', nullable: true },
+                },
               },
             },
           },
         },
-        responses: { 200: ok('added') },
+        responses: {
+          200: ok('added'),
+          400: ok('an external track without title/artistName'),
+          404: ok('unknown local track'),
+        },
+      },
+    },
+    '/playlists/{id}/reorder': {
+      post: {
+        tags: ['Playlists'],
+        summary: 'Reorder playlist items',
+        description:
+          'itemIds is exact (two copies of one track are separate items); trackIds is accepted ' +
+          'for older clients. Items the caller leaves out keep their relative order at the end.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  itemIds: { type: 'array', items: { type: 'string' } },
+                  trackIds: { type: 'array', items: { type: 'string' } },
+                },
+              },
+            },
+          },
+        },
+        responses: { 200: ok('reordered'), 400: ok('neither itemIds nor trackIds') },
+      },
+    },
+    '/playlists/{id}/export': {
+      get: {
+        tags: ['Playlists'],
+        summary: 'Export as M3U (local items only)',
+        description:
+          'An M3U line is a path or a fixed URL, which an external item does not have: those ' +
+          'are written as comments and counted in the X-Playlist-Export-Skipped header.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('an M3U file') },
+      },
+    },
+    '/recommendations/mix': {
+      get: {
+        tags: ['Playlists'],
+        summary: 'A mix from this server alone, no external account needed',
+        description:
+          'Every item carries the basis that put it there; meta.basis says what the mix as a ' +
+          'whole was built from and meta.personalised is false when the listener switched the ' +
+          'personal basis off. Tracks whose file is missing are left out.',
+        parameters: [{ name: 'limit', in: 'query', schema: { type: 'integer', maximum: 100 } }],
+        responses: { 200: ok('mix items') },
+      },
+    },
+    '/recommendations/mix/save': {
+      post: {
+        tags: ['Playlists'],
+        summary: 'Keep a mix as an ordinary playlist',
+        description:
+          'A mix is generated per request; saving turns it into a playlist owned by the caller, ' +
+          'with a snapshot per item. Without trackIds a fresh mix is generated and saved.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  trackIds: { type: 'array', items: { type: 'string' } },
+                  limit: { type: 'integer', maximum: 100 },
+                },
+              },
+            },
+          },
+        },
+        responses: { 201: ok('the playlist'), 409: ok('nothing playable to save') },
+      },
+    },
+    '/recommendations/settings': {
+      get: {
+        tags: ['Playlists'],
+        summary: "What this listener's recommendations may be built from",
+        responses: { 200: ok('useHistory / useFavorites') },
+      },
+      patch: {
+        tags: ['Playlists'],
+        summary: 'Switch the personal basis of recommendations on or off',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  useHistory: { type: 'boolean' },
+                  useFavorites: { type: 'boolean' },
+                },
+              },
+            },
+          },
+        },
+        responses: { 200: ok('the stored setting'), 400: ok('an empty body') },
       },
     },
     '/providers': {
