@@ -119,7 +119,7 @@ export default function FavoritesPage() {
             onClick={() => setTab(t.key)}
             className={`px-4 py-1.5 rounded text-sm transition ${
               tab === t.key
-                ? 'bg-accent text-white'
+                ? 'bg-accent text-on-accent'
                 : 'bg-surface-light text-gray-400 hover:text-white'
             }`}
           >

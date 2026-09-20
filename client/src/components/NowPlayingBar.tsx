@@ -287,7 +287,7 @@ export default function NowPlayingBar({ onExpandClick, onLyricsClick }: NowPlayi
             </button>
             <button
               onClick={() => setShowQueue(!showQueue)}
-              className={`hidden md:block text-xs px-2 py-0.5 rounded transition ${showQueue ? 'bg-accent text-white' : 'text-gray-500 hover:text-white'}`}
+              className={`hidden md:block text-xs px-2 py-0.5 rounded transition ${showQueue ? 'bg-accent text-on-accent' : 'text-gray-500 hover:text-white'}`}
               title="Toggle queue"
               aria-label="Toggle queue"
             >

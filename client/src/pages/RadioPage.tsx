@@ -232,7 +232,7 @@ export default function RadioPage() {
             />
             <button
               type="submit"
-              className="px-4 py-2 bg-accent text-white rounded text-sm hover:bg-accent/90 transition"
+              className="px-4 py-2 bg-accent text-on-accent rounded text-sm hover:bg-accent/90 transition"
             >
               Zoek
             </button>
@@ -250,7 +250,7 @@ export default function RadioPage() {
                 onClick={() => handleTag(tag)}
                 className={`px-3 py-1.5 rounded-full text-sm transition ${
                   activeTag === tag
-                    ? 'bg-accent text-white'
+                    ? 'bg-accent text-on-accent'
                     : 'bg-surface text-gray-400 hover:text-white'
                 }`}
               >

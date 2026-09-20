@@ -156,7 +156,7 @@ export default function StatsPage() {
               key={r.value}
               onClick={() => setRange(r.value)}
               className={`px-3 py-1 text-sm rounded transition ${
-                range === r.value ? 'bg-accent text-white' : 'text-gray-400 hover:text-white'
+                range === r.value ? 'bg-accent text-on-accent' : 'text-gray-400 hover:text-white'
               }`}
             >
               {r.label}

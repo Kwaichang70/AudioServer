@@ -2,53 +2,109 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Theme CSS variables */
+/**
+ * Theme colours (R02.3).
+ *
+ * Every colour the app uses is a variable here, as an "R G B" triple so
+ * Tailwind can add an opacity to it (`bg-white/10`). The class names in the
+ * components stay what they were; what changes is that they now resolve per
+ * theme instead of being three hard-coded hexes with a handful of override
+ * rules for light mode — which is why light mode was only ever half done.
+ *
+ * The grey ramp is INVERTED for light mode on purpose: `text-gray-500` means
+ * "secondary text" everywhere in this app, and secondary text has to darken
+ * on a white page and lighten on a dark one. Same for `white` (primary text
+ * and hairlines) — a button that must keep white letters on the accent
+ * colour uses `text-on-accent`, which never flips.
+ */
 :root,
-[data-theme='dark'] {
-  --surface-dark: #0f0f23;
-  --surface: #1a1a2e;
-  --surface-light: #16213e;
-  --accent: #e94560;
-  --accent-hover: #ff6b81;
+:root[data-theme='dark'] {
+  --c-surface-dark: 15 15 35;
+  --c-surface: 26 26 46;
+  --c-surface-light: 22 33 62;
+
+  --c-accent: 233 69 96;
+  --c-accent-hover: 255 107 129;
+  --c-on-accent: 255 255 255;
+
+  /* Primary text and hairlines; `white` is "ink" here, not literally white. */
+  --c-white: 255 255 255;
+  --c-black: 0 0 0;
+
+  --c-gray-200: 229 231 235;
+  --c-gray-300: 209 213 219;
+  --c-gray-400: 156 163 175;
+  --c-gray-500: 107 114 128;
+  --c-gray-600: 75 85 99;
+  --c-gray-700: 55 65 81;
+
+  --c-red-200: 254 202 202;
+  --c-red-300: 252 165 165;
+  --c-red-400: 248 113 113;
+  --c-red-500: 239 68 68;
+  --c-red-900: 127 29 29;
+
+  --c-green-300: 134 239 172;
+  --c-green-400: 74 222 128;
+  --c-green-500: 34 197 94;
+  --c-green-900: 20 83 45;
+
+  --c-scrollbar-track: 15 15 35;
+  --c-scrollbar-thumb: 51 51 51;
 }
 
-[data-theme='light'] {
-  --surface-dark: #f0f0f5;
-  --surface: #ffffff;
-  --surface-light: #e8e8f0;
-  --accent: #e94560;
-  --accent-hover: #d63050;
+:root[data-theme='light'] {
+  --c-surface-dark: 240 240 245;
+  --c-surface: 255 255 255;
+  --c-surface-light: 232 232 240;
+
+  --c-accent: 214 48 80;
+  --c-accent-hover: 176 32 60;
+  --c-on-accent: 255 255 255;
+
+  --c-white: 26 26 46;
+  --c-black: 0 0 0;
+
+  --c-gray-200: 31 41 55;
+  --c-gray-300: 55 65 81;
+  --c-gray-400: 75 85 99;
+  --c-gray-500: 107 114 128;
+  --c-gray-600: 156 163 175;
+  --c-gray-700: 209 213 219;
+
+  --c-red-200: 127 29 29;
+  --c-red-300: 185 28 28;
+  --c-red-400: 220 38 38;
+  --c-red-500: 239 68 68;
+  --c-red-900: 254 226 226;
+
+  --c-green-300: 22 101 52;
+  --c-green-400: 21 128 61;
+  --c-green-500: 34 197 94;
+  --c-green-900: 220 252 231;
+
+  --c-scrollbar-track: 226 226 234;
+  --c-scrollbar-thumb: 168 168 180;
 }
 
-[data-theme='light'] body,
-[data-theme='light'] .bg-surface-dark {
-  background-color: var(--surface-dark);
-}
-[data-theme='light'] .bg-surface {
-  background-color: var(--surface);
-}
-[data-theme='light'] .bg-surface-light {
-  background-color: var(--surface-light);
-}
-[data-theme='light'] .text-white {
-  color: #1a1a2e;
-}
-[data-theme='light'] .text-gray-400 {
-  color: #555;
-}
-[data-theme='light'] .text-gray-500 {
-  color: #777;
-}
-[data-theme='light'] .border-white\/10 {
-  border-color: rgba(0, 0, 0, 0.1);
+:root[data-theme='oled'] {
+  --c-surface-dark: 0 0 0;
+  --c-surface: 10 10 10;
+  --c-surface-light: 17 17 17;
+  --c-scrollbar-track: 0 0 0;
 }
 
-[data-theme='oled'] {
-  --surface-dark: #000000;
-  --surface: #0a0a0a;
-  --surface-light: #111111;
-  --accent: #e94560;
-  --accent-hover: #ff6b81;
+@layer components {
+  /**
+   * Letters on the accent colour (R02.3). Many buttons are just `bg-accent`
+   * and inherit the page text, which is white on a dark theme and dark on a
+   * light one — the second would put near-black letters on red. This sets an
+   * accent-safe default; an element that names its own text colour still
+   * wins, because utilities beat this layer.
+   */
+  .bg-accent {
+    color: rgb(var(--c-on-accent));
+  }
 }
 
 body {
@@ -61,10 +117,10 @@ body {
   width: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #0f0f23;
+  background: rgb(var(--c-scrollbar-track));
 }
 ::-webkit-scrollbar-thumb {
-  background: #333;
+  background: rgb(var(--c-scrollbar-thumb));
   border-radius: 4px;
 }
 

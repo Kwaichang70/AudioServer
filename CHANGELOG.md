@@ -4,6 +4,51 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## R02 — Navigatie, zoekbalk en thema (verbeterplan 2, sprint R02)
+
+**Eén set kleuren voor drie thema's** (`client/src/index.css`, `tailwind.config.js`)
+
+- Licht thema was zes overschrijfregels diep en daardoor half af: alles wat
+  niet in die zes regels stond bleef donker. Nu is elke kleur een CSS-variabele
+  en verwijst Tailwind daarnaar, dus dezelfde klasse levert per thema de juiste
+  waarde. De klassennamen in de componenten zijn niet veranderd.
+- De grijstrap en "wit" zijn in licht thema omgekeerd, want `text-gray-500`
+  betekent hier "secundaire tekst": die hoort donkerder te worden op een witte
+  pagina, niet lichter. Ook de rood- en groentinten van meldingen kantelen mee,
+  zodat een waarschuwing in licht thema een lichte tint met donkere letters is.
+- Letters op de accentkleur kantelen juist níét: `text-on-accent`, plus één
+  regel die elke `bg-accent`-knop een accentveilige tekstkleur geeft.
+
+**Een zijbalk met groepen, en tabs op de telefoon** (`components/Layout.tsx`)
+
+- Veertien gelijke links in één rij zeiden niets over wat bij elkaar hoort.
+  De zijbalk groepeert nu Bibliotheek, Verzamelingen en Ontdekken; op de
+  telefoon staan Home, Zoeken, Albums en Wachtrij als tabs binnen duimbereik
+  en opent "Meer" de rest als sheet.
+
+**Zoeken vanaf elke pagina** (`components/SearchBar.tsx`)
+
+- De balk staat in de kop, en `/` zet de cursor erin. De suggesties komen
+  alleen uit de bibliotheek, zodat ze verschijnen terwijl je typt; Enter opent
+  de zoekpagina met de streamingbronnen en de filters. Een tracksuggestie
+  springt naar zijn album in plaats van te gaan spelen.
+
+**Instellingen: een sectie per bestand** (`pages/settings/`)
+
+- 1412 regels en één lange scroll werden elf bestanden achter tabbladen. De
+  secties zelf zijn ongewijzigd: de code is per regelbereik verhuisd, niet
+  overgetypt. Elke sectie laadt nu zijn eigen gegevens, `?tab=` maakt een
+  sectie deelbaar, en een niet-beheerder ziet de beheersecties niet, ook niet
+  via het adres.
+
+**Bouwstenen** (`components/ui/`)
+
+- `Button` en `Chip` naast de `Menu` uit R01, meteen in gebruik bij de
+  zoekfilters en de album- en artiestknoppen.
+
+Tests: 213 clienttests, 23 nieuw voor de navigatie, de zoekbalk en de
+instellingentabs. Lint, typecheck en build groen.
+
 ## R01 — Speelacties, seek en de speler (verbeterplan 2, sprint R01)
 
 **Speel hierna en zet in wachtrij, zonder de wachtrij te verliezen**

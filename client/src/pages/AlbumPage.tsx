@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
 import PlayActions, { toTrackInfo } from '../components/PlayActions.js';
+import Button from '../components/ui/Button.js';
 import AlbumCover from '../components/AlbumCover.js';
 import { formatDuration, formatQuality } from '../utils/format.js';
 
@@ -189,22 +190,12 @@ export default function AlbumPage() {
             >
               Play Album
             </button>
-            <button
-              type="button"
-              onClick={() => void playNextTracks(playable)}
-              disabled={playable.length === 0}
-              className="px-4 py-2 rounded-full border border-white/20 text-sm hover:border-accent transition disabled:opacity-40"
-            >
+            <Button onClick={() => void playNextTracks(playable)} disabled={playable.length === 0}>
               Play next
-            </button>
-            <button
-              type="button"
-              onClick={() => void queueTracks(playable)}
-              disabled={playable.length === 0}
-              className="px-4 py-2 rounded-full border border-white/20 text-sm hover:border-accent transition disabled:opacity-40"
-            >
+            </Button>
+            <Button onClick={() => void queueTracks(playable)} disabled={playable.length === 0}>
               Add to queue
-            </button>
+            </Button>
             <button
               type="button"
               onClick={toggleFavorite}

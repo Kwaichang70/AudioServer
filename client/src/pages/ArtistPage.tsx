@@ -9,6 +9,7 @@ import PlayActions, {
   shuffledCopy,
   toTrackInfo,
 } from '../components/PlayActions.js';
+import Button from '../components/ui/Button.js';
 
 interface Artist {
   id: string;
@@ -130,22 +131,16 @@ export default function ArtistPage() {
         <p className="text-sm text-gray-500 mt-1">{albums.length} albums</p>
         {/* R01.2: play the artist from here — every available track, album by album */}
         <div className="flex flex-wrap items-center gap-3 mt-4">
-          <button
-            type="button"
+          <Button
+            variant="accent"
             onClick={() => void playArtist(false)}
             disabled={starting || albums.length === 0}
-            className="px-6 py-2 bg-accent rounded-full hover:bg-accent-hover transition text-sm font-medium disabled:opacity-40"
           >
             Play
-          </button>
-          <button
-            type="button"
-            onClick={() => void playArtist(true)}
-            disabled={starting || albums.length === 0}
-            className="px-4 py-2 rounded-full border border-white/20 text-sm hover:border-accent transition disabled:opacity-40"
-          >
+          </Button>
+          <Button onClick={() => void playArtist(true)} disabled={starting || albums.length === 0}>
             Shuffle
-          </button>
+          </Button>
           <PlayActions target={{ kind: 'artist', artistId: artist.id, name: artist.name }} />
         </div>
       </div>

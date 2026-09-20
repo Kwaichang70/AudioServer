@@ -47,7 +47,7 @@ class ErrorBoundary extends Component<Props, State> {
             <div className="flex gap-2">
               <button
                 onClick={this.reset}
-                className="px-4 py-2 bg-accent text-white rounded hover:opacity-90 transition"
+                className="px-4 py-2 bg-accent text-on-accent rounded hover:opacity-90 transition"
               >
                 Try again
               </button>

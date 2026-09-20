@@ -93,7 +93,7 @@ export default function NowPlayingFull({ onClose, initialView = 'upnext' }: Prop
           <FavoriteTrackButton trackId={currentTrack.id} title={currentTrack.title} size="lg" />
           <button
             onClick={() => setShowLyrics(!showLyrics)}
-            className={`text-sm px-3 py-1 rounded transition ${showLyrics ? 'bg-accent text-white' : 'text-gray-500 hover:text-white'}`}
+            className={`text-sm px-3 py-1 rounded transition ${showLyrics ? 'bg-accent text-on-accent' : 'text-gray-500 hover:text-white'}`}
             title="Toggle lyrics"
             aria-pressed={showLyrics}
           >

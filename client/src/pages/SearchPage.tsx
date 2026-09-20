@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import type { Playability, ProviderType, SearchSourceStatus, SourceRef } from '@audioserver/shared';
 import { api, type SearchFilters } from '../api/client.js';
 import PlayActions, { toTrackInfo } from '../components/PlayActions.js';
+import Chip from '../components/ui/Chip.js';
 import { useAudioContext, type TrackInfo } from '../context/AudioContext.js';
 import { SOURCE_COLORS } from '../constants.js';
 
@@ -204,7 +205,7 @@ export default function SearchPage() {
           }}
           className={`px-3 py-1 text-xs rounded transition ${
             searchMode === 'all'
-              ? 'bg-accent text-white'
+              ? 'bg-accent text-on-accent'
               : 'bg-surface-light text-gray-400 hover:text-white'
           }`}
         >
@@ -217,7 +218,7 @@ export default function SearchPage() {
           }}
           className={`px-3 py-1 text-xs rounded transition ${
             searchMode === 'local'
-              ? 'bg-accent text-white'
+              ? 'bg-accent text-on-accent'
               : 'bg-surface-light text-gray-400 hover:text-white'
           }`}
         >
@@ -231,23 +232,17 @@ export default function SearchPage() {
           ALL_SOURCES.map((s) => {
             const on = sources.includes(s);
             return (
-              <button
+              <Chip
                 key={s}
-                type="button"
+                pressed={on}
                 onClick={() =>
                   setSources((prev) =>
                     prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s],
                   )
                 }
-                className={`px-2 py-1 rounded border transition ${
-                  on
-                    ? 'border-accent text-white'
-                    : 'border-white/10 text-gray-500 hover:text-gray-300'
-                }`}
-                aria-pressed={on}
               >
                 {s}
-              </button>
+              </Chip>
             );
           })}
         <span className="text-gray-600 mx-1">|</span>
@@ -258,19 +253,9 @@ export default function SearchPage() {
             ['hires', 'Hi-Res'],
           ] as Array<[SearchFilters['quality'], string]>
         ).map(([value, label]) => (
-          <button
-            key={label}
-            type="button"
-            onClick={() => setQuality(value)}
-            className={`px-2 py-1 rounded border transition ${
-              quality === value
-                ? 'border-accent text-white'
-                : 'border-white/10 text-gray-500 hover:text-gray-300'
-            }`}
-            aria-pressed={quality === value}
-          >
+          <Chip key={label} pressed={quality === value} onClick={() => setQuality(value)}>
             {label}
-          </button>
+          </Chip>
         ))}
       </div>
 

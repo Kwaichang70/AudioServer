@@ -1,5 +1,4 @@
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAudioContext } from '../context/AudioContext.js';
 
 export function useKeyboardShortcuts() {
@@ -14,7 +13,6 @@ export function useKeyboardShortcuts() {
     toggleShuffle,
     toggleRepeat,
   } = useAudioContext();
-  const navigate = useNavigate();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -62,10 +60,6 @@ export function useKeyboardShortcuts() {
         case 'R':
           if (!e.ctrlKey && !e.metaKey) toggleRepeat();
           break;
-        case '/':
-          e.preventDefault();
-          navigate('/search');
-          break;
       }
     };
 
@@ -81,6 +75,5 @@ export function useKeyboardShortcuts() {
     setVolume,
     toggleShuffle,
     toggleRepeat,
-    navigate,
   ]);
 }
