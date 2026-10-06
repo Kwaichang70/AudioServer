@@ -294,7 +294,7 @@ _Status: gehaald op Windows (473 tests, 1 overgeslagen met reden); Linux via CI.
 
 - [ ] **R09.1 · 2,5 dag:** Sonos-groepen aansturen: "Groepeer met…" op een Sonos-zone stuurt `SetAVTransportURI x-rincon:<coordinator>` naar het lid; "Verlaat groep" stuurt `BecomeCoordinatorOfStandaloneGroup`. Een groep is één zone (de coördinator); leden zijn niet apart kiesbaar zolang ze gegroepeerd zijn (`zones.device_id` UNIQUE blijft de waarheid). Groepsvolume via `GroupRenderingControl`.
 - [ ] **R09.2 · 1,5 dag:** zone-overdracht: "Verplaats naar…" neemt wachtrij, huidig item en positie mee naar een andere zone (`queue/set` + seek uit R01), stopt de oude. Werkt over protocollen heen omdat het geen synchronisatie is.
-- [ ] **R09.3 · 1,5 dag:** slaaptimer en "stop na dit nummer / dit album" per zone, uitgevoerd door de server (ook bij gesloten client), zichtbaar en annuleerbaar in de speler (E01).
+- [x] **R09.3 · 1,5 dag:** slaaptimer en "stop na dit nummer / dit album" per zone, uitgevoerd door de server (ook bij gesloten client), zichtbaar en annuleerbaar in de speler (E01). **Geleverd door E01 (18 september 2026), op master sinds de merge van 6 oktober 2026; wacht nog op NAS-acceptatie.**
 - [ ] **R09.4 · 2,5 dag:** Volumio: mDNS-discovery proberen (Volumio adverteert zichzelf; op het apparaat verifiëren), anders statisch blijven; onderzoek of `addToQueue` + `play` een next-URI-equivalent geeft voor overdracht vooraf. Tests: groeperen/ontgroepen met een nagebootste topologie, overdracht met positie, timer die een kamer stopt terwijl de andere doorspeelt.
 
 **Acceptatie:** twee Sonos-spelers spelen als één groep vanuit één wachtrij, met één volume; een album gaat van keuken naar woonkamer met behoud van positie; de slaaptimer stopt de kamer met een gesloten tablet. Expliciet niet: Sonos en Cocktail Audio synchroon.
@@ -421,3 +421,17 @@ _Status: gehaald op Windows (473 tests, 1 overgeslagen met reden); Linux via CI.
 - **Playlistpagina.** V12.1 speelt vanaf een rij alleen wat nu kan spelen; het menu gebruikt nu diezelfde lijst, zodat een onbeschikbaar item nooit via "speel vanaf hier" in de wachtrij komt.
 
 **Gecontroleerd:** lint en typecheck groen; client 190 tests groen; server 402 tests groen en 1 bewust overgeslagen. Eén testbestand van V12.4 (`discovery-mix`) meldt daarna een fout bij het opruimen: al zijn zes tests slagen, maar Windows laat de tijdelijke databasemap niet verwijderen. Dat bestand gebruikt de gewijzigde lijst-variant niet; de Linux-CI op GitHub is voor dit punt de maatstaf.
+
+### E01 (slaaptimer) samengevoegd met master — 6 oktober 2026
+
+**Wat er gebeurde:** de sleeptimer uit de oude backlog (§7, E01) lag af op de sprintbranch van verbeterplan 1 maar stond nog niet op master, terwijl master inmiddels vier commits verder was (R00–R02). Een echte merge dus, geen fast-forward. Daarmee is **R09.3 in code klaar** zonder dat R09 zelf is begonnen.
+
+**Drie conflicten, en wat de samenvoeging moest beslissen:**
+
+- `peekNext()` — R01 gaf hier een "speel hierna"-belofte voorrang (ook in shuffle), E01 wilde juist níets vooruit doorgeven als de muziek bij deze grens stopt. Beide blijven, in deze volgorde: eerst wordt bepaald welke positie zou volgen (de belofte, anders de volgende, anders de wikkel bij repeat), dán kijkt de slaaptimer naar díé grens, en pas daarna geldt "shuffle belooft niets". Een beloofd nummer wordt nu dus met het juiste album vergeleken bij "stop na dit album" — met de oude E01-code was dat altijd het nummer ná het huidige.
+- `NowPlayingFull` — de importregels liepen uiteen (R01 voegde kamerkiezer, seekbalk, hart en audiopad toe); alles blijft, de slaaptimer staat naast repeat in de transportrij.
+- `CHANGELOG.md` — beide blokken blijven, in datumvolgorde: R00–R02 boven E01.
+
+**Gecontroleerd na de merge:** 415 servertests (1 bewust overgeslagen) en 216 clienttests groen, lint en typecheck groen, build van alle workspaces groen. `shared` moest eerst opnieuw gebouwd worden: R01 breidde `DeviceController` uit met `seek`, en de server leest die typen uit `shared/dist`.
+
+**Wacht op acceptatie (NAS):** een timer van vijf minuten zetten, de tablet dichtklappen en controleren dat de speaker vanzelf stopt; "na dit album" op de voorlaatste track; een timer in de slaapkamer terwijl de keuken doorspeelt; de server herstarten met een lopende timer; zetten op het ene tabblad en annuleren op het andere.

@@ -528,15 +528,15 @@ De taakdagen hieronder tellen per sprint op tot acht. Bij overschrijding: verkle
 
 ## 7. Optionele backlog na de gekozen sprints
 
-| ID  | Voorstel                                   | Voorwaarde en beperkte eerste stap                                                                                                                                                | Eerste indicatie                      |
-| --- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| E01 | Sleeptimer / stoppen na album              | Na V04; server voert timer uit, ook bij gesloten client. UI kan timer annuleren; test per zone als V10 bestaat.                                                                   | 1–3 dagen                             |
-| E02 | OpenSubsonic                               | Na betrouwbare auth/profielen; eerst authenticatie, browse, zoek en lokale stream naar één bestaande mobiele client. Beslis daarna over volledige compatibiliteit.                | Proef 3–5 dagen; productisering apart |
-| E03 | Extra apparaatprotocol of Home Assistant   | Inventariseer concrete thuisapparatuur. Kies één integratie, één referentieapparaat en een terugvalroute.                                                                         | Proef 2–5 dagen; productisering apart |
-| E04 | Sonos-groeperen en muziekoverdracht        | Na V10/V11; voeg seek en native groepshandelingen alleen toe waar ondersteund. Geen cross-protocol-syncbelofte.                                                                   | 1–2 vervolgsprints                    |
-| E05 | Klassieke muziek en metadata-editor        | Composer/conductor bestaan al; werk/deel, meerdere uitvoerenden en herstelbare metadata-overrides toevoegen als de collectie dat vraagt. Eerst alleen wijzigingen in de database. | 1–2 vervolgsprints                    |
-| E06 | Transcoding / mobiele bandbreedteprofielen | Na V11; één lokaal codecprofiel, limiet op gelijktijdige conversies en NAS-belasting meten. Externe diensten alleen via toegestane mogelijkheden.                                 | Proef 3–5 dagen; productisering apart |
-| E07 | Muziek offline meenemen                    | Kies eerst tussen eigen PWA-downloads en bestaande mobiele clients via E02. Begin uitsluitend met lokale bestanden, quota en expliciete verwijdering.                             | Apart ontwerp                         |
+| ID     | Voorstel                                   | Voorwaarde en beperkte eerste stap                                                                                                                                                | Eerste indicatie                      |
+| ------ | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| E01 ✅ | Sleeptimer / stoppen na album              | Na V04; server voert timer uit, ook bij gesloten client. UI kan timer annuleren; test per zone als V10 bestaat.                                                                   | 1–3 dagen                             |
+| E02    | OpenSubsonic                               | Na betrouwbare auth/profielen; eerst authenticatie, browse, zoek en lokale stream naar één bestaande mobiele client. Beslis daarna over volledige compatibiliteit.                | Proef 3–5 dagen; productisering apart |
+| E03    | Extra apparaatprotocol of Home Assistant   | Inventariseer concrete thuisapparatuur. Kies één integratie, één referentieapparaat en een terugvalroute.                                                                         | Proef 2–5 dagen; productisering apart |
+| E04    | Sonos-groeperen en muziekoverdracht        | Na V10/V11; voeg seek en native groepshandelingen alleen toe waar ondersteund. Geen cross-protocol-syncbelofte.                                                                   | 1–2 vervolgsprints                    |
+| E05    | Klassieke muziek en metadata-editor        | Composer/conductor bestaan al; werk/deel, meerdere uitvoerenden en herstelbare metadata-overrides toevoegen als de collectie dat vraagt. Eerst alleen wijzigingen in de database. | 1–2 vervolgsprints                    |
+| E06    | Transcoding / mobiele bandbreedteprofielen | Na V11; één lokaal codecprofiel, limiet op gelijktijdige conversies en NAS-belasting meten. Externe diensten alleen via toegestane mogelijkheden.                                 | Proef 3–5 dagen; productisering apart |
+| E07    | Muziek offline meenemen                    | Kies eerst tussen eigen PWA-downloads en bestaande mobiele clients via E02. Begin uitsluitend met lokale bestanden, quota en expliciete verwijdering.                             | Apart ontwerp                         |
 
 ## 8. Richting voor de technische uitwerking
 
@@ -867,6 +867,20 @@ Zelfde branch en omgeving als V01–V03.
 **Wacht op acceptatie (NAS):** een mix bewaren, de app herladen en controleren dat de playlist er nog staat met dezelfde nummers; die playlist afspelen op de speaker; Qobuz loskoppelen en zien dat een gemengde bewaarde mix zijn externe nummers houdt met de reden erbij; met het tweede account controleren dat de bewaarde mix daar niet zichtbaar is.
 
 **Beslismoment na V12:** het verbeterplan is in code afgerond. Wat overblijft is de NAS-acceptatie per sprint (V03/V04, V10, V11, V12) en de optionele backlog uit §7 — sleeptimer, OpenSubsonic, extra apparaatprotocollen, Sonos-groeperen, klassieke metadata, transcoding, offline meenemen — die stuk voor stuk apart gepland worden.
+
+### E01 — 18 september 2026
+
+**Uitgevoerd:** de sleeptimer uit de backlog (§7, E01); 378 servertests, 128 clienttests, lint/typecheck/build groen.
+
+**Waar de timer hoort.** Een sleeptimer bestaat voor het geval dat niemand meer kijkt. Een timer in een browsertab is dan precies het verkeerde: die tab slaapt allang, of is dicht. Hij staat dus per zone op de server, naast de sessie die de speaker aanstuurt, en wordt opgeslagen zodat een herstart hem niet kwijtraakt. Schemaversie 12.
+
+**Vier grenzen, en wat ze echt betekenen.** "Over N minuten" stopt waar de muziek dan ook is. "Na dit nummer" wint van repeat één, dat anders eeuwig doorgaat. "Na dit album" kijkt bij elke overgang of het volgende nummer nog van hetzelfde album is; staat shuffle aan, dan zegt de API er meteen bij dat dit meestal na het huidige nummer stopt — dat is eerlijker dan het om twee uur 's nachts laten ontdekken. "Na de wachtrij" is de enige die ook met repeat aan iets betekent.
+
+**Wat een timer níét doet.** Hij pauzeert niet, wist de wachtrij niet en verandert het volume niet, dus de volgende ochtend speel je verder waar je was. Er is geen uitfade: de server geeft een renderer een URL en bepaalt diens volume niet, dus een fade zou een belofte zijn die hij niet kan nakomen. En een timer die afliep terwijl de server uit stond wordt niet alsnog afgevuurd — de muziek stopte toen de server stopte; stilte stoppen helpt niemand.
+
+**Interactie met V11.3:** bij een grens waar de muziek stopt wordt niets vooruit doorgegeven. Een speler die het volgende nummer al klaar heeft staan, start het anders gewoon.
+
+**Wacht op acceptatie (NAS):** een timer van vijf minuten zetten, de tablet dichtklappen en controleren dat de speaker vanzelf stopt; "na dit album" op de laatste twee nummers van een album en controleren dat het album nog uitspeelt; een timer in de slaapkamer zetten en zien dat de keuken doorspeelt; de server herstarten met een lopende timer en controleren dat hij nog staat; een timer zetten op het ene tabblad en annuleren op het andere.
 
 ## Bronverwijzingen naar de onderzochte code
 

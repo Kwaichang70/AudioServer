@@ -6,6 +6,7 @@ import DeviceSelector from './DeviceSelector.js';
 import SeekBar, { seekDisabledReason } from './player/SeekBar.js';
 import FavoriteTrackButton from './player/FavoriteTrackButton.js';
 import AudioPathBadge from './player/AudioPathBadge.js';
+import SleepTimerMenu from './SleepTimerMenu.js';
 import {
   PlayIcon,
   PauseIcon,
@@ -272,6 +273,9 @@ export default function NowPlayingFull({ onClose, initialView = 'upnext' }: Prop
           >
             {repeat === 'one' ? <RepeatOneIcon size={22} /> : <RepeatIcon size={22} />}
           </button>
+          {/* The sleep timer lives next to the transport because that is what
+              it controls: when the music stops (E01). */}
+          <SleepTimerMenu />
         </div>
 
         {/* Room + Volume + Crossfade. The room picker lives here too (R01.3):

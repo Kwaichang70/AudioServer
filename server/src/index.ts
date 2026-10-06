@@ -31,6 +31,7 @@ import { startWatcher, stopWatcher } from './services/watcher.js';
 import { closeInterruptedScanRuns } from './services/scanner.js';
 import { deviceMonitor } from './services/device-monitor.js';
 import { initServerPlayer, reconcileAllZones } from './services/server-player.js';
+import { configureSleepTimers, initializeSleepTimers } from './services/sleep-timer.js';
 import { closeOrphanedSessions, playbackListeningObserver } from './services/listening.js';
 import { globalLimiter } from './middleware/rateLimiter.js';
 import { requestLogger } from './middleware/requestLogger.js';
@@ -212,6 +213,31 @@ async function main() {
   // Server-driven playback: pushes the next queue track to DLNA/Sonos devices
   // itself, so albums keep playing when every client (tablet) is asleep.
   initServerPlayer();
+  // Sleep timers (E01) run here, not in a browser tab: the tablet that sets
+  // one is usually asleep before it fires. Stopping a zone goes through its
+  // own session, which also tells the speaker to stop.
+  configureSleepTimers({
+    stopZone: (zoneId) => zones.sessionFor(zoneId).stop(),
+    announce: (zoneId, sleep) => {
+      try {
+        getIO().emit('playback:sleep', {
+          zoneId,
+          sleep: sleep
+            ? {
+                zoneId: sleep.zoneId,
+                mode: sleep.mode,
+                stopAt: sleep.stopAt,
+                secondsRemaining: sleep.secondsRemaining,
+                description: sleep.description,
+              }
+            : null,
+        });
+      } catch {
+        // No socket server yet (startup); the snapshot carries the timer too.
+      }
+    },
+  });
+  initializeSleepTimers();
   // A queue survives a restart; whether the speaker is still playing it is
   // checked, not assumed (V04.3). Runs after listen() so readiness is not
   // delayed by a slow renderer.
