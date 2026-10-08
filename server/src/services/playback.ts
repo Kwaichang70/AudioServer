@@ -1013,6 +1013,22 @@ export class PlaybackService {
     // repeat-one: the listener said which track comes after this one.
     const promised = this.firstPlayNextIndex();
     if (promised >= 0) {
+      // A sleep timer still gets to end the music at this boundary (E01), and
+      // it judges the track that would actually play — the promise, not the
+      // item that happens to sit after this one. Stopping leaves the promise
+      // in place, so it is still next when the music is started again.
+      if (
+        this.sleepStops(
+          {
+            hasNext: true,
+            currentAlbumId: this.queue[this.queueIndex]?.albumId ?? null,
+            nextAlbumId: this.queue[promised]?.albumId ?? null,
+          },
+          origin,
+        )
+      ) {
+        return null;
+      }
       this.playNextIds = this.playNextIds.filter((id) => id !== this.queue[promised].itemId);
       return this.startIndex(promised, origin);
     }

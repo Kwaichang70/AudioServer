@@ -4,6 +4,26 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fix — slaaptimer werd overgeslagen door "speel hierna"
+
+**Wat er mis was** (`server/src/services/playback.ts`)
+
+- Bij het samenvoegen van E01 met master kreeg `peekNext()` de juiste regel —
+  bij een grens waar de muziek stopt wordt niets vooruit doorgegeven — maar
+  `advance()` niet. Daar startte een expliciete "speel hierna" nog vóór de
+  slaaptimer aan bod kwam, dus met een belofte in de wachtrij vuurde "stop na
+  dit album" (en "na de wachtrij") nooit af. De twee paden waren het ook
+  onderling niet eens: `peekNext()` gaf niets door, `advance()` startte wel.
+- `advance()` laat de slaaptimer nu beslissen vóór de belofte, en beoordeelt
+  daarbij het **beloofde** nummer — niet het item dat toevallig ná het huidige
+  staat. Stoppen verbruikt de belofte niet: die is morgen nog het volgende
+  nummer.
+
+Tests: vijf nieuwe gevallen in `sleep-timer.test.ts` voor E01 × R01 (ver
+weggeschoven belofte, album wel/niet hetzelfde, na dit nummer, shuffle). Zonder
+de fix faalt het albumgeval — 420 servertests (1 bewust overgeslagen), 216
+clienttests.
+
 ## R02 — Navigatie, zoekbalk en thema (verbeterplan 2, sprint R02)
 
 **Eén set kleuren voor drie thema's** (`client/src/index.css`, `tailwind.config.js`)

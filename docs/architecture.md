@@ -432,7 +432,10 @@ handed to a renderer in advance (V11.3). Firing stops the zone through its own
 session (which stops the speaker); it does not pause, clear or change volume,
 and there is no fade — the server does not control a renderer's volume
 envelope. On startup, timers are restored and one that ran out while the
-server was down is dropped rather than fired late.
+server was down is dropped rather than fired late. An explicit "play next" (R01)
+fixes WHICH track would follow, and the timer then judges that track: both
+`advance()` and `peekNext()` compare the promised item's album, not the
+neighbour of the current one, and stopping leaves the promise in place.
 
 **SQLite + WAL.** Single-process app; better-sqlite3 in WAL mode is fast
 enough for 10k+ tracks without a separate DB process. Drizzle ORM for typed

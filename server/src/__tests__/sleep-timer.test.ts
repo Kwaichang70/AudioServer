@@ -192,6 +192,118 @@ describe('Stopping at a boundary', () => {
   });
 });
 
+/**
+ * Where E01 meets R01 — the interaction the merge of 6 October 2026 had to
+ * decide, and which nothing pinned down until this suite.
+ *
+ * "Play next" fixes which track comes after this one, even under shuffle. A
+ * sleep timer says the music ends at a boundary. Both are explicit wishes, so
+ * the rule is: the promise decides WHICH track would play, the timer decides
+ * WHETHER anything plays — and it judges the promised track, not whatever
+ * happens to sit after the current item.
+ */
+describe('A sleep timer and an explicit "play next"', () => {
+  let dir: string;
+
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'audioserver-sleep-promise-'));
+    await initDatabase(join(dir, 'promise.db'));
+  });
+
+  afterAll(() => {
+    resetSleepTimersForTests();
+    closeDatabase();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    resetSleepTimersForTests();
+    getRawDb().prepare('DELETE FROM sleep_timers').run();
+  });
+
+  /**
+   * A1 plays; the promise is C1 at the END of the queue, while the item right
+   * after A1 is A2 from the same album. So "the next item" and "the track that
+   * will really play" disagree on their album — which is exactly the case the
+   * album boundary has to get right.
+   */
+  function sessionWithFarPromise(zoneId: string) {
+    const service = new PlaybackService(zoneId);
+    service.setQueue([track('a1', 'al-1'), track('a2', 'al-1'), track('c1', 'al-3')], 0);
+    const [promise] = service.insertNext([track('b1', 'al-2')]);
+    service.moveItem(promise.itemId, service.getQueue().length - 1);
+    return { service, promise };
+  }
+
+  it('hands over the promised track, not the item after this one', () => {
+    const { service, promise } = sessionWithFarPromise('zone-promise-plain');
+    expect(service.peekNext()?.itemId).toBe(promise.itemId);
+    expect(service.advance()?.id).toBe('b1');
+  });
+
+  it('judges the promised track for "after this album", not its neighbour', () => {
+    const { service } = sessionWithFarPromise('zone-promise-album');
+    setSleepTimer('zone-promise-album', {
+      mode: 'endOfAlbum',
+      current: { itemId: service.getCurrentItemId(), albumId: 'al-1' },
+    });
+
+    // The promise is from another album, so this is the end of the album —
+    // even though the item right after the current one still belongs to it.
+    expect(service.peekNext()).toBeNull();
+    expect(service.advance()).toBeNull();
+    expect(service.getState().state).toBe('stopped');
+  });
+
+  it('keeps going when the promised track is from the same album', () => {
+    const service = new PlaybackService('zone-promise-same');
+    service.setQueue([track('a1', 'al-1'), track('c1', 'al-3')], 0);
+    const [promise] = service.insertNext([track('a2', 'al-1')]);
+    setSleepTimer('zone-promise-same', {
+      mode: 'endOfAlbum',
+      current: { itemId: service.getCurrentItemId(), albumId: 'al-1' },
+    });
+
+    expect(service.peekNext()?.itemId).toBe(promise.itemId);
+    expect(service.advance()?.id).toBe('a2');
+    expect(getSleepTimer('zone-promise-same')).not.toBeNull();
+    // The album does end at the next boundary: c1 is another album.
+    expect(service.advance()).toBeNull();
+    expect(getSleepTimer('zone-promise-same')).toBeNull();
+  });
+
+  it('ends the music after this track even with a promise waiting', () => {
+    const { service, promise } = sessionWithFarPromise('zone-promise-track');
+    setSleepTimer('zone-promise-track', {
+      mode: 'endOfTrack',
+      current: { itemId: service.getCurrentItemId(), albumId: 'al-1' },
+    });
+
+    expect(service.peekNext()).toBeNull();
+    expect(service.advance()).toBeNull();
+    expect(service.getState().state).toBe('stopped');
+    // The promise is not consumed by stopping: it is still what comes next
+    // when the music is started again tomorrow.
+    expect(service.getQueue().some((entry) => entry.itemId === promise.itemId)).toBe(true);
+    service.advance();
+    expect(service.getCurrentTrack()?.id).toBe('b1');
+  });
+
+  it('still hands the promise over under shuffle, and still obeys the timer', () => {
+    const { service, promise } = sessionWithFarPromise('zone-promise-shuffle');
+    service.setShuffle(true);
+    // Shuffle cannot promise a random next, but an explicit one is fixed (R01).
+    expect(service.peekNext()?.itemId).toBe(promise.itemId);
+
+    setSleepTimer('zone-promise-shuffle', {
+      mode: 'endOfTrack',
+      current: { itemId: service.getCurrentItemId(), albumId: 'al-1' },
+    });
+    expect(service.peekNext()).toBeNull();
+    expect(service.advance()).toBeNull();
+  });
+});
+
 describe('The sleep timer over HTTP', () => {
   let app: Express;
   let teardown: () => void;
