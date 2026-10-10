@@ -1,9 +1,10 @@
 import { mkdirSync, existsSync, writeFileSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
-import { getDb } from '../db/index.js';
+import { getDb, getRawDb } from '../db/index.js';
 import { albums } from '../db/schema.js';
 // eq removed - not currently used
 import { logger } from '../logger.js';
+import { awaitMusicBrainzTurn, mbFetch } from './musicbrainz.js';
 
 const DEFAULT_COVER_DIR = './data/covers';
 const MUSICBRAINZ_API = 'https://musicbrainz.org/ws/2';
@@ -15,14 +16,16 @@ const COVER_FORMATS = [
   { ext: 'webp', mime: 'image/webp' },
 ];
 
-// Rate limiting: MusicBrainz allows 1 request per second
-let lastRequestTime = 0;
+/**
+ * MusicBrainz allows one request per second per application, and that budget
+ * is shared with the identification job (R03.3) — so the waiting happens in
+ * one place (`services/musicbrainz.ts`) instead of once per job. Cover Art
+ * Archive is a different host, but it is fed by MusicBrainz ids and answers
+ * from the same project, so it waits in the same queue.
+ */
 async function rateLimitedFetch(url: string): Promise<Response> {
-  const now = Date.now();
-  const wait = Math.max(0, 1100 - (now - lastRequestTime));
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  lastRequestTime = Date.now();
-
+  if (url.startsWith(MUSICBRAINZ_API)) return mbFetch(url.slice(MUSICBRAINZ_API.length));
+  await awaitMusicBrainzTurn();
   return fetch(url, {
     headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
   });
@@ -157,6 +160,18 @@ async function fetchCoverForAlbum(
   // Already have it?
   if (getLocalCoverPath(albumId)) return true;
 
+  // Strategy 0: the album already knows which release it is (R03.2/R03.3), so
+  // ask the Cover Art Archive directly instead of searching for it again —
+  // one request instead of two, and the right record for certain.
+  const known = knownRelease(albumId);
+  for (const mbid of known) {
+    const byId = await coverFromArchive(mbid);
+    if (byId) {
+      saveCover(albumId, byId);
+      return true;
+    }
+  }
+
   // Strategy 1: MusicBrainz + Cover Art Archive
   const coverData = await fetchFromMusicBrainz(artist, title);
   if (coverData) {
@@ -172,6 +187,41 @@ async function fetchCoverForAlbum(
   }
 
   return false;
+}
+
+/**
+ * The release ids this album is already identified by: the release first, its
+ * release group second — the group has art when a specific pressing does not.
+ */
+function knownRelease(albumId: string): string[] {
+  try {
+    const row = getRawDb()
+      .prepare('SELECT mbid, release_group_mbid FROM albums WHERE id = ?')
+      .get(albumId) as { mbid: string | null; release_group_mbid: string | null } | undefined;
+    return [row?.mbid, row?.release_group_mbid].filter((id): id is string => !!id);
+  } catch {
+    return [];
+  }
+}
+
+/** The front cover of one MusicBrainz release, or null. */
+async function coverFromArchive(mbid: string): Promise<Buffer | null> {
+  try {
+    const res = await rateLimitedFetch(`${COVERART_API}/release/${mbid}`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as CoverArtResponse;
+    const front = data.images?.find(
+      (image) => image.front === true || image.types?.includes('Front'),
+    );
+    const imageUrl = front?.thumbnails?.large || front?.thumbnails?.small || front?.image;
+    if (!imageUrl) return null;
+    const imageRes = await fetch(imageUrl);
+    if (!imageRes.ok) return null;
+    return Buffer.from(await imageRes.arrayBuffer());
+  } catch (err) {
+    logger.debug(`Cover art: archive lookup of ${mbid} failed: ${err}`);
+    return null;
+  }
 }
 
 async function fetchFromMusicBrainz(artist: string, title: string): Promise<Buffer | null> {

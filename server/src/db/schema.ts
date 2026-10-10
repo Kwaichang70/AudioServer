@@ -177,6 +177,33 @@ export const trackGenres = sqliteTable(
   }),
 );
 
+/**
+ * Candidate releases for an album the identification job could not link on
+ * its own (R03.3): a question for an admin rather than an answer, removed as
+ * soon as the album has an identity.
+ */
+export const albumIdentityCandidates = sqliteTable(
+  'album_identity_candidates',
+  {
+    albumId: text('album_id')
+      .notNull()
+      .references(() => albums.id, { onDelete: 'cascade' }),
+    mbid: text('mbid').notNull(),
+    title: text('title'),
+    artist: text('artist'),
+    releaseGroupMbid: text('release_group_mbid'),
+    label: text('label'),
+    catalogNumber: text('catalog_number'),
+    date: text('date'),
+    trackCount: integer('track_count'),
+    score: integer('score'),
+    foundAt: integer('found_at'),
+  },
+  (table) => ({
+    pk: uniqueIndex('idx_album_candidates_pk').on(table.albumId, table.mbid),
+  }),
+);
+
 /** One row per library scan (V06.3): what was scanned, what happened, when. */
 export const scanRuns = sqliteTable('scan_runs', {
   id: text('id').primaryKey(),

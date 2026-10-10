@@ -1005,6 +1005,63 @@ export const openApiSpec = {
         responses: { 200: ok('the stored setting'), 400: ok('an empty body') },
       },
     },
+    '/library/identify': {
+      post: {
+        tags: ['Library'],
+        summary: 'Look up albums without a MusicBrainz id (admin)',
+        description:
+          'Background job behind one shared request per second. An album is linked only when ' +
+          'exactly one candidate agrees on artist, title and track count; everything else ' +
+          'becomes a doubtful case for an admin, because a wrong id travels into every page ' +
+          'and match built on it.',
+        responses: { 200: ok('job status'), 403: ok('not an admin') },
+      },
+    },
+    '/library/identify/status': {
+      get: {
+        tags: ['Library'],
+        summary: 'Progress of the identification job',
+        responses: { 200: ok('linked / doubtful / notFound counts') },
+      },
+    },
+    '/library/identify/doubtful': {
+      get: {
+        tags: ['Library'],
+        summary: 'Albums waiting for a human decision, with their candidates (admin)',
+        responses: { 200: ok('albums with candidates'), 403: ok('not an admin') },
+      },
+    },
+    '/library/identify/{albumId}': {
+      post: {
+        tags: ['Library'],
+        summary: 'Link one album to a release by hand (admin)',
+        description: 'The release is looked up before it is stored, so a typed id is checked too.',
+        parameters: [{ name: 'albumId', in: 'path', required: true, schema: { type: 'string' } }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['mbid'],
+                properties: { mbid: { type: 'string' } },
+              },
+            },
+          },
+        },
+        responses: {
+          200: ok('linked'),
+          404: ok('unknown album'),
+          422: ok('MusicBrainz does not know that release'),
+        },
+      },
+      delete: {
+        tags: ['Library'],
+        summary: '"None of these": drop the candidates, album stays unidentified (admin)',
+        parameters: [{ name: 'albumId', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('dismissed') },
+      },
+    },
     '/providers': {
       get: {
         tags: ['Providers'],

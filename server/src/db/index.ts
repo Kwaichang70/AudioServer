@@ -19,7 +19,7 @@ import { fileURLToPath } from 'url';
  * it does not understand. Databases from before this check carry version 0,
  * which every build accepts and upgrades.
  */
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 export class DatabaseVersionError extends Error {
   constructor(
@@ -239,6 +239,27 @@ export async function initDatabase(overridePath?: string) {
   );
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_track_genres_genre ON track_genres (genre)');
   backfillTrackArtists(sqlite);
+  // R03.3: what the identification job found for an album it could not link
+  // on its own. These rows are a question for an admin, not an answer, so
+  // they are deleted the moment the album gets an identity.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS album_identity_candidates (
+      album_id TEXT NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+      mbid TEXT NOT NULL,
+      title TEXT,
+      artist TEXT,
+      release_group_mbid TEXT,
+      label TEXT,
+      catalog_number TEXT,
+      date TEXT,
+      track_count INTEGER,
+      score INTEGER,
+      found_at INTEGER DEFAULT (unixepoch())
+    )
+  `);
+  sqlite.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_album_candidates_pk ON album_identity_candidates (album_id, mbid)',
+  );
   // V05.3: one submission per listening session and service.
   runMigration(sqlite, 'scrobble_queue', 'session_id', 'TEXT');
   sqlite.exec(

@@ -22,6 +22,14 @@ import { extname } from 'path';
 // ApiResponse type removed — using inline format with buildMeta
 import { getCoverForAlbum, getCoverForTrack } from '../services/coverart.js';
 import {
+  chooseIdentity,
+  dismissCandidates,
+  getIdentifyStatus,
+  identifyAlbums,
+  IdentifyChoiceError,
+  listDoubtfulAlbums,
+} from '../services/identify.js';
+import {
   fetchMissingCovers,
   getCoverFetchStatus,
   readCachedArtistImage,
@@ -533,6 +541,60 @@ libraryRouter.post('/covers/fetch', requireAdmin, (_req, res) => {
 
 libraryRouter.get('/covers/fetch/status', (_req, res) => {
   res.json({ data: getCoverFetchStatus() });
+});
+
+// ─── Identification (R03.3) ──────────────────────────────────────
+// Albums nobody tagged are looked up at MusicBrainz, one request per second,
+// and only linked when exactly one candidate is beyond doubt. The rest become
+// a question an admin answers here; a wrong id would travel into every page
+// and every match built on it.
+
+libraryRouter.post('/identify', requireAdmin, (_req, res) => {
+  const status = getIdentifyStatus();
+  if (status.isRunning) {
+    res.json({ data: status, message: 'Already running' });
+    return;
+  }
+  logger.info('Album identification requested');
+  identifyAlbums().catch((err) => logger.error(`Album identification crashed: ${err}`));
+  res.json({ data: getIdentifyStatus(), message: 'Identification started' });
+});
+
+libraryRouter.get('/identify/status', (_req, res) => {
+  res.json({ data: getIdentifyStatus() });
+});
+
+/** The albums waiting for a human decision, with the candidates found. */
+libraryRouter.get('/identify/doubtful', requireAdmin, (_req, res) => {
+  const doubtful = listDoubtfulAlbums();
+  res.json({ data: doubtful, meta: { total: doubtful.length } });
+});
+
+libraryRouter.post(
+  '/identify/:albumId',
+  requireAdmin,
+  validate({ body: z.object({ mbid: z.string().min(1).max(64) }) }),
+  asyncHandler(async (req, res) => {
+    try {
+      await chooseIdentity(String(req.params.albumId), req.body.mbid);
+      res.json({ data: { ok: true } });
+    } catch (err) {
+      if (err instanceof IdentifyChoiceError) {
+        res.status(err.code === 'album_not_found' ? 404 : 422).json({
+          error: err.code,
+          message: err.message,
+        });
+        return;
+      }
+      throw err;
+    }
+  }),
+);
+
+/** "None of these": the album stays unidentified, without the question. */
+libraryRouter.delete('/identify/:albumId', requireAdmin, (req, res) => {
+  const dismissed = dismissCandidates(String(req.params.albumId));
+  res.json({ data: { ok: true, dismissed } });
 });
 
 // ─── Artist Image Fetch ──────────────────────────────────────────

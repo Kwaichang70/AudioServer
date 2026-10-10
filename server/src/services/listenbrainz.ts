@@ -66,14 +66,34 @@ export async function getUserName(userId: string): Promise<string | null> {
 
 // ─── Local-library matching (by name, case-insensitive) ──────────────────────
 
-function matchArtist(name: string): string | null {
+/**
+ * Matching against the local library (R03.3).
+ *
+ * An MBID is an identity; a name is a hint. So whenever ListenBrainz gives an
+ * id, that is what is matched on, and the name is only the fallback for the
+ * music that is not identified yet. This is the same rule the recommendations
+ * of V12.2 follow: being sure matters more than finding something.
+ */
+function matchArtist(name: string, mbid?: string | null): string | null {
+  if (mbid) {
+    const byId = getRawDb().prepare('SELECT id FROM artists WHERE mbid = ? LIMIT 1').get(mbid) as
+      | { id: string }
+      | undefined;
+    if (byId) return byId.id;
+  }
   const row = getRawDb()
     .prepare('SELECT id FROM artists WHERE LOWER(name) = LOWER(?) LIMIT 1')
     .get(name) as { id: string } | undefined;
   return row?.id ?? null;
 }
 
-function matchAlbum(title: string, artist: string): string | null {
+function matchAlbum(title: string, artist: string, mbid?: string | null): string | null {
+  if (mbid) {
+    const byId = getRawDb()
+      .prepare('SELECT id FROM albums WHERE mbid = ? OR release_group_mbid = ? LIMIT 1')
+      .get(mbid, mbid) as { id: string } | undefined;
+    if (byId) return byId.id;
+  }
   const row = getRawDb()
     .prepare(
       'SELECT id FROM albums WHERE LOWER(title) = LOWER(?) AND LOWER(artist_name) = LOWER(?) LIMIT 1',
@@ -82,7 +102,17 @@ function matchAlbum(title: string, artist: string): string | null {
   return row?.id ?? null;
 }
 
-function matchTrack(title: string, artist: string): { id: string; albumId: string | null } | null {
+function matchTrack(
+  title: string,
+  artist: string,
+  mbid?: string | null,
+): { id: string; albumId: string | null } | null {
+  if (mbid) {
+    const byId = getRawDb()
+      .prepare('SELECT id, album_id as albumId FROM tracks WHERE mbid = ? LIMIT 1')
+      .get(mbid) as { id: string; albumId: string | null } | undefined;
+    if (byId) return byId;
+  }
   const row = getRawDb()
     .prepare(
       'SELECT id, album_id as albumId FROM tracks WHERE LOWER(title) = LOWER(?) AND LOWER(artist_name) = LOWER(?) LIMIT 1',
@@ -133,14 +163,19 @@ export async function topReleases(userId: string, range: StatRange): Promise<Top
   if (!user || !token) return [];
   const data = await lbFetch<{
     payload?: {
-      releases?: Array<{ release_name: string; artist_name: string; listen_count: number }>;
+      releases?: Array<{
+        release_name: string;
+        artist_name: string;
+        listen_count: number;
+        release_mbid?: string;
+      }>;
     };
   }>(`/stats/user/${encodeURIComponent(user)}/releases?range=${range}&count=30`, token);
   return (data?.payload?.releases ?? []).map((r) => ({
     title: r.release_name,
     artist: r.artist_name,
     listenCount: r.listen_count,
-    localAlbumId: matchAlbum(r.release_name, r.artist_name),
+    localAlbumId: matchAlbum(r.release_name, r.artist_name, r.release_mbid),
   }));
 }
 
@@ -155,11 +190,12 @@ export async function topRecordings(userId: string, range: StatRange): Promise<T
         artist_name: string;
         release_name?: string;
         listen_count: number;
+        recording_mbid?: string;
       }>;
     };
   }>(`/stats/user/${encodeURIComponent(user)}/recordings?range=${range}&count=30`, token);
   return (data?.payload?.recordings ?? []).map((r) => {
-    const local = matchTrack(r.track_name, r.artist_name);
+    const local = matchTrack(r.track_name, r.artist_name, r.recording_mbid);
     return {
       title: r.track_name,
       artist: r.artist_name,
@@ -210,14 +246,19 @@ export async function freshReleases(userId: string): Promise<FreshRelease[]> {
   if (!user || !token) return [];
   const data = await lbFetch<{
     payload?: {
-      releases?: Array<{ release_name: string; artist_credit_name: string; release_date?: string }>;
+      releases?: Array<{
+        release_name: string;
+        artist_credit_name: string;
+        release_date?: string;
+        release_group_mbid?: string;
+      }>;
     };
   }>(`/user/${encodeURIComponent(user)}/fresh_releases?sort=release_date`, token);
   return (data?.payload?.releases ?? []).slice(0, 40).map((r) => ({
     title: r.release_name,
     artist: r.artist_credit_name,
     releaseDate: r.release_date ?? null,
-    localAlbumId: matchAlbum(r.release_name, r.artist_credit_name),
+    localAlbumId: matchAlbum(r.release_name, r.artist_credit_name, r.release_group_mbid),
     why: `ListenBrainz lists this as a new release by ${r.artist_credit_name}, an artist in your scrobbled history.`,
   }));
 }
@@ -243,7 +284,9 @@ export async function recommendationPlaylists(userId: string): Promise<DiscoverP
     if (!mbid) continue;
     try {
       const pl = await lbFetch<{
-        playlist?: { track?: Array<{ title?: string; creator?: string }> };
+        playlist?: {
+          track?: Array<{ title?: string; creator?: string; identifier?: string | string[] }>;
+        };
       }>(`/playlist/${mbid}`, token);
       const tracks = (pl?.playlist?.track ?? []).slice(0, 25).map((t) => {
         const trackTitle = t.title ?? '';
@@ -252,7 +295,12 @@ export async function recommendationPlaylists(userId: string): Promise<DiscoverP
         // old name-only lookup is kept for the album deep-link, which costs
         // nothing if it is wrong — starting the wrong track does.
         const match = trackTitle && artist ? matchRecommendation(trackTitle, artist) : null;
-        const fallback = trackTitle && artist ? matchTrack(trackTitle, artist) : null;
+        // A JSPF track identifier is a MusicBrainz recording URL; its last
+        // path segment is the id this library can match on.
+        const identifier = Array.isArray(t.identifier) ? t.identifier[0] : t.identifier;
+        const recordingMbid = identifier?.split('/').pop();
+        const fallback =
+          trackTitle && artist ? matchTrack(trackTitle, artist, recordingMbid) : null;
         return {
           title: trackTitle,
           artist,
