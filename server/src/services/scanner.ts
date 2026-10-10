@@ -1,7 +1,7 @@
 import { readdir, stat } from 'node:fs/promises';
-import { existsSync, type Stats } from 'node:fs';
+import { existsSync, readFileSync, type Stats } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { extname, basename, dirname } from 'path';
+import { extname, basename, dirname, join } from 'path';
 import { parseFile, selectCover } from 'music-metadata';
 import { v4 as uuid } from 'uuid';
 import { getDb, getRawDb } from '../db/index.js';
@@ -26,8 +26,10 @@ const SUPPORTED_EXTENSIONS = new Set([
  * Bump when the metadata rules change (new columns, different tag parsing):
  * every file whose row carries an older version is re-read once, even when
  * its mtime and size did not change. V06.1 introduced size/mtime/fingerprint.
+ * R03.2 reads MusicBrainz ids, release data, work/movement, every genre and
+ * the people on a track, so version 3 re-reads the library once.
  */
-export const SCAN_VERSION = 2;
+export const SCAN_VERSION = 3;
 
 const artistCache = new Map<string, string>();
 const albumCache = new Map<string, string>();
@@ -853,6 +855,91 @@ function findMoveCandidate(
   return null;
 }
 
+/**
+ * The artist row for a name, created once per scan and reused (R03.2).
+ *
+ * An MBID is only written when the tags give exactly one for this name: a
+ * list of ids next to a list of names cannot be paired reliably, and a wrong
+ * identity is worse than none. An id already on the row is never overwritten
+ * with a guess.
+ */
+function upsertArtist(name: string, mbid?: string): string {
+  const key = name.toLowerCase();
+  const cached = artistCache.get(key);
+  if (cached) {
+    if (mbid) claimArtistMbid(cached, mbid);
+    return cached;
+  }
+  const db = getDb();
+  // COLLATE NOCASE: the in-scan cache key is lowercased, but a fresh scan
+  // starts with an empty cache — a case-sensitive lookup would then miss
+  // "ABBA" when this file is tagged "Abba" and create a duplicate artist.
+  const existing = db
+    .select()
+    .from(artists)
+    .where(sql`${artists.name} = ${name} COLLATE NOCASE`)
+    .get();
+  if (existing) {
+    artistCache.set(key, existing.id);
+    if (mbid) claimArtistMbid(existing.id, mbid);
+    return existing.id;
+  }
+  const id = uuid();
+  db.insert(artists)
+    .values({ id, name, mbid: mbid ?? null, source: 'local' })
+    .run();
+  artistCache.set(key, id);
+  scanStatus.artists++;
+  return id;
+}
+
+/**
+ * Write the album identity the tags gave, but only where the row is still
+ * empty: an album is scanned track by track, and a file without MusicBrainz
+ * tags must not undo what the file before it established.
+ */
+function claimAlbumIdentity(
+  albumId: string,
+  values: {
+    mbid?: string;
+    releaseGroupMbid?: string;
+    label?: string;
+    catalogNumber?: string;
+    releaseDate?: string;
+    originalYear?: number;
+  },
+): void {
+  const columns: Array<[string, string | number]> = [];
+  if (values.mbid) columns.push(['mbid', values.mbid]);
+  if (values.releaseGroupMbid) columns.push(['release_group_mbid', values.releaseGroupMbid]);
+  if (values.label) columns.push(['label', values.label]);
+  if (values.catalogNumber) columns.push(['catalog_number', values.catalogNumber]);
+  if (values.releaseDate) columns.push(['release_date', values.releaseDate]);
+  if (values.originalYear) columns.push(['original_year', values.originalYear]);
+  if (columns.length === 0) return;
+  try {
+    const db = getRawDb();
+    for (const [column, value] of columns) {
+      db.prepare(
+        `UPDATE albums SET ${column} = ? WHERE id = ? AND (${column} IS NULL OR ${column} = '')`,
+      ).run(value, albumId);
+    }
+  } catch (err) {
+    logger.debug(`Scanner: could not store album identity for ${albumId}: ${err}`);
+  }
+}
+
+/** Fill in an MBID that is still missing; never replace one that is there. */
+function claimArtistMbid(artistId: string, mbid: string): void {
+  try {
+    getRawDb()
+      .prepare("UPDATE artists SET mbid = ? WHERE id = ? AND (mbid IS NULL OR mbid = '')")
+      .run(mbid, artistId);
+  } catch {
+    // An artists table without the column (pre-R03) is simply left alone.
+  }
+}
+
 async function processFile(
   filePath: string,
   fileStat: Stats | null,
@@ -870,29 +957,34 @@ async function processFile(
   const composer = normalizePeople(common.composer).join(', ') || undefined;
   const conductor = normalizePeople(common.conductor).join(', ') || undefined;
 
-  // Upsert artist
-  const artistKey = albumArtistName.toLowerCase();
-  let artistId = artistCache.get(artistKey);
-  if (!artistId) {
-    artistId = uuid();
-    artistCache.set(artistKey, artistId);
-    const db = getDb();
-    // COLLATE NOCASE: the in-scan cache key is lowercased, but a fresh scan
-    // starts with an empty cache — a case-sensitive lookup would then miss
-    // "ABBA" when this file is tagged "Abba" and create a duplicate artist.
-    const existing = db
-      .select()
-      .from(artists)
-      .where(sql`${artists.name} = ${albumArtistName} COLLATE NOCASE`)
-      .get();
-    if (existing) {
-      artistId = existing.id;
-      artistCache.set(artistKey, artistId);
-    } else {
-      db.insert(artists).values({ id: artistId, name: albumArtistName, source: 'local' }).run();
-      scanStatus.artists++;
-    }
-  }
+  // ── What the tags say about identity (R03.2) ──
+  // Read from the file, never inferred: a Picard-tagged folder is identified
+  // without touching the network, and an untagged one stays honestly
+  // unidentified until the job of R03.3 looks it up.
+  const tags = common as unknown as Record<string, unknown>;
+  const albumArtistMbids = tags.musicbrainz_albumartistid as string[] | undefined;
+  const credits = creditsFromTags(tags);
+  const genres = genresFromTags(common.genre);
+  const recordingMbid =
+    (tags.musicbrainz_recordingid as string | undefined) ??
+    (tags.musicbrainz_trackid as string | undefined);
+  const albumMbid = tags.musicbrainz_albumid as string | undefined;
+  const releaseGroupMbid = tags.musicbrainz_releasegroupid as string | undefined;
+  const label = firstOf(tags.label as string[] | undefined);
+  const catalogNumber = firstOf(tags.catalognumber as string[] | undefined);
+  const releaseDate = firstOf(tags.date as string | undefined);
+  const originalYear =
+    (tags.originalyear as number | undefined) ??
+    yearFromDate(tags.originaldate as string | undefined);
+  const isrc = firstOf(tags.isrc as string[] | undefined);
+  const bpm = typeof tags.bpm === 'number' ? tags.bpm : undefined;
+  const work = (tags.work as string | undefined)?.trim() || undefined;
+  const movement = (tags.movement as string | undefined)?.trim() || undefined;
+
+  // Upsert artist. Every credited person goes through here (R03.2), so a
+  // guest on one track gets a row of their own instead of living inside a
+  // display string.
+  const artistId = upsertArtist(albumArtistName, firstOf(albumArtistMbids));
 
   // Upsert album. The folder is part of the identity: the same album ripped at
   // multiple qualities (each in its own folder) becomes separate album entries
@@ -942,6 +1034,12 @@ async function processFile(
           format: fileFormat,
           sampleRate: format.sampleRate,
           bitDepth: format.bitsPerSample,
+          mbid: albumMbid ?? null,
+          releaseGroupMbid: releaseGroupMbid ?? null,
+          label: label ?? null,
+          catalogNumber: catalogNumber ?? null,
+          releaseDate: releaseDate ?? null,
+          originalYear: originalYear ?? null,
         })
         .run();
       scanStatus.albums++;
@@ -1002,6 +1100,11 @@ async function processFile(
     bitDepth: format.bitsPerSample,
     replayGainTrack: rgTrackGain ?? null,
     replayGainTrackPeak: rgTrackPeak ?? null,
+    mbid: recordingMbid ?? null,
+    isrc: isrc ?? null,
+    bpm: bpm ?? null,
+    work: work ?? null,
+    movement: movement ?? null,
     filePath,
     fileSize: fileStat?.size ?? null,
     fileMtime: fileStat ? Math.floor(fileStat.mtimeMs / 1000) : null,
@@ -1016,10 +1119,16 @@ async function processFile(
   if (targetTrackId) {
     db.update(tracks).set(trackData).where(eq(tracks.id, targetTrackId)).run();
   } else {
+    targetTrackId = uuid();
     db.insert(tracks)
-      .values({ id: uuid(), ...trackData })
+      .values({ id: targetTrackId, ...trackData })
       .run();
   }
+
+  // Who is on this track, and under which genres it files (R03.2). Both are
+  // replaced per track, so a corrected tag takes the old answer with it.
+  writeCredits(targetTrackId, credits, (name) => upsertArtist(name));
+  writeGenres(targetTrackId, albumId, genres);
 
   // Album-level RG: prefer the value embedded in the file (every track on the
   // same album should carry the identical album_gain tag). We write it every
@@ -1035,9 +1144,16 @@ async function processFile(
       .run();
   }
 
-  const cover = selectCover(common.picture);
-  if (cover) {
-    cacheEmbeddedCover(albumId, Buffer.from(cover.data), cover.format || 'image/jpeg');
+  // A cover file next to the music is usually the full-size scan, so it wins
+  // over the embedded thumbnail (R03.2).
+  const fromFolder = folderCover(albumDir);
+  if (fromFolder) {
+    cacheEmbeddedCover(albumId, fromFolder.data, fromFolder.mime);
+  } else {
+    const cover = selectCover(common.picture);
+    if (cover) {
+      cacheEmbeddedCover(albumId, Buffer.from(cover.data), cover.format || 'image/jpeg');
+    }
   }
 
   // Update album track count
@@ -1053,6 +1169,16 @@ async function processFile(
     })
     .where(eq(albums.id, albumId))
     .run();
+  // Identity the tags provide is filled in, never overwritten with nothing:
+  // one untagged track on an identified album must not erase its MBID.
+  claimAlbumIdentity(albumId, {
+    mbid: albumMbid,
+    releaseGroupMbid,
+    label,
+    catalogNumber,
+    releaseDate,
+    originalYear,
+  });
   return outcome;
 }
 
@@ -1062,4 +1188,163 @@ function normalizePeople(value: string | string[] | undefined): string[] {
     .flatMap((item) => item.split(/\s*(?:;|\/)\s*/))
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+/**
+ * "feat." and friends mark a guest, so the name behind one is a FEATURED
+ * artist rather than part of the act (R03.2). The display name is never
+ * rewritten — `artist_name` keeps reading exactly as the tag does — this only
+ * decides who gets a row and in which role.
+ *
+ * Deliberately NOT split on "&" or "and": "Simon & Garfunkel", "Earth, Wind &
+ * Fire" and "Nick Cave and the Bad Seeds" are one act each, and a library full
+ * of half-artists would be worse than no split at all. A tag that really means
+ * two acts almost always separates them with ";" or "/", which is split above.
+ */
+const FEATURE_SPLIT = /\s+(?:feat\.?|ft\.?|featuring|with)\s+/i;
+
+export function splitFeatured(names: string[]): { main: string[]; featured: string[] } {
+  const main: string[] = [];
+  const featured: string[] = [];
+  for (const name of names) {
+    const parts = name
+      .split(FEATURE_SPLIT)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (parts.length === 0) continue;
+    main.push(parts[0]);
+    featured.push(...parts.slice(1));
+  }
+  return {
+    main: dedupeNames(main),
+    featured: dedupeNames(featured).filter((name) => !main.some((m) => sameName(m, name))),
+  };
+}
+
+const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
+function dedupeNames(names: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of names) {
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
+/** A role on a track, in the order the tags listed it (R03.1 schema). */
+export type CreditRole = 'main' | 'featured' | 'composer' | 'conductor' | 'performer' | 'producer';
+
+interface Credit {
+  name: string;
+  role: CreditRole;
+  position: number;
+}
+
+/**
+ * Everyone the tags name, with their capacity. One artist can hold several
+ * roles on one track (a composer who also conducts), which is why the key of
+ * `track_artists` includes the role.
+ */
+function creditsFromTags(common: Record<string, unknown>): Credit[] {
+  const credits: Credit[] = [];
+  const add = (names: string[], role: CreditRole) => {
+    names.forEach((name, index) => credits.push({ name, role, position: index }));
+  };
+  const trackArtists = normalizePeople(
+    (common.artists as string[] | undefined) ?? (common.artist as string | undefined),
+  );
+  const { main, featured } = splitFeatured(trackArtists);
+  add(main, 'main');
+  add(featured, 'featured');
+  add(normalizePeople(common.composer as string[] | undefined), 'composer');
+  add(normalizePeople(common.conductor as string[] | undefined), 'conductor');
+  // "performer:instrument" is how Vorbis and ID3 name a player on a track.
+  add(normalizePeople(common['performer:instrument'] as string[] | undefined), 'performer');
+  add(normalizePeople(common.producer as string[] | undefined), 'producer');
+  return credits;
+}
+
+/** The year inside a date tag, which may be "1973", "1973-05" or "1973-05-25". */
+function yearFromDate(value: string | undefined): number | undefined {
+  const match = value?.match(/^(\d{4})/);
+  return match ? Number(match[1]) : undefined;
+}
+
+/** The first value of a tag that formats model as a list. */
+function firstOf(value: string[] | string | undefined): string | undefined {
+  if (Array.isArray(value)) return value.find((item) => item.trim())?.trim();
+  return value?.trim() || undefined;
+}
+
+/** Every genre the file names, deduplicated, as a set for facets (R03.1). */
+function genresFromTags(value: string[] | undefined): string[] {
+  return dedupeNames(
+    (value ?? [])
+      .flatMap((item) => item.split(/\s*(?:;|\/|,)\s*/))
+      .map((item) => item.trim())
+      .filter(Boolean),
+  );
+}
+
+/** Cover files a ripper leaves next to the music, in the order we trust them. */
+const COVER_FILE_NAMES = ['folder.jpg', 'cover.jpg', 'front.jpg', 'folder.png', 'cover.png'];
+
+const COVER_MIME: Record<string, string> = { '.jpg': 'image/jpeg', '.png': 'image/png' };
+
+/**
+ * A cover file next to the music wins over the embedded picture (R03.2): it is
+ * usually the full-size scan, where the embedded one is a thumbnail the ripper
+ * squeezed into every track.
+ */
+function folderCover(albumDir: string): { data: Buffer; mime: string } | null {
+  for (const name of COVER_FILE_NAMES) {
+    const candidate = join(albumDir, name);
+    if (!existsSync(candidate)) continue;
+    try {
+      return {
+        data: readFileSync(candidate),
+        mime: COVER_MIME[extname(name).toLowerCase()] ?? 'image/jpeg',
+      };
+    } catch (err) {
+      logger.debug(`Scanner: could not read ${candidate}: ${err}`);
+    }
+  }
+  return null;
+}
+
+/**
+ * Everyone on this track, as rows (R03.2). The set is replaced rather than
+ * added to, so a corrected tag removes the person it no longer names.
+ */
+function writeCredits(trackId: string, credits: Credit[], artistIdFor: (name: string) => string) {
+  const db = getRawDb();
+  db.prepare('DELETE FROM track_artists WHERE track_id = ?').run(trackId);
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO track_artists (track_id, artist_id, role, position)
+     VALUES (?, ?, ?, ?)`,
+  );
+  for (const credit of credits) {
+    insert.run(trackId, artistIdFor(credit.name), credit.role, credit.position);
+  }
+}
+
+function writeGenres(trackId: string, albumId: string, genres: string[]): void {
+  const db = getRawDb();
+  db.prepare('DELETE FROM track_genres WHERE track_id = ?').run(trackId);
+  const insertTrack = db.prepare(
+    'INSERT OR IGNORE INTO track_genres (track_id, genre) VALUES (?, ?)',
+  );
+  // Album genres accumulate across the album's tracks: a compilation is
+  // several genres, and no single track decides for the album.
+  const insertAlbum = db.prepare(
+    'INSERT OR IGNORE INTO album_genres (album_id, genre) VALUES (?, ?)',
+  );
+  for (const genre of genres) {
+    insertTrack.run(trackId, genre);
+    insertAlbum.run(albumId, genre);
+  }
 }

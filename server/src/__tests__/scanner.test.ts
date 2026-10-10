@@ -48,6 +48,98 @@ vi.mock('music-metadata', () => ({
     const sameRecording = fileName.startsWith('song-');
     const altRecording = fileName.startsWith('alt-');
     const title = sameRecording || altRecording ? 'Same Song' : fileName.replace(/\.[^.]+$/, '');
+    const format = {
+      duration: altRecording ? 200 : 180,
+      sampleRate: 44100,
+      bitsPerSample: 16,
+    };
+
+    // ── R03 tag profiles, chosen by file name ──
+    // "tagged-*" is a Picard-tagged file, "bare-*" carries nothing but the
+    // basics, "feat-*" names a guest inside the artist string and
+    // "classical-*" is a work with a composer and a conductor.
+    if (fileName.startsWith('tagged-')) {
+      return {
+        common: {
+          artist: 'Tagged Artist',
+          albumartist: 'Tagged Artist',
+          album: 'Tagged Album',
+          title,
+          artists: ['Tagged Artist'],
+          genre: ['Jazz; Vocal Jazz'],
+          date: '1959-08-17',
+          originaldate: '1959',
+          year: 1959,
+          label: ['Columbia'],
+          catalognumber: ['CL 1355'],
+          isrc: ['USSM15900001'],
+          bpm: 128,
+          musicbrainz_recordingid: 'rec-1111',
+          musicbrainz_albumid: 'rel-2222',
+          musicbrainz_releasegroupid: 'rg-3333',
+          musicbrainz_albumartistid: ['art-4444'],
+          track: { no: 1 },
+          disk: { no: 1 },
+        },
+        format,
+      };
+    }
+    if (fileName.startsWith('bare-')) {
+      return {
+        common: { artist: 'Bare Artist', album: 'Bare Album', title, track: { no: 1 } },
+        format,
+      };
+    }
+    if (fileName.startsWith('feat-')) {
+      return {
+        common: {
+          artist: 'Lead Act feat. The Guest',
+          albumartist: 'Lead Act',
+          album: 'Featuring Album',
+          title,
+          artists: ['Lead Act feat. The Guest'],
+          producer: ['A Producer'],
+          track: { no: 1 },
+        },
+        format,
+      };
+    }
+    if (fileName.startsWith('classical-')) {
+      return {
+        common: {
+          artist: 'The Orchestra',
+          albumartist: 'The Orchestra',
+          album: 'Symphonies',
+          title,
+          artists: ['The Orchestra'],
+          composer: ['Gustav Mahler'],
+          conductor: ['Claudio Abbado'],
+          'performer:instrument': ['A Soloist (violin)'],
+          work: 'Symphony No. 5',
+          movement: 'IV. Adagietto',
+          genre: ['Classical'],
+          track: { no: 4 },
+        },
+        format,
+      };
+    }
+    if (fileName.startsWith('various-')) {
+      const index = Number(fileName.match(/various-(\d+)/)?.[1] ?? '1');
+      return {
+        common: {
+          artist: `Artist ${index}`,
+          albumartist: 'Various Artists',
+          album: 'A Compilation',
+          title,
+          artists: [`Artist ${index}`],
+          compilation: true,
+          genre: [index % 2 === 0 ? 'Pop' : 'Rock'],
+          track: { no: index },
+        },
+        format,
+      };
+    }
+
     return {
       common: {
         artist: 'Scanned Artist',
@@ -59,11 +151,7 @@ vi.mock('music-metadata', () => ({
         track: { no: 1 },
         disk: { no: 1 },
       },
-      format: {
-        duration: altRecording ? 200 : 180,
-        sampleRate: 44100,
-        bitsPerSample: 16,
-      },
+      format,
     };
   }),
 }));
@@ -342,6 +430,196 @@ describe('scanner: library preservation (V06)', () => {
     expect(fingerprintOf(base)).toBe(fingerprintOf({ ...base, title: ' song ' }));
     expect(fingerprintOf(base)).not.toBe(fingerprintOf({ ...base, size: 101 }));
     expect(fingerprintOf(base)).not.toBe(fingerprintOf({ ...base, duration: 181 }));
+  });
+});
+
+/**
+ * R03.2 — the tags become identity and relations.
+ *
+ * What matters here is the difference between "identified" and "guessed": a
+ * Picard-tagged folder gets its MusicBrainz ids without a network call, an
+ * untagged one stays empty rather than being filled with a hopeful match, and
+ * every person the tags name gets a row with the capacity they hold.
+ */
+describe('scanner: identity and credits (R03.2)', () => {
+  let tmp: string | null = null;
+
+  beforeEach(async () => {
+    tmp = mkdtempSync(join(tmpdir(), 'audioserver-scanner-r03-'));
+    await initDatabase(join(tmp, 'test.db'));
+  });
+
+  afterEach(() => {
+    try {
+      getRawDb().close();
+    } catch {
+      // ignore
+    }
+    if (tmp) rmSync(tmp, { recursive: true, force: true });
+    tmp = null;
+  });
+
+  async function scanWith(files: string[], extra?: (root: string) => void) {
+    const root = join(tmp!, 'music');
+    mkdirSync(root, { recursive: true });
+    for (const name of files) writeFileSync(join(root, name), 'audio');
+    extra?.(root);
+    await scanLibrary([root], { trigger: 'test' });
+    return root;
+  }
+
+  const credits = (trackId: string) =>
+    getRawDb()
+      .prepare(
+        `SELECT a.name as name, ta.role as role, ta.position as position
+           FROM track_artists ta JOIN artists a ON a.id = ta.artist_id
+          WHERE ta.track_id = ?
+          ORDER BY ta.role, ta.position`,
+      )
+      .all(trackId) as Array<{ name: string; role: string; position: number }>;
+
+  it('reads MusicBrainz ids and release data from the file, with no network', async () => {
+    await scanWith(['tagged-one.mp3']);
+    const track = getTrackByPath(join(tmp!, 'music', 'tagged-one.mp3'))!;
+    const row = getRawDb().prepare('SELECT * FROM tracks WHERE id = ?').get(track.id) as Record<
+      string,
+      unknown
+    >;
+    expect(row.mbid).toBe('rec-1111');
+    expect(row.isrc).toBe('USSM15900001');
+    expect(row.bpm).toBe(128);
+
+    const album = getRawDb()
+      .prepare('SELECT * FROM albums WHERE id = ?')
+      .get(track.album_id) as Record<string, unknown>;
+    expect(album.mbid).toBe('rel-2222');
+    expect(album.release_group_mbid).toBe('rg-3333');
+    expect(album.label).toBe('Columbia');
+    expect(album.catalog_number).toBe('CL 1355');
+    expect(album.release_date).toBe('1959-08-17');
+    expect(album.original_year).toBe(1959);
+
+    const artist = getRawDb()
+      .prepare('SELECT mbid FROM artists WHERE id = ?')
+      .get(album.artist_id as string) as { mbid: string | null };
+    expect(artist.mbid).toBe('art-4444');
+  });
+
+  it('leaves an untagged album honestly unidentified', async () => {
+    await scanWith(['bare-one.mp3']);
+    const track = getTrackByPath(join(tmp!, 'music', 'bare-one.mp3'))!;
+    const row = getRawDb().prepare('SELECT * FROM tracks WHERE id = ?').get(track.id) as Record<
+      string,
+      unknown
+    >;
+    expect(row.mbid).toBeNull();
+    const album = getRawDb()
+      .prepare('SELECT mbid, label FROM albums WHERE id = ?')
+      .get(track.album_id) as Record<string, unknown>;
+    expect(album.mbid).toBeNull();
+    expect(album.label).toBeNull();
+    // Still a relation, so the artist page works for unidentified music too.
+    expect(credits(track.id).map((c) => c.role)).toEqual(['main']);
+  });
+
+  it('splits "feat." into a guest with their own row, keeping the display name', async () => {
+    await scanWith(['feat-one.mp3']);
+    const track = getTrackByPath(join(tmp!, 'music', 'feat-one.mp3'))!;
+    // The display text is what the tag said, untouched.
+    expect(track.artist_name).toBe('Lead Act feat. The Guest');
+    expect(credits(track.id)).toEqual([
+      { name: 'The Guest', role: 'featured', position: 0 },
+      { name: 'Lead Act', role: 'main', position: 0 },
+      { name: 'A Producer', role: 'producer', position: 0 },
+    ]);
+  });
+
+  it('does not tear "&" names apart', async () => {
+    const root = join(tmp!, 'music');
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, 'amp-one.mp3'), 'audio');
+    const { parseFile } = await import('music-metadata');
+    (
+      parseFile as unknown as { mockImplementationOnce: (fn: unknown) => void }
+    ).mockImplementationOnce(async () => ({
+      common: {
+        artist: 'Simon & Garfunkel',
+        albumartist: 'Simon & Garfunkel',
+        album: 'Bookends',
+        title: 'America',
+        artists: ['Simon & Garfunkel'],
+        track: { no: 1 },
+      },
+      format: { duration: 200, sampleRate: 44100, bitsPerSample: 16 },
+    }));
+    await scanLibrary([root], { trigger: 'test' });
+
+    const track = getTrackByPath(join(root, 'amp-one.mp3'))!;
+    expect(credits(track.id)).toEqual([{ name: 'Simon & Garfunkel', role: 'main', position: 0 }]);
+  });
+
+  it('gives a classical track its composer, conductor and performer', async () => {
+    await scanWith(['classical-adagietto.mp3']);
+    const track = getTrackByPath(join(tmp!, 'music', 'classical-adagietto.mp3'))!;
+    const row = getRawDb().prepare('SELECT * FROM tracks WHERE id = ?').get(track.id) as Record<
+      string,
+      unknown
+    >;
+    expect(row.work).toBe('Symphony No. 5');
+    expect(row.movement).toBe('IV. Adagietto');
+    expect(credits(track.id)).toEqual([
+      { name: 'Gustav Mahler', role: 'composer', position: 0 },
+      { name: 'Claudio Abbado', role: 'conductor', position: 0 },
+      { name: 'The Orchestra', role: 'main', position: 0 },
+      { name: 'A Soloist (violin)', role: 'performer', position: 0 },
+    ]);
+  });
+
+  it('gives every artist on a compilation a row of their own', async () => {
+    const files = Array.from({ length: 20 }, (_, i) => `various-${i + 1}.mp3`);
+    await scanWith(files);
+    const names = (
+      getRawDb()
+        .prepare(
+          `SELECT DISTINCT a.name as name FROM track_artists ta
+             JOIN artists a ON a.id = ta.artist_id
+            WHERE ta.role = 'main'`,
+        )
+        .all() as Array<{ name: string }>
+    ).map((r) => r.name);
+    expect(names).toHaveLength(20);
+    expect(names).toContain('Artist 7');
+
+    // The album itself stays one album by Various Artists, with both genres.
+    const album = getRawDb().prepare('SELECT * FROM albums').get() as Record<string, unknown>;
+    expect(album.artist_name).toBe('Various Artists');
+    const genres = (
+      getRawDb()
+        .prepare('SELECT genre FROM album_genres WHERE album_id = ? ORDER BY genre')
+        .all(album.id) as Array<{ genre: string }>
+    ).map((g) => g.genre);
+    expect(genres).toEqual(['Pop', 'Rock']);
+  });
+
+  it('stores every genre of a file as a set', async () => {
+    await scanWith(['tagged-one.mp3']);
+    const track = getTrackByPath(join(tmp!, 'music', 'tagged-one.mp3'))!;
+    const genres = (
+      getRawDb()
+        .prepare('SELECT genre FROM track_genres WHERE track_id = ? ORDER BY genre')
+        .all(track.id) as Array<{ genre: string }>
+    ).map((g) => g.genre);
+    expect(genres).toEqual(['Jazz', 'Vocal Jazz']);
+  });
+
+  it('prefers a cover file next to the music over the embedded picture', async () => {
+    const root = await scanWith(['tagged-one.mp3'], (dir) => {
+      writeFileSync(join(dir, 'folder.jpg'), 'a full-size scan');
+    });
+    const track = getTrackByPath(join(root, 'tagged-one.mp3'))!;
+    const { readCachedCover } = await import('../services/coverart-fetch.js');
+    const cached = readCachedCover(track.album_id);
+    expect(cached?.data.toString()).toBe('a full-size scan');
   });
 });
 
