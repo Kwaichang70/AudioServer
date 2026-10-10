@@ -19,6 +19,14 @@ const mocks = vi.hoisted(() => ({
     getArtistAlbums: vi.fn(),
     getSimilarArtists: vi.fn(),
     getArtistImageUrl: vi.fn((id: string) => `/artists/${id}`),
+    // R04.2: the artist page also loads its biography, discography and the
+    // listener's top tracks. The race under test is about getArtist; these
+    // only have to answer.
+    getArtistBio: vi.fn(() => Promise.resolve({ data: null })),
+    getArtistDiscography: vi.fn(() =>
+      Promise.resolve({ data: { albums: [], singles: [], compilations: [], appearsOn: [] } }),
+    ),
+    getArtistTopTracks: vi.fn(() => Promise.resolve({ data: [] })),
     getPlaylist: vi.fn(),
     getPlaylistTracks: vi.fn(),
     removeFromPlaylist: vi.fn(),

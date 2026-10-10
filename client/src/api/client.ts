@@ -23,7 +23,10 @@ import type {
   LibraryArtist,
   LibraryStats,
   LibraryTrack,
+  ArtistBio,
+  Discography,
   DoubtfulAlbum,
+  TopTrack,
   IdentifyStatus,
   ListenBrainzDiscover,
   MixItem,
@@ -298,6 +301,15 @@ export const api = {
   /** Every available track of an artist, album by album (R01.1). */
   getArtistTracks: (id: string): Promise<ApiResponse<LibraryTrack[]>> =>
     fetchApi(`/library/artists/${id}/tracks`),
+  /** Biography with source and licence: Wikipedia via the MBID, Last.fm as fallback (R04.1). */
+  getArtistBio: (id: string): Promise<ApiResponse<ArtistBio | null>> =>
+    fetchApi(`/library/artists/${id}/bio`),
+  /** Albums, singles & EPs, compilations and "appears on" (R04.2). */
+  getArtistDiscography: (id: string): Promise<ApiResponse<Discography>> =>
+    fetchApi(`/library/artists/${id}/discography`),
+  /** This listener's most played tracks by the artist (R04.2). */
+  getArtistTopTracks: (id: string): Promise<ApiResponse<TopTrack[]>> =>
+    fetchApi(`/library/artists/${id}/top-tracks`),
   getSimilarArtists: (id: string): Promise<ApiResponse<SimilarArtistsResult>> =>
     fetchApi(`/library/artists/${id}/similar`),
   getAlbums: (page = 1, limit = 50): Promise<PaginatedResponse<LibraryAlbum>> =>

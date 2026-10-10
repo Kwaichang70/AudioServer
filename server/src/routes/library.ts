@@ -42,6 +42,7 @@ import {
 import { parsePagination, buildMeta } from '../utils/pagination.js';
 import { getSimilarArtists, similarArtistsAvailable } from '../services/similar-artists.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { requireOwner } from '../utils/ownership.js';
 
 export const libraryRouter = Router();
 
@@ -140,6 +141,124 @@ libraryRouter.get(
     }
   }),
 );
+
+/**
+ * Discography, split the way a record shelf is (R04.2).
+ *
+ * - albums       the artist's own releases
+ * - singles      short releases: at most six tracks and under thirty minutes,
+ *                the usual line between an EP and an album. A heuristic —
+ *                MusicBrainz' release-group type would be the real answer and
+ *                is not stored — so the page labels the section plainly.
+ * - compilations tagged as compilations
+ * - appearsOn    someone else's album this artist is credited on (R03.1),
+ *                with the roles they hold there
+ */
+interface DiscographyEntry {
+  id: string;
+  title: string;
+  artistName: string;
+  year: number | null;
+  releaseDate: string | null;
+  trackCount: number;
+  duration: number;
+  format: string | null;
+  sampleRate: number | null;
+  bitDepth: number | null;
+  isCompilation: boolean;
+  roles?: string[];
+}
+
+const SINGLE_MAX_TRACKS = 6;
+const SINGLE_MAX_SECONDS = 30 * 60;
+
+libraryRouter.get('/artists/:id/discography', (req, res) => {
+  const artist = getDb().select().from(artists).where(eq(artists.id, req.params.id)).get();
+  if (!artist) return res.status(404).json({ error: 'Artist not found' });
+  const db = getRawDb();
+  const select = `
+    SELECT a.id, a.title, a.artist_name as artistName,
+           COALESCE(a.original_year, a.year) as year, a.release_date as releaseDate,
+           a.format, a.sample_rate as sampleRate, a.bit_depth as bitDepth,
+           a.is_compilation as isCompilation,
+           COUNT(t.id) as trackCount, COALESCE(SUM(t.duration), 0) as duration
+      FROM albums a LEFT JOIN tracks t ON t.album_id = a.id`;
+  type Row = Omit<DiscographyEntry, 'isCompilation'> & { isCompilation: number | null };
+  const own = db.prepare(`${select} WHERE a.artist_id = ? GROUP BY a.id`).all(artist.id) as Row[];
+  const appears = db
+    .prepare(
+      `${select}
+        WHERE a.artist_id != ?
+          AND a.id IN (SELECT t2.album_id FROM track_artists ta
+                         JOIN tracks t2 ON t2.id = ta.track_id
+                        WHERE ta.artist_id = ?)
+        GROUP BY a.id`,
+    )
+    .all(artist.id, artist.id) as Row[];
+  const rolesOn = db.prepare(
+    `SELECT DISTINCT ta.role FROM track_artists ta JOIN tracks t ON t.id = ta.track_id
+      WHERE ta.artist_id = ? AND t.album_id = ? ORDER BY ta.role`,
+  );
+
+  const toEntry = (row: Row): DiscographyEntry => ({ ...row, isCompilation: !!row.isCompilation });
+  const albumsOut: DiscographyEntry[] = [];
+  const singles: DiscographyEntry[] = [];
+  const compilations: DiscographyEntry[] = [];
+  for (const row of own.map(toEntry)) {
+    if (row.isCompilation) compilations.push(row);
+    else if (row.trackCount <= SINGLE_MAX_TRACKS && row.duration < SINGLE_MAX_SECONDS)
+      singles.push(row);
+    else albumsOut.push(row);
+  }
+  const appearsOn = appears.map((row) => ({
+    ...toEntry(row),
+    roles: (rolesOn.all(artist.id, row.id) as Array<{ role: string }>).map((r) => r.role),
+  }));
+
+  res.json({
+    data: { albums: albumsOut, singles, compilations, appearsOn },
+    meta: {
+      total: albumsOut.length + singles.length + compilations.length + appearsOn.length,
+    },
+  });
+});
+
+/**
+ * This listener's most played tracks by the artist (R04.2), from their own
+ * listening sessions — personal since V09, so two people get two lists.
+ * Only tracks that can play now are listed: a top track that only produces
+ * a skip is no top track.
+ */
+libraryRouter.get('/artists/:id/top-tracks', (req, res) => {
+  const owner = requireOwner(req, res);
+  if (!owner) return;
+  const artist = getDb().select().from(artists).where(eq(artists.id, req.params.id)).get();
+  if (!artist) return res.status(404).json({ error: 'Artist not found' });
+  const rows = getRawDb()
+    .prepare(
+      `SELECT t.*, COUNT(ls.id) as plays
+         FROM listening_sessions ls
+         JOIN tracks t ON t.id = ls.track_id
+        WHERE ls.user_id = ? AND ls.qualified = 1
+          AND t.availability != 'missing'
+          AND (t.artist_id = ? OR t.id IN (SELECT track_id FROM track_artists WHERE artist_id = ?))
+        GROUP BY t.id
+        ORDER BY plays DESC, MAX(ls.started_at) DESC
+        LIMIT 10`,
+    )
+    .all(owner, artist.id, artist.id) as Array<Record<string, unknown>>;
+  const data = rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    artistName: row.artist_name,
+    albumTitle: row.album_title,
+    albumId: row.album_id,
+    duration: row.duration,
+    format: row.format,
+    plays: row.plays,
+  }));
+  res.json({ data, meta: { total: data.length } });
+});
 
 /**
  * The artist's biography (R04.1): Wikipedia via the artist's MusicBrainz

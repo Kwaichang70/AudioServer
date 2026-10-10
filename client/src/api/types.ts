@@ -555,6 +555,53 @@ export interface DoubtfulAlbum {
   }>;
 }
 
+/** An artist biography with its source and licence (R04.1). */
+export interface ArtistBio {
+  artistId: string;
+  summary: string;
+  source: 'wikipedia' | 'lastfm';
+  language: string | null;
+  url: string | null;
+  license: string;
+  fetchedAt: number;
+}
+
+/** One release on an artist page (R04.2). */
+export interface DiscographyEntry {
+  id: string;
+  title: string;
+  artistName: string;
+  year: number | null;
+  releaseDate: string | null;
+  trackCount: number;
+  duration: number;
+  format: string | null;
+  sampleRate: number | null;
+  bitDepth: number | null;
+  isCompilation: boolean;
+  /** On someone else's album: the roles this artist holds there. */
+  roles?: string[];
+}
+
+export interface Discography {
+  albums: DiscographyEntry[];
+  singles: DiscographyEntry[];
+  compilations: DiscographyEntry[];
+  appearsOn: DiscographyEntry[];
+}
+
+/** A track with this listener's play count (R04.2). */
+export interface TopTrack {
+  id: string;
+  title: string;
+  artistName: string;
+  albumTitle: string;
+  albumId: string;
+  duration: number | null;
+  format: string | null;
+  plays: number;
+}
+
 export interface PlaylistImportMeta extends ApiMeta {
   total: number;
   matched: number;
