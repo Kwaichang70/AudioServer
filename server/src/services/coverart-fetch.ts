@@ -379,9 +379,55 @@ export async function fetchMissingArtistImages(): Promise<typeof artistFetchStat
   return artistFetchStatus;
 }
 
+/**
+ * fanart.tv, optional (R04.1): only when FANART_API_KEY is set and the artist
+ * is identified. It is keyed on the MusicBrainz id, so unlike a name search it
+ * cannot return a namesake's photo — which is also why it is skipped for
+ * artists without an MBID.
+ */
+async function fanartImage(artistId: string): Promise<Buffer | null> {
+  const key = process.env.FANART_API_KEY;
+  if (!key) return null;
+  let mbid: string | null = null;
+  try {
+    mbid =
+      (
+        getRawDb().prepare('SELECT mbid FROM artists WHERE id = ?').get(artistId) as
+          | { mbid: string | null }
+          | undefined
+      )?.mbid ?? null;
+  } catch {
+    return null;
+  }
+  if (!mbid) return null;
+  try {
+    const res = await fetch(
+      `https://webservice.fanart.tv/v3/music/${encodeURIComponent(mbid)}?api_key=${key}`,
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as { artistthumb?: Array<{ url?: string }> };
+    const url = data.artistthumb?.[0]?.url;
+    if (!url) return null;
+    const image = await fetch(url);
+    if (!image.ok) return null;
+    const buffer = Buffer.from(await image.arrayBuffer());
+    return buffer.length > 1000 ? buffer : null;
+  } catch (err) {
+    logger.debug(`fanart.tv image failed for ${mbid}: ${err}`);
+    return null;
+  }
+}
+
 async function fetchArtistImage(artistId: string, artistName: string): Promise<boolean> {
   if (getLocalArtistImagePath(artistId)) return true;
   if (artistName === 'Unknown Artist') return false;
+
+  // fanart.tv first when it is configured: an identity lookup beats a name.
+  const fromFanart = await fanartImage(artistId);
+  if (fromFanart) {
+    writeFileSync(join(getCoverDir(), `artist-${artistId}.jpg`), fromFanart);
+    return true;
+  }
 
   // Try Spotify
   try {

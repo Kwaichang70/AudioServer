@@ -19,7 +19,7 @@ import { fileURLToPath } from 'url';
  * it does not understand. Databases from before this check carry version 0,
  * which every build accepts and upgrades.
  */
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 export class DatabaseVersionError extends Error {
   constructor(
@@ -260,6 +260,21 @@ export async function initDatabase(overridePath?: string) {
   sqlite.exec(
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_album_candidates_pk ON album_identity_candidates (album_id, mbid)',
   );
+  // R04.1: artist biographies, cached with an expiry. A miss is a row too
+  // (summary NULL), with a shorter expiry, so an artist without a Wikipedia
+  // page does not cost three external requests on every visit.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS artist_bios (
+      artist_id TEXT PRIMARY KEY REFERENCES artists(id) ON DELETE CASCADE,
+      summary TEXT,
+      source TEXT,
+      language TEXT,
+      url TEXT,
+      license TEXT,
+      fetched_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    )
+  `);
   // V05.3: one submission per listening session and service.
   runMigration(sqlite, 'scrobble_queue', 'session_id', 'TEXT');
   sqlite.exec(

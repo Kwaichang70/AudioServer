@@ -204,6 +204,24 @@ export const albumIdentityCandidates = sqliteTable(
   }),
 );
 
+/**
+ * Cached artist biographies (R04.1). `summary` NULL is a cached miss; it
+ * expires sooner than a hit so a page that later appears is found.
+ */
+export const artistBios = sqliteTable('artist_bios', {
+  artistId: text('artist_id')
+    .primaryKey()
+    .references(() => artists.id, { onDelete: 'cascade' }),
+  summary: text('summary'),
+  /** 'wikipedia' | 'lastfm' */
+  source: text('source'),
+  language: text('language'),
+  url: text('url'),
+  license: text('license'),
+  fetchedAt: integer('fetched_at').notNull(),
+  expiresAt: integer('expires_at').notNull(),
+});
+
 /** One row per library scan (V06.3): what was scanned, what happened, when. */
 export const scanRuns = sqliteTable('scan_runs', {
   id: text('id').primaryKey(),

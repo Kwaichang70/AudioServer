@@ -21,6 +21,7 @@ import { createReadStream, existsSync, statSync } from 'fs';
 import { extname } from 'path';
 // ApiResponse type removed — using inline format with buildMeta
 import { getCoverForAlbum, getCoverForTrack } from '../services/coverart.js';
+import { getArtistBio } from '../services/artist-bio.js';
 import {
   chooseIdentity,
   dismissCandidates,
@@ -137,6 +138,21 @@ libraryRouter.get(
     } catch (err) {
       res.status(502).json({ error: String(err) });
     }
+  }),
+);
+
+/**
+ * The artist's biography (R04.1): Wikipedia via the artist's MusicBrainz
+ * identity, Last.fm as fallback, cached in the database. Always with its
+ * source, a link and its licence — both texts are CC BY-SA.
+ */
+libraryRouter.get(
+  '/artists/:id/bio',
+  asyncHandler(async (req, res) => {
+    const artist = getDb().select().from(artists).where(eq(artists.id, req.params.id)).get();
+    if (!artist) return res.status(404).json({ error: 'Artist not found' });
+    const bio = await getArtistBio(artist.id, { refresh: req.query.refresh === 'true' });
+    res.json({ data: bio });
   }),
 );
 
