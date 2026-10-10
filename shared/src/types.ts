@@ -51,6 +51,9 @@ export interface Album {
   trackCount?: number;
   /** Edition label ('Deluxe', 'Remastered', 'Live'), when the source or the title says so. */
   version?: string;
+  /** Best quality of this release, when the source says (Hz and bits; R04.3). */
+  sampleRate?: number;
+  bitDepth?: number;
   source: ProviderType;
   availableOn?: ProviderType[];
   alternatives?: SourceRef[];

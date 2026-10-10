@@ -602,6 +602,39 @@ export interface TopTrack {
   plays: number;
 }
 
+/** The people on an album, grouped by the role they hold (R04.3). */
+export interface AlbumCredit {
+  role: string;
+  people: Array<{ artistId: string; name: string; tracks: number }>;
+}
+
+/** Other versions of an album: local editions and Qobuz alternatives (R04.3). */
+export interface AlbumVersions {
+  local: Array<{
+    id: string;
+    title: string;
+    format: string | null;
+    sampleRate: number | null;
+    bitDepth: number | null;
+    trackCount: number | null;
+    label: string | null;
+    releaseDate: string | null;
+    matchedBy: 'release-group' | 'title';
+  }>;
+  streaming: Array<{
+    id: string;
+    source: 'qobuz';
+    title: string;
+    artistName: string;
+    sampleRate: number | null;
+    bitDepth: number | null;
+    trackCount: number | null;
+    year: number | null;
+    higherResolution: boolean;
+  }>;
+  sources: Record<string, 'ok' | 'unavailable' | 'timeout' | 'error'>;
+}
+
 export interface PlaylistImportMeta extends ApiMeta {
   total: number;
   matched: number;

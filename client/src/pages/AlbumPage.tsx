@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
 import PlayActions, { toTrackInfo } from '../components/PlayActions.js';
 import Button from '../components/ui/Button.js';
 import AlbumCover from '../components/AlbumCover.js';
 import { formatDuration, formatQuality } from '../utils/format.js';
+import type { AlbumCredit, AlbumVersions } from '../api/types.js';
 
 interface Track {
   id: string;
@@ -21,6 +22,9 @@ interface Track {
   bitDepth?: number;
   /** V06: 'missing' when the file is no longer where the library saw it. */
   availability?: 'available' | 'missing';
+  /** The composition this track is part of, for classical music (R03.1). */
+  work?: string | null;
+  movement?: string | null;
 }
 
 interface Album {
@@ -35,13 +39,30 @@ interface Album {
   format?: string;
   sampleRate?: number;
   bitDepth?: number;
+  // Release data (R03.1), shown in the header when the tags or the
+  // identification job provided it.
+  releaseDate?: string | null;
+  originalYear?: number | null;
+  label?: string | null;
+  catalogNumber?: string | null;
 }
+
+const ROLE_TITLE: Record<string, string> = {
+  composer: 'Composer',
+  conductor: 'Conductor',
+  performer: 'Performers',
+  featured: 'Featuring',
+  producer: 'Producer',
+  main: 'Artists',
+};
 
 export default function AlbumPage() {
   const { id } = useParams<{ id: string }>();
   const [album, setAlbum] = useState<Album | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [favorited, setFavorited] = useState(false);
+  const [credits, setCredits] = useState<AlbumCredit[]>([]);
+  const [versions, setVersions] = useState<AlbumVersions | null>(null);
   const { playAlbum, playNextTracks, queueTracks, currentTrack, isPlaying } = useAudioContext();
   const activeAlbumIdRef = useRef(id);
   activeAlbumIdRef.current = id;
@@ -64,6 +85,8 @@ export default function AlbumPage() {
     setAlbum(null);
     setTracks([]);
     setFavorited(false);
+    setCredits([]);
+    setVersions(null);
 
     if (providerType === 'spotify') {
       const spotifyId = id.replace('spotify:', '');
@@ -128,6 +151,20 @@ export default function AlbumPage() {
           if (!cancelled) setFavorited(res.data.favorited);
         })
         .catch(() => {});
+      // Credits and versions (R04.3). Versions asks Qobuz too, so it may take
+      // a few seconds; the album shows without waiting for it.
+      api
+        .getAlbumCredits(id)
+        .then((res) => {
+          if (!cancelled) setCredits(res.data ?? []);
+        })
+        .catch(() => {});
+      api
+        .getAlbumVersions(id)
+        .then((res) => {
+          if (!cancelled) setVersions(res.data);
+        })
+        .catch(() => {});
     }
 
     return () => {
@@ -142,7 +179,27 @@ export default function AlbumPage() {
     if (activeAlbumIdRef.current === albumId) setFavorited(res.data.favorited);
   };
 
+  /** Start another version of this album: a local edition or a Qobuz release. */
+  const playVersion = async (versionId: string) => {
+    try {
+      const res = versionId.startsWith('qobuz:')
+        ? await api.getQobuzAlbumTracks(versionId.replace('qobuz:', ''))
+        : await api.getAlbumTracks(versionId);
+      const list = (res.data ?? []) as Track[];
+      if (list.length > 0) playAlbum(list.map((t) => toTrackInfo(t)));
+    } catch {
+      // The toast layer reports API errors; the button stays usable.
+    }
+  };
+
   if (!album) return <p className="text-gray-400">Loading...</p>;
+
+  const releaseLine = [
+    album.releaseDate ?? (album.originalYear ? String(album.originalYear) : null),
+    album.label,
+    album.catalogNumber,
+  ].filter(Boolean);
+  const hasWorks = tracks.some((t) => t.work);
 
   const totalDuration = tracks.reduce((sum, t) => sum + (t.duration || 0), 0);
   const totalMin = Math.floor(totalDuration / 60);
@@ -183,6 +240,11 @@ export default function AlbumPage() {
           <p className="text-sm text-gray-500 mt-1">
             {tracks.length} tracks &middot; {totalMin} min
           </p>
+          {releaseLine.length > 0 && (
+            <p className="text-xs text-gray-500 mt-1" data-testid="release-line">
+              {releaseLine.join(' · ')}
+            </p>
+          )}
           <div className="flex flex-wrap items-center gap-3 mt-4">
             <button
               onClick={() => playAlbum(tracks)}
@@ -238,6 +300,11 @@ export default function AlbumPage() {
             const disc = track.discNumber ?? 1;
             const previousDisc = trackIndex > 0 ? (tracks[trackIndex - 1].discNumber ?? 1) : null;
             const startsDisc = hasMultipleDiscs && disc !== previousDisc;
+            // Classical (R04.3): a heading whenever the work changes, so the
+            // four movements of a symphony read as one piece, not four songs.
+            const previousWork = trackIndex > 0 ? tracks[trackIndex - 1].work : undefined;
+            const startsWork =
+              hasWorks && !!track.work && (track.work !== previousWork || startsDisc);
             return (
               <Fragment key={track.id}>
                 {startsDisc && (
@@ -248,6 +315,17 @@ export default function AlbumPage() {
                       className="pt-6 pb-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-500"
                     >
                       Disc {disc}
+                    </th>
+                  </tr>
+                )}
+                {startsWork && (
+                  <tr>
+                    <th
+                      scope="rowgroup"
+                      colSpan={5}
+                      className="pt-5 pb-1 text-left text-sm font-semibold text-gray-300"
+                    >
+                      {track.work}
                     </th>
                   </tr>
                 )}
@@ -278,7 +356,7 @@ export default function AlbumPage() {
                       aria-label={`Play ${track.title} by ${track.artistName}`}
                     >
                       <span className="block text-sm font-medium">
-                        {track.title}
+                        {hasWorks && track.work && track.movement ? track.movement : track.title}
                         {missing && (
                           <span className="ml-2 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-red-300">
                             missing
@@ -314,6 +392,107 @@ export default function AlbumPage() {
           })}
         </tbody>
       </table>
+
+      {credits.length > 0 && (
+        <section className="mt-10 max-w-3xl" data-testid="album-credits">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-3">
+            Credits
+          </h3>
+          <dl className="grid grid-cols-1 sm:grid-cols-[10rem_1fr] gap-x-6 gap-y-2 text-sm">
+            {credits.map((credit) => (
+              <Fragment key={credit.role}>
+                <dt className="text-gray-500">{ROLE_TITLE[credit.role] ?? credit.role}</dt>
+                <dd className="flex flex-wrap gap-x-3 gap-y-1">
+                  {credit.people.map((person) => (
+                    <Link
+                      key={person.artistId}
+                      to={`/artists/${person.artistId}`}
+                      className="hover:text-accent transition"
+                    >
+                      {person.name}
+                      {credit.people.length > 1 && person.tracks < tracks.length && (
+                        <span className="text-xs text-gray-600"> ({person.tracks})</span>
+                      )}
+                    </Link>
+                  ))}
+                </dd>
+              </Fragment>
+            ))}
+          </dl>
+        </section>
+      )}
+
+      {versions && (versions.local.length > 0 || versions.streaming.length > 0) && (
+        <section className="mt-10 max-w-3xl" data-testid="album-versions">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-3">
+            Versions
+          </h3>
+          <ul className="space-y-2">
+            {versions.local.map((version) => (
+              <li key={version.id} className="flex items-center gap-3 text-sm">
+                <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-white/5 text-gray-400 shrink-0">
+                  library
+                </span>
+                <Link
+                  to={`/albums/${version.id}`}
+                  className="flex-1 min-w-0 truncate hover:text-accent transition"
+                >
+                  {version.title}
+                </Link>
+                <span className="text-xs text-gray-500 shrink-0">
+                  {formatQuality({
+                    format: version.format ?? undefined,
+                    sampleRate: version.sampleRate ?? undefined,
+                    bitDepth: version.bitDepth ?? undefined,
+                  }) || version.format?.toUpperCase()}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void playVersion(version.id)}
+                  className="text-xs text-accent hover:text-accent-hover shrink-0"
+                  aria-label={`Play ${version.title} (${version.format ?? 'other edition'})`}
+                >
+                  &#9654;
+                </button>
+              </li>
+            ))}
+            {versions.streaming.map((version) => (
+              <li key={version.id} className="flex items-center gap-3 text-sm">
+                <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-white/5 text-gray-400 shrink-0">
+                  qobuz
+                </span>
+                <Link
+                  to={`/albums/${version.id}`}
+                  className="flex-1 min-w-0 truncate hover:text-accent transition"
+                >
+                  {version.title}
+                  {version.year ? ` (${version.year})` : ''}
+                </Link>
+                <span className="text-xs text-gray-500 shrink-0">
+                  {formatQuality({
+                    sampleRate: version.sampleRate ?? undefined,
+                    bitDepth: version.bitDepth ?? undefined,
+                  })}
+                  {version.higherResolution && (
+                    <span className="ml-1 text-accent">higher resolution</span>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void playVersion(version.id)}
+                  className="text-xs text-accent hover:text-accent-hover shrink-0"
+                  aria-label={`Play ${version.title} on Qobuz`}
+                >
+                  &#9654;
+                </button>
+              </li>
+            ))}
+          </ul>
+          {versions.sources.qobuz === 'timeout' && (
+            <p className="text-xs text-gray-600 mt-2">Qobuz did not answer in time.</p>
+          )}
+        </section>
+      )}
     </div>
   );
 }

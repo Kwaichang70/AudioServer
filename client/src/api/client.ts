@@ -23,6 +23,8 @@ import type {
   LibraryArtist,
   LibraryStats,
   LibraryTrack,
+  AlbumCredit,
+  AlbumVersions,
   ArtistBio,
   Discography,
   DoubtfulAlbum,
@@ -315,6 +317,12 @@ export const api = {
   getAlbums: (page = 1, limit = 50): Promise<PaginatedResponse<LibraryAlbum>> =>
     fetchApi(`/library/albums?page=${page}&limit=${limit}`),
   getAlbum: (id: string): Promise<ApiResponse<LibraryAlbum>> => fetchApi(`/library/albums/${id}`),
+  /** Composers, conductors, performers and producers on an album (R04.3). */
+  getAlbumCredits: (id: string): Promise<ApiResponse<AlbumCredit[]>> =>
+    fetchApi(`/library/albums/${id}/credits`),
+  /** Local editions and Qobuz alternatives, with their quality (R04.3). */
+  getAlbumVersions: (id: string): Promise<ApiResponse<AlbumVersions>> =>
+    fetchApi(`/library/albums/${id}/versions`),
   getAlbumTracks: (id: string): Promise<ApiResponse<LibraryTrack[]>> =>
     fetchApi(`/library/albums/${id}/tracks`),
   getTracks: (page = 1, limit = 100): Promise<PaginatedResponse<LibraryTrack>> =>

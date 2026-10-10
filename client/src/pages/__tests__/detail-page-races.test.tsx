@@ -27,6 +27,11 @@ const mocks = vi.hoisted(() => ({
       Promise.resolve({ data: { albums: [], singles: [], compilations: [], appearsOn: [] } }),
     ),
     getArtistTopTracks: vi.fn(() => Promise.resolve({ data: [] })),
+    // R04.3: the album page also loads its credits and other versions.
+    getAlbumCredits: vi.fn(() => Promise.resolve({ data: [] })),
+    getAlbumVersions: vi.fn(() =>
+      Promise.resolve({ data: { local: [], streaming: [], sources: {} } }),
+    ),
     getPlaylist: vi.fn(),
     getPlaylistTracks: vi.fn(),
     removeFromPlaylist: vi.fn(),

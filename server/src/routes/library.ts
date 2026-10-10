@@ -22,6 +22,7 @@ import { extname } from 'path';
 // ApiResponse type removed — using inline format with buildMeta
 import { getCoverForAlbum, getCoverForTrack } from '../services/coverart.js';
 import { getArtistBio } from '../services/artist-bio.js';
+import { albumVersions } from '../services/album-versions.js';
 import {
   chooseIdentity,
   dismissCandidates,
@@ -328,6 +329,63 @@ libraryRouter.get('/albums/:id/tracks', (req, res) => {
     .all();
   res.json({ data: result, meta: { total: result.length } });
 });
+
+/**
+ * Who made this album, by role (R04.3): composers, conductors, performers,
+ * producers and featured artists from the credits of R03, each linking to
+ * their own page. The album artist's main credit is left out — it is already
+ * the album's byline — unless the album is a compilation, where the main
+ * artists ARE the information.
+ */
+libraryRouter.get('/albums/:id/credits', (req, res) => {
+  const album = getDb().select().from(albums).where(eq(albums.id, req.params.id)).get();
+  if (!album) return res.status(404).json({ error: 'Album not found' });
+  const rows = getRawDb()
+    .prepare(
+      `SELECT ta.role as role, a.id as artistId, a.name as name,
+              COUNT(DISTINCT ta.track_id) as tracks, MIN(ta.position) as position
+         FROM track_artists ta
+         JOIN tracks t ON t.id = ta.track_id
+         JOIN artists a ON a.id = ta.artist_id
+        WHERE t.album_id = ?
+          AND NOT (ta.role = 'main' AND ta.artist_id = ? AND ? = 0)
+        GROUP BY ta.role, a.id
+        ORDER BY ta.role, tracks DESC, position, a.name`,
+    )
+    .all(album.id, album.artistId, album.isCompilation ? 1 : 0) as Array<{
+    role: string;
+    artistId: string;
+    name: string;
+    tracks: number;
+  }>;
+  const order = ['composer', 'conductor', 'performer', 'featured', 'producer', 'main'];
+  const byRole = new Map<string, Array<{ artistId: string; name: string; tracks: number }>>();
+  for (const row of rows) {
+    if (!byRole.has(row.role)) byRole.set(row.role, []);
+    byRole.get(row.role)!.push({ artistId: row.artistId, name: row.name, tracks: row.tracks });
+  }
+  const data = [...byRole.entries()]
+    .sort(([a], [b]) => order.indexOf(a) - order.indexOf(b))
+    .map(([role, people]) => ({ role, people }));
+  res.json({ data });
+});
+
+/**
+ * Other versions of this album (R04.3): local editions (the FLAC beside the
+ * MP3, the remaster beside the CD) and the same album on Qobuz with its best
+ * quality. `sources` says when Qobuz was not asked or did not answer, so
+ * "no other versions" is never claimed on the strength of silence.
+ */
+libraryRouter.get(
+  '/albums/:id/versions',
+  asyncHandler(async (req, res) => {
+    const versions = await albumVersions(String(req.params.id), {
+      includeStreaming: req.query.streaming !== 'false',
+    });
+    if (!versions) return res.status(404).json({ error: 'Album not found' });
+    res.json({ data: versions });
+  }),
+);
 
 /**
  * Every track of an artist, album by album (R01.1).

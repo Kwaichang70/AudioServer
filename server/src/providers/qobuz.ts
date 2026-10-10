@@ -72,6 +72,9 @@ interface QobuzAlbumResponse {
   genre?: { name?: string };
   tracks_count?: number;
   tracks?: QobuzPageResponse<QobuzTrackResponse>;
+  /** Best quality Qobuz offers for this album, in kHz and bits (R04.3). */
+  maximum_sampling_rate?: number;
+  maximum_bit_depth?: number;
 }
 
 interface QobuzTrackResponse {
@@ -678,6 +681,12 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
       coverUrl: data.image?.large || data.image?.small,
       genre: data.genre?.name,
       trackCount: data.tracks_count,
+      // The best quality on offer, so a local album page can say "this one is
+      // also on Qobuz at 24/96" (R04.3). Qobuz reports kHz; we store Hz.
+      sampleRate: data.maximum_sampling_rate
+        ? Math.round(data.maximum_sampling_rate * 1000)
+        : undefined,
+      bitDepth: data.maximum_bit_depth,
       source: 'qobuz',
     };
   }
