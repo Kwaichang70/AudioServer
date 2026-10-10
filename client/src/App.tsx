@@ -19,6 +19,7 @@ const HistoryPage = lazy(() => import('./pages/HistoryPage.js'));
 const StatsPage = lazy(() => import('./pages/StatsPage.js'));
 const DiscoverPage = lazy(() => import('./pages/DiscoverPage.js'));
 const GenresPage = lazy(() => import('./pages/GenresPage.js'));
+const ComposersPage = lazy(() => import('./pages/ComposersPage.js'));
 const RadioPage = lazy(() => import('./pages/RadioPage.js'));
 const SmartPlaylistsPage = lazy(() => import('./pages/SmartPlaylistsPage.js'));
 const QueuePage = lazy(() => import('./pages/QueuePage.js'));
@@ -66,6 +67,8 @@ export default function App() {
             <Route path="/discover" element={<DiscoverPage />} />
             <Route path="/genres" element={<GenresPage />} />
             <Route path="/genres/:genre" element={<GenresPage />} />
+            <Route path="/composers" element={<ComposersPage />} />
+            <Route path="/composers/:id" element={<ComposersPage />} />
             <Route path="/radio" element={<RadioPage />} />
             <Route path="/smart-playlists" element={<SmartPlaylistsPage />} />
             <Route path="/smart-playlists/:id" element={<SmartPlaylistsPage />} />

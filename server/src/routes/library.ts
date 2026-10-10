@@ -276,6 +276,119 @@ libraryRouter.get(
   }),
 );
 
+// ─── Composers (R04.4) ────────────────────────────────────────────
+// A composer is not an album artist: Mahler made none of the recordings in
+// the library and is on all of them. So composers come from the composer
+// credits of R03, and their page is organised by WORK — the symphony, not
+// the disc — with every recording of that work underneath.
+
+libraryRouter.get('/composers', (_req, res) => {
+  const rows = getRawDb()
+    .prepare(
+      `SELECT a.id, a.name,
+              COUNT(DISTINCT t.id) as trackCount,
+              COUNT(DISTINCT t.album_id) as albumCount,
+              COUNT(DISTINCT NULLIF(t.work, '')) as workCount
+         FROM track_artists ta
+         JOIN artists a ON a.id = ta.artist_id
+         JOIN tracks t ON t.id = ta.track_id
+        WHERE ta.role = 'composer'
+        GROUP BY a.id
+        ORDER BY a.name COLLATE NOCASE`,
+    )
+    .all() as Array<{
+    id: string;
+    name: string;
+    trackCount: number;
+    albumCount: number;
+    workCount: number;
+  }>;
+  res.json({ data: rows, meta: { total: rows.length } });
+});
+
+/**
+ * One composer: their works, each with the recordings in the library. Tracks
+ * without a work tag are not dropped — they are listed under "Other pieces",
+ * because a composer page that hides half the music is worse than one that
+ * admits the tags are incomplete.
+ */
+libraryRouter.get('/composers/:id', (req, res) => {
+  const artist = getDb().select().from(artists).where(eq(artists.id, req.params.id)).get();
+  if (!artist) return res.status(404).json({ error: 'Composer not found' });
+  const rows = getRawDb()
+    .prepare(
+      `SELECT t.id as trackId, t.title, t.work, t.movement, t.duration, t.availability,
+              al.id as albumId, al.title as albumTitle, al.artist_name as albumArtist,
+              COALESCE(al.original_year, al.year) as year,
+              t.disc_number as discNumber, t.track_number as trackNumber
+         FROM track_artists ta
+         JOIN tracks t ON t.id = ta.track_id
+         JOIN albums al ON al.id = t.album_id
+        WHERE ta.artist_id = ? AND ta.role = 'composer'
+        ORDER BY COALESCE(NULLIF(t.work, ''), '~') COLLATE NOCASE, al.title, t.disc_number, t.track_number`,
+    )
+    .all(artist.id) as Array<{
+    trackId: string;
+    title: string;
+    work: string | null;
+    movement: string | null;
+    duration: number | null;
+    availability: string | null;
+    albumId: string;
+    albumTitle: string;
+    albumArtist: string;
+    year: number | null;
+    discNumber: number | null;
+    trackNumber: number | null;
+  }>;
+  if (rows.length === 0) return res.status(404).json({ error: 'Composer not found' });
+
+  type Recording = {
+    albumId: string;
+    albumTitle: string;
+    albumArtist: string;
+    year: number | null;
+    tracks: Array<{
+      id: string;
+      title: string;
+      movement: string | null;
+      duration: number | null;
+      missing: boolean;
+    }>;
+  };
+  const works = new Map<string, Map<string, Recording>>();
+  for (const row of rows) {
+    const workKey = row.work?.trim() || '';
+    if (!works.has(workKey)) works.set(workKey, new Map());
+    const recordings = works.get(workKey)!;
+    if (!recordings.has(row.albumId)) {
+      recordings.set(row.albumId, {
+        albumId: row.albumId,
+        albumTitle: row.albumTitle,
+        albumArtist: row.albumArtist,
+        year: row.year,
+        tracks: [],
+      });
+    }
+    recordings.get(row.albumId)!.tracks.push({
+      id: row.trackId,
+      title: row.title,
+      movement: row.movement,
+      duration: row.duration,
+      missing: row.availability === 'missing',
+    });
+  }
+  const data = {
+    id: artist.id,
+    name: artist.name,
+    works: [...works.entries()].map(([work, recordings]) => ({
+      work: work || null,
+      recordings: [...recordings.values()],
+    })),
+  };
+  res.json({ data });
+});
+
 // ─── Albums ──────────────────────────────────────────────────────
 
 libraryRouter.get('/albums', (req, res) => {

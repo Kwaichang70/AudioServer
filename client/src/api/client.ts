@@ -24,6 +24,8 @@ import type {
   LibraryStats,
   LibraryTrack,
   AlbumCredit,
+  ComposerDetail,
+  ComposerSummary,
   AlbumVersions,
   ArtistBio,
   Discography,
@@ -317,6 +319,10 @@ export const api = {
   getAlbums: (page = 1, limit = 50): Promise<PaginatedResponse<LibraryAlbum>> =>
     fetchApi(`/library/albums?page=${page}&limit=${limit}`),
   getAlbum: (id: string): Promise<ApiResponse<LibraryAlbum>> => fetchApi(`/library/albums/${id}`),
+  /** Composers, from the composer credits (R04.4). */
+  getComposers: (): Promise<ApiResponse<ComposerSummary[]>> => fetchApi('/library/composers'),
+  getComposer: (id: string): Promise<ApiResponse<ComposerDetail>> =>
+    fetchApi(`/library/composers/${id}`),
   /** Composers, conductors, performers and producers on an album (R04.3). */
   getAlbumCredits: (id: string): Promise<ApiResponse<AlbumCredit[]>> =>
     fetchApi(`/library/albums/${id}/credits`),

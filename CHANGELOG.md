@@ -4,6 +4,61 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## R04 — Artiest en album zoals Roon (verbeterplan 2, sprint R04)
+
+**Biografieën via identiteit, met bron en licentie** (`server/src/services/artist-bio.ts`)
+
+- De route ligt vast en is bij elke stap identiteit, geen naam: MBID →
+  MusicBrainz-url-relatie → Wikidata-item → Wikipedia-samenvatting, Nederlands
+  eerst, Engels daarna. Een doorverwijspagina is een lijst andere pagina's en
+  wordt overgeslagen. Pas als die keten er niet is, komt de Last.fm-wikitekst —
+  op MBID als die er is, want op naam vind je bij "Genesis" of "Nirvana" zo een
+  naamgenoot.
+- Wat getoond wordt draagt altijd bron, link en licentie: Wikipedia en de
+  Last.fm-wiki zijn beide CC BY-SA, en dat vraagt precies dat.
+- Cache in `artist_bios` (schemaversie 15): een maand voor een treffer, drie
+  dagen voor een misser. Een tweede bezoek kost nul verzoeken; een verversing
+  die niets vindt houdt de oude tekst in plaats van een leeg vlak.
+- fanart.tv optioneel achter `FANART_API_KEY`, op MBID — kan dus geen foto van
+  een naamgenoot geven. Spotify blijft de terugval. Beide sleutels staan in
+  `.env.example`.
+
+**Artiestpagina op de credits** (`client/src/pages/ArtistPage.tsx`)
+
+- Een gast op één track heeft nu een echte pagina: "Verschijnt op" met de rol
+  die ze daar hebben. Eigen releases gesplitst in Albums, Singles & EP's en
+  Compilaties, op jaar (oorspronkelijk jaar eerst) of op titel.
+- "Singles & EP's" is een vuistregel en zegt dat op de pagina: hooguit zes
+  tracks en korter dan dertig minuten.
+- Kopbeeld, biografie ingeklapt tot vier regels, jouw eigen meest gespeelde
+  nummers (alleen wat nu kan spelen), en "Start radio" zichtbaar maar uit tot
+  R08 — liever een knop die zegt waarom dan een die niets doet.
+
+**Albumpagina met credits, versies en werken** (`client/src/pages/AlbumPage.tsx`)
+
+- Releasedatum, label en catalogusnummer in de kop; credits per rol met links.
+- **Versies**: andere edities in de bibliotheek (zelfde release group, of
+  zelfde artiest en titel met een andere editie) en hetzelfde album op Qobuz
+  met de beste kwaliteit die Qobuz biedt — de provider gooide die gegevens
+  eerst weg. Een Qobuz-versie in hogere resolutie is als zodanig gemarkeerd en
+  start vanaf de lokale albumpagina. Een Qobuz die niet verbonden is of niet op
+  tijd antwoordt staat er zo bij; "geen andere versies" wordt nooit beweerd op
+  basis van stilte.
+- Klassiek: tracks gegroepeerd onder hun werk, met het deel in plaats van de
+  herhaalde werktitel.
+
+**Componisten** (`/composers`, `client/src/pages/ComposersPage.tsx`)
+
+- Een componist maakte geen van de opnames en staat op allemaal, dus de pagina
+  is per werk ingedeeld, met elke opname eronder en speelbaar vanaf het
+  aangeklikte deel. Tracks zonder werktag staan onder "Overige stukken" in
+  plaats van te verdwijnen. In de zijbalk onder Bibliotheek.
+
+Tests: `artist-bio.test.ts` (10), `artist-page.test.ts` (5),
+`album-page.test.ts` (8), `composers.test.ts` (3) aan de serverkant en
+`artist-page`, `album-page` en `composers-page` aan de clientkant — 471
+servertests (1 bewust overgeslagen), 234 clienttests.
+
 ## R03 — Identiteit en credits (verbeterplan 2, sprint R03)
 
 **Namen worden relaties** (`server/src/db/schema.ts`, `server/src/db/index.ts`)

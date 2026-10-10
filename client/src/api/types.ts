@@ -635,6 +635,38 @@ export interface AlbumVersions {
   sources: Record<string, 'ok' | 'unavailable' | 'timeout' | 'error'>;
 }
 
+/** A composer in the library, from the composer credits (R04.4). */
+export interface ComposerSummary {
+  id: string;
+  name: string;
+  trackCount: number;
+  albumCount: number;
+  workCount: number;
+}
+
+/** A composer's page: works, each with the recordings in the library (R04.4). */
+export interface ComposerDetail {
+  id: string;
+  name: string;
+  works: Array<{
+    /** null: tracks without a work tag ("other pieces"). */
+    work: string | null;
+    recordings: Array<{
+      albumId: string;
+      albumTitle: string;
+      albumArtist: string;
+      year: number | null;
+      tracks: Array<{
+        id: string;
+        title: string;
+        movement: string | null;
+        duration: number | null;
+        missing: boolean;
+      }>;
+    }>;
+  }>;
+}
+
 export interface PlaylistImportMeta extends ApiMeta {
   total: number;
   matched: number;

@@ -237,10 +237,10 @@ _Status: gehaald op Windows (473 tests, 1 overgeslagen met reden); Linux via CI.
 
 **Doel:** de twee pagina's waar Roon-gebruikers het verschil zien.
 
-- [ ] **R04.1 · 2 dagen:** artiestbiografie: Wikidata via de MBID (url-relatie) naar Wikipedia-samenvatting (nl, dan en); terugval Last.fm `artist.getInfo` (sleutel bestaat al); bron en licentie tonen; cache in de database met vervaldatum. Artiestenbeeld: Spotify zoals nu, plus optioneel fanart.tv achter een sleutel.
-- [ ] **R04.2 · 2 dagen:** artiestpagina: kopbeeld, biografie (inklapbaar), discografie gesplitst in Albums / Singles & EP's / Compilaties / Verschijnt op, chronologisch of op titel; topnummers uit `listening_sessions`; "Speel artiest", "Shuffle", "Start radio" (radio pas actief na R08); vergelijkbare artiesten zoals nu.
-- [ ] **R04.3 · 2 dagen:** albumpagina: releasedatum, label, catalogusnummer; credits-blok (componist, dirigent, uitvoerenden, producer) met links; discnummers (R00.3); sectie **Versies**: andere edities in de bibliotheek (zelfde `release_group_mbid` of zelfde artiest+titel, andere `edition_key`) en Qobuz-alternatieven uit de bestaande zoekmerge, elk met kwaliteit en speelknop. Klassiek: tracks gegroepeerd per werk als `work` gevuld is.
-- [ ] **R04.4 · 2 dagen:** componistenpagina (`/composers`, lijst en detail met werken en albums); tests voor bio-terugval, versies-groepering en werkgroepering; visuele controle op telefoon.
+- [x] **R04.1 · 2 dagen:** artiestbiografie: Wikidata via de MBID (url-relatie) naar Wikipedia-samenvatting (nl, dan en); terugval Last.fm `artist.getInfo` (sleutel bestaat al); bron en licentie tonen; cache in de database met vervaldatum. Artiestenbeeld: Spotify zoals nu, plus optioneel fanart.tv achter een sleutel.
+- [x] **R04.2 · 2 dagen:** artiestpagina: kopbeeld, biografie (inklapbaar), discografie gesplitst in Albums / Singles & EP's / Compilaties / Verschijnt op, chronologisch of op titel; topnummers uit `listening_sessions`; "Speel artiest", "Shuffle", "Start radio" (radio pas actief na R08); vergelijkbare artiesten zoals nu.
+- [x] **R04.3 · 2 dagen:** albumpagina: releasedatum, label, catalogusnummer; credits-blok (componist, dirigent, uitvoerenden, producer) met links; discnummers (R00.3); sectie **Versies**: andere edities in de bibliotheek (zelfde `release_group_mbid` of zelfde artiest+titel, andere `edition_key`) en Qobuz-alternatieven uit de bestaande zoekmerge, elk met kwaliteit en speelknop. Klassiek: tracks gegroepeerd per werk als `work` gevuld is.
+- [x] **R04.4 · 2 dagen:** componistenpagina (`/composers`, lijst en detail met werken en albums); tests voor bio-terugval, versies-groepering en werkgroepering; visuele controle op telefoon.
 
 **Acceptatie:** een artiest met biografie op Wikipedia toont die binnen twee seconden na eerste bezoek en daarna uit cache; een album dat als FLAC en MP3 bestaat toont beide onder Versies; een Qobuz-versie in hogere resolutie is vanaf de lokale albumpagina te starten.
 
@@ -454,3 +454,21 @@ _Status: gehaald op Windows (473 tests, 1 overgeslagen met reden); Linux via CI.
 **Wacht op acceptatie (NAS):** de identificatiejob op de echte bibliotheek draaien en het meetpunt van §7 bepalen (streefwaarde 80 % van de albums met eenduidige MBID); de duur van een geforceerde herscan op 11 000 tracks noteren (scanversie 3 leest alles één keer opnieuw); controleren dat favorieten, playlists en geschiedenis die herscan ongeschonden doorkomen (V06-garantie); een gastartiest opzoeken en zien dat "verschijnt op" klopt; een twijfelgeval in Settings beslissen en controleren dat de hoes daarna via de gevonden MBID binnenkomt.
 
 **Beslismoment na R04** blijft staan: levert de job genoeg eenduidige MBID's op? Zo nee, eerst de matchregels bijstellen voordat R07 en R08 erop leunen.
+
+### R04 — 10 oktober 2026
+
+**Uitgevoerd:** R04.1–R04.4 in code; 471 servertests (1 bewust overgeslagen), 234 clienttests, lint/typecheck/build groen. Schemaversie 15.
+
+**Biografie: de herkomst bepaalt de betrouwbaarheid.** De route is bij elke stap identiteit: MBID → MusicBrainz-url-relatie → Wikidata → Wikipedia, Nederlands vóór Engels. Last.fm alleen als terugval, en ook dan op MBID als die er is — op naam vind je bij een veelvoorkomende bandnaam zo een naamgenoot. Bron, link en licentie (CC BY-SA) staan altijd bij de tekst. De cache maakt het tweede bezoek gratis; een misser wordt korter onthouden zodat een later verschenen artikel wordt gevonden, en een mislukte verversing houdt de oude tekst.
+
+**Artiestpagina op de relaties van R03.** Een gast op één track heeft nu een pagina met "Verschijnt op" en de rol die ze daar hebben. "Singles & EP's" is een vuistregel (≤ 6 tracks, < 30 minuten) en de pagina zegt dat; het release-group-type van MusicBrainz zou het echte antwoord zijn maar wordt nog niet opgeslagen. "Start radio" staat er uitgeschakeld tot R08.
+
+**Albumpagina: Versies zonder overdrijving.** Lokale edities op release group of op artiest + titel met een andere editie; Qobuz-versies op artiest + titel in vergelijkingsvorm, met hun beste kwaliteit (de provider gaf die eerst niet door). Een niet-verbonden of trage Qobuz staat er als zodanig — nooit "geen andere versies" op basis van stilte. Klassiek gegroepeerd per werk.
+
+**Componisten per werk.** Opnames staan onder het werk; tracks zonder werktag onder "Overige stukken", niet weggelaten.
+
+**Acceptatie in code:** biografie uit de cache bij tweede bezoek (test: nul verzoeken), FLAC en MP3 van één album beide onder Versies (test), een Qobuz-versie in hogere resolutie start vanaf de lokale albumpagina (test).
+
+**Wacht op acceptatie (NAS):** de eerste biografie binnen twee seconden op de echte verbinding meten (MusicBrainz-rij, Wikidata en Wikipedia achter elkaar); een album dat als FLAC én MP3 bestaat openen en beide onder Versies zien; met Qobuz verbonden een album openen dat daar in 24-bit staat en het vanaf de lokale pagina starten; **visuele controle op telefoon** van artiest-, album- en componistenpagina — die heb ik niet in een browser kunnen doen, omdat de pagina's achter de login zitten (dezelfde grens als bij R02).
+
+**Beslismoment na R04 (§7):** levert de identificatiejob van R03 op de echte bibliotheek genoeg eenduidige MBID's op (streefwaarde 80 %)? Daar hangen de biografieën, de versies op release group en R07/R08 van af.

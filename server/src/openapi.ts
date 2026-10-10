@@ -1005,6 +1005,76 @@ export const openApiSpec = {
         responses: { 200: ok('the stored setting'), 400: ok('an empty body') },
       },
     },
+    '/library/artists/{id}/bio': {
+      get: {
+        tags: ['Library'],
+        summary: 'Artist biography with source and licence',
+        description:
+          'Wikipedia via the MusicBrainz id (url-relation → Wikidata → article, nl then en), ' +
+          'Last.fm as fallback. Cached a month; a miss is cached three days. Always carries ' +
+          'source, url and licence (CC BY-SA).',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('biography or null'), 404: ok('unknown artist') },
+      },
+    },
+    '/library/artists/{id}/discography': {
+      get: {
+        tags: ['Library'],
+        summary: 'Albums, singles & EPs, compilations and appearances',
+        description:
+          'Singles & EPs: at most six tracks and under thirty minutes (heuristic). ' +
+          '"appearsOn" comes from the credits and carries the roles held.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('discography'), 404: ok('unknown artist') },
+      },
+    },
+    '/library/artists/{id}/top-tracks': {
+      get: {
+        tags: ['Library'],
+        summary: "This listener's most played tracks by the artist (personal)",
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('top tracks'), 404: ok('unknown artist') },
+      },
+    },
+    '/library/albums/{id}/credits': {
+      get: {
+        tags: ['Library'],
+        summary: 'People on an album, grouped by role',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('credits by role'), 404: ok('unknown album') },
+      },
+    },
+    '/library/albums/{id}/versions': {
+      get: {
+        tags: ['Library'],
+        summary: 'Other editions in the library and the same album on Qobuz',
+        description:
+          'Local: same release group, or same artist and title with another edition key. ' +
+          'Qobuz: matched on artist and title, with its best quality. sources.qobuz says ' +
+          'when Qobuz was not asked or did not answer.',
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'streaming', in: 'query', schema: { type: 'boolean' } },
+        ],
+        responses: { 200: ok('versions'), 404: ok('unknown album') },
+      },
+    },
+    '/library/composers': {
+      get: {
+        tags: ['Library'],
+        summary: 'Composers, from the composer credits',
+        responses: { 200: ok('composers with work, album and track counts') },
+      },
+    },
+    '/library/composers/{id}': {
+      get: {
+        tags: ['Library'],
+        summary: "A composer's works, each with its recordings in the library",
+        description: 'Tracks without a work tag are listed under work: null, not dropped.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('works'), 404: ok('composed nothing in the library') },
+      },
+    },
     '/library/identify': {
       post: {
         tags: ['Library'],

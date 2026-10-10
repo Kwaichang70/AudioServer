@@ -46,6 +46,7 @@ const NAV: NavGroup[] = [
       { to: '/albums', label: 'Albums', tab: { order: 3, icon: '▤' } },
       { to: '/artists', label: 'Artists' },
       { to: '/genres', label: 'Genres' },
+      { to: '/composers', label: 'Composers' },
     ],
   },
   {

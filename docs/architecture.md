@@ -458,6 +458,20 @@ every page and every later match, so "not identified" is the preferred answer.
 for every job, including the cover fetch, which reuses an album's known
 release instead of searching again.
 
+**Artist and album pages (R04).** `services/artist-bio.ts` follows an
+identity chain — MBID → MusicBrainz url-relation → Wikidata → Wikipedia (nl,
+then en) — and falls back to the Last.fm wiki (by MBID when known). Every
+biography carries source, link and licence, and is cached in `artist_bios`
+(30 days for a hit, 3 for a miss; a failed refresh keeps the stale text).
+`/artists/:id/discography` splits own releases into albums, singles & EPs
+(≤ 6 tracks and < 30 min, a stated heuristic) and compilations, and derives
+"appears on" from `track_artists`; `/artists/:id/top-tracks` is personal.
+`services/album-versions.ts` finds local editions by release group or by
+artist + title with another edition key, and Qobuz alternatives by
+compare-form artist + title with their best quality; a Qobuz that is not
+connected or times out is reported per source. `/composers` organises a
+composer by work, with untagged pieces listed rather than hidden.
+
 **SQLite + WAL.** Single-process app; better-sqlite3 in WAL mode is fast
 enough for 10k+ tracks without a separate DB process. Drizzle ORM for typed
 queries; raw SQL where pagination / aggregates need it.
