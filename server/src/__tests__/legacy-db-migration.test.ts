@@ -419,3 +419,100 @@ describe('rebuilding playlist items for mixed sources', () => {
     expect(getRawDb().prepare('SELECT COUNT(*) as c FROM playlist_tracks').get()).toEqual({ c: 2 });
   });
 });
+
+/**
+ * R03.1: names become relations. An existing database gets the MusicBrainz
+ * columns, the release data, the classical work fields and the three new
+ * tables — and every track it already had gets its main artist as a relation,
+ * so "appears on" is not empty until someone runs a forced rescan.
+ */
+describe('migrating to identity and credits', () => {
+  let dir: string;
+  let path: string;
+
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'audioserver-r03-db-'));
+    path = join(dir, 'identity.db');
+    const db = new Database(path);
+    db.exec(`
+      CREATE TABLE artists (id TEXT PRIMARY KEY, name TEXT NOT NULL, image_url TEXT, source TEXT NOT NULL DEFAULT 'local', created_at INTEGER, updated_at INTEGER);
+      CREATE TABLE albums (id TEXT PRIMARY KEY, title TEXT NOT NULL, artist_id TEXT NOT NULL, artist_name TEXT NOT NULL, year INTEGER, genre TEXT, cover_url TEXT, track_count INTEGER DEFAULT 0, source TEXT NOT NULL DEFAULT 'local', created_at INTEGER, updated_at INTEGER);
+      CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT NOT NULL, album_id TEXT NOT NULL, album_title TEXT NOT NULL, artist_id TEXT NOT NULL, artist_name TEXT NOT NULL, track_number INTEGER, disc_number INTEGER DEFAULT 1, duration REAL, format TEXT, sample_rate INTEGER, bit_depth INTEGER, file_path TEXT, cover_url TEXT, source TEXT NOT NULL DEFAULT 'local', created_at INTEGER, updated_at INTEGER);
+      CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'user', created_at INTEGER DEFAULT (unixepoch()));
+      INSERT INTO artists (id, name) VALUES ('ar-1', 'Main Artist');
+      INSERT INTO albums (id, title, artist_id, artist_name) VALUES ('al-1', 'An Album', 'ar-1', 'Main Artist');
+      INSERT INTO tracks (id, title, album_id, album_title, artist_id, artist_name, duration) VALUES ('t-1', 'One', 'al-1', 'An Album', 'ar-1', 'Main Artist', 200);
+      INSERT INTO tracks (id, title, album_id, album_title, artist_id, artist_name, duration) VALUES ('t-2', 'Two', 'al-1', 'An Album', 'ar-1', 'Main Artist', 180);
+    `);
+    db.close();
+    await initDatabase(path);
+  });
+
+  afterAll(() => {
+    closeDatabase();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const columns = (table: string) =>
+    (getRawDb().prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map(
+      (c) => c.name,
+    );
+
+  it('adds the identity columns and the new tables', () => {
+    expect(columns('artists')).toContain('mbid');
+    for (const col of [
+      'mbid',
+      'release_group_mbid',
+      'label',
+      'catalog_number',
+      'release_date',
+      'original_year',
+    ]) {
+      expect(columns('albums')).toContain(col);
+    }
+    for (const col of ['mbid', 'isrc', 'bpm', 'work', 'movement']) {
+      expect(columns('tracks')).toContain(col);
+    }
+    const tables = (
+      getRawDb().prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{
+        name: string;
+      }>
+    ).map((t) => t.name);
+    for (const t of ['track_artists', 'album_genres', 'track_genres']) {
+      expect(tables).toContain(t);
+    }
+  });
+
+  it('gives every existing track its main artist as a relation', () => {
+    const rows = getRawDb()
+      .prepare('SELECT track_id, artist_id, role, position FROM track_artists ORDER BY track_id')
+      .all();
+    expect(rows).toEqual([
+      { track_id: 't-1', artist_id: 'ar-1', role: 'main', position: 0 },
+      { track_id: 't-2', artist_id: 'ar-1', role: 'main', position: 0 },
+    ]);
+  });
+
+  it('removes the relations of a purged track, not the artist', () => {
+    const db = getRawDb();
+    db.pragma('foreign_keys = ON');
+    db.prepare("INSERT INTO track_genres (track_id, genre) VALUES ('t-1', 'Jazz')").run();
+    db.prepare("DELETE FROM tracks WHERE id = 't-1'").run();
+    expect(
+      db.prepare("SELECT COUNT(*) as c FROM track_artists WHERE track_id = 't-1'").get(),
+    ).toEqual({ c: 0 });
+    expect(
+      db.prepare("SELECT COUNT(*) as c FROM track_genres WHERE track_id = 't-1'").get(),
+    ).toEqual({ c: 0 });
+    // The artist stays: they are still on the other track.
+    expect(db.prepare("SELECT COUNT(*) as c FROM artists WHERE id = 'ar-1'").get()).toEqual({
+      c: 1,
+    });
+  });
+
+  it('runs again without doubling the relations', async () => {
+    closeDatabase();
+    await initDatabase(path);
+    expect(getRawDb().prepare('SELECT COUNT(*) as c FROM track_artists').get()).toEqual({ c: 1 });
+  });
+});

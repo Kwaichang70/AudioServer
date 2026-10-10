@@ -19,7 +19,7 @@ import { fileURLToPath } from 'url';
  * it does not understand. Databases from before this check carry version 0,
  * which every build accepts and upgrades.
  */
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 export class DatabaseVersionError extends Error {
   constructor(
@@ -182,6 +182,63 @@ export async function initDatabase(overridePath?: string) {
       created_at INTEGER DEFAULT (unixepoch())
     )
   `);
+  // R03.1: identity instead of names. MusicBrainz ids on artist, album and
+  // track, the release data an album actually has, and the classical work
+  // fields — all ALTER backfills, so every database shape gets them.
+  runMigration(sqlite, 'artists', 'mbid', 'TEXT');
+  runMigration(sqlite, 'albums', 'mbid', 'TEXT');
+  runMigration(sqlite, 'albums', 'release_group_mbid', 'TEXT');
+  runMigration(sqlite, 'albums', 'label', 'TEXT');
+  runMigration(sqlite, 'albums', 'catalog_number', 'TEXT');
+  runMigration(sqlite, 'albums', 'release_date', 'TEXT');
+  runMigration(sqlite, 'albums', 'original_year', 'INTEGER');
+  runMigration(sqlite, 'tracks', 'mbid', 'TEXT');
+  runMigration(sqlite, 'tracks', 'isrc', 'TEXT');
+  runMigration(sqlite, 'tracks', 'bpm', 'REAL');
+  runMigration(sqlite, 'tracks', 'work', 'TEXT');
+  runMigration(sqlite, 'tracks', 'movement', 'TEXT');
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_artists_mbid ON artists (mbid)');
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_albums_mbid ON albums (mbid)');
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_albums_release_group ON albums (release_group_mbid)');
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_tracks_mbid ON tracks (mbid)');
+  // Who is on a track, and the genres as a set. ON DELETE CASCADE is what
+  // makes a purge (V06.2) clean up after itself instead of leaving rows that
+  // point at a track nobody has any more.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS track_artists (
+      track_id TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+      artist_id TEXT NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+      role TEXT NOT NULL DEFAULT 'main',
+      position INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+  sqlite.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_track_artists_pk ON track_artists (track_id, artist_id, role)',
+  );
+  sqlite.exec(
+    'CREATE INDEX IF NOT EXISTS idx_track_artists_artist ON track_artists (artist_id, role)',
+  );
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS album_genres (
+      album_id TEXT NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+      genre TEXT NOT NULL
+    )
+  `);
+  sqlite.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_album_genres_pk ON album_genres (album_id, genre)',
+  );
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_album_genres_genre ON album_genres (genre)');
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS track_genres (
+      track_id TEXT NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+      genre TEXT NOT NULL
+    )
+  `);
+  sqlite.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_track_genres_pk ON track_genres (track_id, genre)',
+  );
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_track_genres_genre ON track_genres (genre)');
+  backfillTrackArtists(sqlite);
   // V05.3: one submission per listening session and service.
   runMigration(sqlite, 'scrobble_queue', 'session_id', 'TEXT');
   sqlite.exec(
@@ -399,6 +456,28 @@ function migratePlaylistItems(sqlite: InstanceType<typeof Database>): void {
     .run().changes;
   if (filled > 0) {
     logger.info(`Migration: snapshotted ${filled} playlist item(s) from the library (V12)`);
+  }
+}
+
+/**
+ * Every track that already exists gets its main artist as a relation (R03.1).
+ *
+ * Without this, "appears on" would be empty for the whole library until a
+ * forced rescan has run, and the first thing R04 builds on it would look
+ * broken rather than unscanned. Only the main artist is inferred — the one
+ * `tracks.artist_id` already names. Guests, composers and conductors come
+ * from the tags during the scan, because splitting a display string into
+ * people is a scanner decision, not a migration's guess.
+ */
+function backfillTrackArtists(sqlite: InstanceType<typeof Database>): void {
+  const inserted = sqlite
+    .prepare(
+      `INSERT OR IGNORE INTO track_artists (track_id, artist_id, role, position)
+         SELECT id, artist_id, 'main', 0 FROM tracks WHERE artist_id IS NOT NULL`,
+    )
+    .run().changes;
+  if (inserted > 0) {
+    logger.info(`Migration: gave ${inserted} track(s) their main artist as a relation (R03)`);
   }
 }
 

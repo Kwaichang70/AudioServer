@@ -11,6 +11,8 @@ const now = () => new Date();
 export const artists = sqliteTable('artists', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
+  /** MusicBrainz artist id (R03.1). The only identity that is not a name. */
+  mbid: text('mbid'),
   imageUrl: text('image_url'),
   source: text('source').notNull().default('local'),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
@@ -29,6 +31,17 @@ export const albums = sqliteTable('albums', {
   genre: text('genre'),
   isCompilation: integer('is_compilation', { mode: 'boolean' }).default(false),
   trackCount: integer('track_count').default(0),
+  // ── Identity and release data (R03.1) ──
+  // `mbid` is this release, `releaseGroupMbid` the album across its releases:
+  // two pressings of one album share the group but not the release.
+  mbid: text('mbid'),
+  releaseGroupMbid: text('release_group_mbid'),
+  label: text('label'),
+  catalogNumber: text('catalog_number'),
+  /** Release date as tagged, which may be a year, a month or a full date. */
+  releaseDate: text('release_date'),
+  /** Year of the original release, when the tags distinguish it from this one. */
+  originalYear: integer('original_year'),
   // ReplayGain album-mode gain (dB) + peak (0..1 ratio). Computed from per-track
   // metadata at scan time. NULL means "no replay-gain metadata available".
   replayGainAlbum: real('replay_gain_album'),
@@ -75,6 +88,14 @@ export const tracks = sqliteTable('tracks', {
   // ID3v2/Vorbis/MP4 tags by the scanner. NULL means the file has no RG tag.
   replayGainTrack: real('replay_gain_track'),
   replayGainTrackPeak: real('replay_gain_track_peak'),
+  // ── Identity and classical work data (R03.1) ──
+  /** MusicBrainz recording id: this performance, not the composition. */
+  mbid: text('mbid'),
+  isrc: text('isrc'),
+  bpm: real('bpm'),
+  /** The composition and the part of it this track is, for classical music. */
+  work: text('work'),
+  movement: text('movement'),
   source: text('source').notNull().default('local'),
   // ── Source location vs identity (V06.1) ──
   // The row id is the track's identity (playlists, favorites, history point
@@ -92,6 +113,69 @@ export const tracks = sqliteTable('tracks', {
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(now),
 });
+
+/**
+ * Who is on a track, and in what capacity (R03.1).
+ *
+ * `tracks.artist_name` and `artist_names` stay as display text — what the tag
+ * said, in the order it said it — because that is what a listener reads. This
+ * table is the relation underneath it: every person on a track gets an
+ * `artists` row and a row here, so a guest on one track of one album finally
+ * has a page of their own with "appears on".
+ *
+ * `role` is 'main' | 'featured' | 'composer' | 'conductor' | 'performer' |
+ * 'producer'; `position` keeps the tag's order within a role.
+ */
+export const trackArtists = sqliteTable(
+  'track_artists',
+  {
+    trackId: text('track_id')
+      .notNull()
+      .references(() => tracks.id, { onDelete: 'cascade' }),
+    artistId: text('artist_id')
+      .notNull()
+      .references(() => artists.id, { onDelete: 'cascade' }),
+    role: text('role').notNull().default('main'),
+    position: integer('position').notNull().default(0),
+  },
+  (table) => ({
+    pk: uniqueIndex('idx_track_artists_pk').on(table.trackId, table.artistId, table.role),
+    artistIdx: index('idx_track_artists_artist').on(table.artistId, table.role),
+  }),
+);
+
+/**
+ * Genres as a set, not a single string (R03.1). A file can be tagged with
+ * several, and a facet filter needs each one separately; `albums.genre` stays
+ * as the one-line display value.
+ */
+export const albumGenres = sqliteTable(
+  'album_genres',
+  {
+    albumId: text('album_id')
+      .notNull()
+      .references(() => albums.id, { onDelete: 'cascade' }),
+    genre: text('genre').notNull(),
+  },
+  (table) => ({
+    pk: uniqueIndex('idx_album_genres_pk').on(table.albumId, table.genre),
+    genreIdx: index('idx_album_genres_genre').on(table.genre),
+  }),
+);
+
+export const trackGenres = sqliteTable(
+  'track_genres',
+  {
+    trackId: text('track_id')
+      .notNull()
+      .references(() => tracks.id, { onDelete: 'cascade' }),
+    genre: text('genre').notNull(),
+  },
+  (table) => ({
+    pk: uniqueIndex('idx_track_genres_pk').on(table.trackId, table.genre),
+    genreIdx: index('idx_track_genres_genre').on(table.genre),
+  }),
+);
 
 /** One row per library scan (V06.3): what was scanned, what happened, when. */
 export const scanRuns = sqliteTable('scan_runs', {
