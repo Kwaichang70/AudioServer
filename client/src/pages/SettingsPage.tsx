@@ -4,6 +4,7 @@ import ZonesSection from '../components/ZonesSection.js';
 import { useAuth } from '../context/AuthContext.js';
 import PlaybackSection from './settings/PlaybackSection.js';
 import LibrarySection from './settings/LibrarySection.js';
+import IdentifySection from './settings/IdentifySection.js';
 import ProvidersSection from './settings/ProvidersSection.js';
 import LibrespotSection from './settings/LibrespotSection.js';
 import ScrobblingSection from './settings/ScrobblingSection.js';
@@ -41,7 +42,17 @@ const TABS: Tab[] = [
     ),
   },
   { id: 'rooms', label: 'Rooms', admin: true, render: () => <ZonesSection /> },
-  { id: 'library', label: 'Library', admin: true, render: () => <LibrarySection /> },
+  {
+    id: 'library',
+    label: 'Library',
+    admin: true,
+    render: () => (
+      <>
+        <LibrarySection />
+        <IdentifySection />
+      </>
+    ),
+  },
   {
     id: 'providers',
     label: 'Streaming',

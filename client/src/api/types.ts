@@ -524,6 +524,37 @@ export interface PlaylistItemsMeta extends ApiMeta {
   unavailable: number;
 }
 
+/** Progress of the album identification job (R03.3). */
+export interface IdentifyStatus {
+  isRunning: boolean;
+  total: number;
+  processed: number;
+  linked: number;
+  doubtful: number;
+  notFound: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+}
+
+/** An album the job could not link on its own, with what it found (R03.3). */
+export interface DoubtfulAlbum {
+  albumId: string;
+  title: string;
+  artistName: string;
+  trackCount: number | null;
+  candidates: Array<{
+    mbid: string;
+    title: string;
+    artist: string;
+    releaseGroupMbid: string | null;
+    label: string | null;
+    catalogNumber: string | null;
+    date: string | null;
+    trackCount: number | null;
+    score: number;
+  }>;
+}
+
 export interface PlaylistImportMeta extends ApiMeta {
   total: number;
   matched: number;

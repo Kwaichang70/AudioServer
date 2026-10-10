@@ -23,6 +23,8 @@ import type {
   LibraryArtist,
   LibraryStats,
   LibraryTrack,
+  DoubtfulAlbum,
+  IdentifyStatus,
   ListenBrainzDiscover,
   MixItem,
   MixMeta,
@@ -900,6 +902,20 @@ export const api = {
     updates: Partial<RecommendationSettings>,
   ): Promise<ApiResponse<RecommendationSettings>> =>
     fetchApi('/recommendations/settings', { method: 'PATCH', body: JSON.stringify(updates) }),
+
+  // ─── Album identification (R03.3) ───────────────────────────
+  // Only unambiguous matches are linked by the job; the rest come back here
+  // as a question, because a wrong id would travel into every page built on it.
+  identifyAlbums: (): Promise<ApiResponse<IdentifyStatus>> =>
+    fetchApi('/library/identify', { method: 'POST' }),
+  getIdentifyStatus: (): Promise<ApiResponse<IdentifyStatus>> =>
+    fetchApi('/library/identify/status'),
+  getDoubtfulAlbums: (): Promise<ApiResponse<DoubtfulAlbum[]>> =>
+    fetchApi('/library/identify/doubtful'),
+  chooseAlbumIdentity: (albumId: string, mbid: string): Promise<OkResponse> =>
+    fetchApi(`/library/identify/${albumId}`, { method: 'POST', body: JSON.stringify({ mbid }) }),
+  dismissAlbumCandidates: (albumId: string): Promise<OkResponse> =>
+    fetchApi(`/library/identify/${albumId}`, { method: 'DELETE' }),
 
   // ─── Cover art fetch ────────────────────────────────────────
   fetchCovers: (): Promise<ApiResponse<FetchStatus>> =>

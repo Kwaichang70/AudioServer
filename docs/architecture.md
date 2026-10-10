@@ -437,6 +437,27 @@ fixes WHICH track would follow, and the timer then judges that track: both
 `advance()` and `peekNext()` compare the promised item's album, not the
 neighbour of the current one, and stopping leaves the promise in place.
 
+**Identity and credits (R03).** A name is not an identity. Artists, albums
+and tracks carry MusicBrainz ids (release and release group separately),
+albums their label, catalogue number, release date and original year, tracks
+their ISRC, BPM, work and movement. `track_artists` is the relation under the
+display text — `tracks.artist_name` still reads exactly as the tag wrote it —
+and says who is on a track in which capacity (main, featured, composer,
+conductor, performer, producer), which is what makes an "appears on" page
+possible. `album_genres` and `track_genres` hold genres as a set for facets.
+
+`services/scanner.ts` reads all of that from the files (scan version 3), so a
+Picard-tagged folder is identified without a network call; "feat." and friends
+become a featured credit, while "&" is left alone because it usually joins one
+act's name. `services/identify.ts` is for the rest: a background job searches
+MusicBrainz by artist, title and track count and links only an unambiguous
+match — several pressings of one album count as one answer, two different
+releases are an admin's choice in Settings. A wrong id would propagate into
+every page and every later match, so "not identified" is the preferred answer.
+`services/musicbrainz.ts` holds the one shared one-request-per-second queue
+for every job, including the cover fetch, which reuses an album's known
+release instead of searching again.
+
 **SQLite + WAL.** Single-process app; better-sqlite3 in WAL mode is fast
 enough for 10k+ tracks without a separate DB process. Drizzle ORM for typed
 queries; raw SQL where pagination / aggregates need it.

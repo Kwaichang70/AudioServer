@@ -4,6 +4,76 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## R03 — Identiteit en credits (verbeterplan 2, sprint R03)
+
+**Namen worden relaties** (`server/src/db/schema.ts`, `server/src/db/index.ts`)
+
+- Artiesten, albums en tracks krijgen hun MusicBrainz-id's; een release en zijn
+  release group staan apart, want twee persingen van één album delen de groep
+  en niet de release. Albums krijgen label, catalogusnummer, releasedatum en
+  oorspronkelijk jaar; tracks krijgen ISRC, BPM en het werk met zijn deel — de
+  twee velden die een klassiek album nodig heeft voordat R04 een werk met zijn
+  delen kan tonen.
+- `track_artists` is de relatie ónder de weergavetekst. `tracks.artist_name`
+  blijft letterlijk wat de tag zei, want dat is wat een luisteraar leest; de
+  tabel zegt wie er op een track staat en in welke hoedanigheid (main,
+  featured, componist, dirigent, uitvoerende, producer). Daarmee heeft een gast
+  op één track van één album eindelijk een eigen pagina met "verschijnt op".
+- `album_genres` en `track_genres` maken een meervoudige genretag een
+  verzameling waar een facet op kan filteren. Schemaversie 13; bestaande tracks
+  krijgen meteen hun hoofdartiest als relatie, anders zou "verschijnt op" leeg
+  zijn tot iemand een geforceerde herscan doet — dat lijkt stuk in plaats van
+  ongescand.
+
+**De scanner leest wat er al in de bestanden staat** (`server/src/services/scanner.ts`)
+
+- MusicBrainz-id's, label, catalogusnummer, datum, oorspronkelijk jaar, ISRC,
+  BPM, werk en deel, en álle genres. Een met Picard getagde map is dus
+  geïdentificeerd zonder één netwerkverzoek; een ongetagde map blijft eerlijk
+  leeg. Scanversie 3, dus de bibliotheek wordt één keer opnieuw gelezen.
+- "feat.", "ft.", "featuring" en "with" markeren een gast: de naam erachter
+  wordt een featured-credit terwijl de weergavenaam onaangeroerd blijft.
+  **Bewust niet gesplitst op "&" of "and"** — "Simon & Garfunkel", "Earth, Wind
+  & Fire" en "Nick Cave and the Bad Seeds" zijn elk één act, en een bibliotheek
+  vol halve artiesten is erger dan niet splitsen. Een tag die werkelijk twee
+  acts bedoelt, scheidt die vrijwel altijd met ";" of "/", en daarop wordt wel
+  gesplitst.
+- Albumidentiteit wordt aangevuld maar nooit met niets overschreven: één
+  ongetagd bestand mag de MBID niet wissen die een eerder bestand vastlegde.
+  Een hoesbestand naast de muziek (folder/cover/front) gaat vóór de ingesloten
+  afbeelding, die meestal een duimnagel is.
+
+**Identificeren, en weigeren te gokken** (`server/src/services/identify.ts`, `musicbrainz.ts`)
+
+- Een achtergrondjob (admin) zoekt albums zonder MBID op artiest, titel én
+  aantal tracks — dat laatste in de query, zodat één album niet matcht met een
+  boxset. Koppelen gebeurt alleen bij precies één kandidaat die op alle drie
+  klopt met een score van minstens 90. Meerdere persingen van hetzelfde album
+  blijven één antwoord (dezelfde release group); twee écht verschillende
+  releases zijn een keuze, en die is van de beheerder.
+- Die terughoudendheid ís de functie. Een verkeerde MBID zet het label, de
+  datum en de credits van een ánder album op het jouwe, en R04, R07 en de
+  ListenBrainz-matching zouden daarop verder bouwen. Twijfelgevallen komen
+  daarom in Settings → Library te staan, met per kandidaat label,
+  catalogusnummer, datum en aantal tracks, een keuze per stuk en "geen van
+  deze". Een handmatig gekozen id wordt opnieuw opgezocht voordat het wordt
+  opgeslagen.
+- Eén deur naar MusicBrainz: de limiet van één verzoek per seconde staat nu op
+  één plek. De hoesjob had zijn eigen teller, dus twee jobs zouden samen het
+  dubbele doen terwijl beide dachten netjes te zijn; die job wacht nu in
+  dezelfde rij en vraagt, als het album zijn release al kent, de Cover Art
+  Archive direct op in plaats van opnieuw te zoeken.
+- ListenBrainz-matching gebruikt een id waar het dat heeft (artiest, release,
+  release group, en het recording-id in een JSPF-identifier) en de naam alleen
+  als terugval. Schemaversie 14 voor `album_identity_candidates`.
+
+Tests: `identify.test.ts` (13 gevallen: de keuzeregels, koppelen met
+releasedata, twee releases naar de beheerder, niets gevonden, al
+geïdentificeerd, de handmatige keuze en een geweigerd id, adminrechten en de
+spreiding van één seconde), acht nieuwe scannergevallen op tagprofielen,
+vier migratiegevallen en `identify-section.test.tsx` — 445 servertests (1
+bewust overgeslagen), 221 clienttests.
+
 ## Fix — slaaptimer werd overgeslagen door "speel hierna"
 
 **Wat er mis was** (`server/src/services/playback.ts`)
