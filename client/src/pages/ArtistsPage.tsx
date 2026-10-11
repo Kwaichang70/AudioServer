@@ -9,6 +9,11 @@ import {
   openRowMenuFromPointer,
 } from '../components/PlayActions.js';
 import { DEFAULT_LIBRARY_PAGE_SIZE } from '../constants.js';
+import { FocusBar } from '../components/FocusPanel.js';
+import { useFocus, useReloadOnQuery } from '../hooks/useFocus.js';
+import { filterCount, type SortKey } from '../utils/focus.js';
+
+const ARTIST_SORTS: SortKey[] = ['title', 'added', 'lastPlayed', 'plays'];
 
 interface Artist {
   id: string;
@@ -59,6 +64,7 @@ function ArtistImage({
 }
 
 export default function ArtistsPage() {
+  const focus = useFocus();
   const {
     items: artists,
     loading,
@@ -66,64 +72,77 @@ export default function ArtistsPage() {
     total,
     hasMore,
     loadMore,
+    reload,
   } = useInfiniteLoad<Artist>(
-    (page, limit) => api.getArtists(page, limit),
+    (page, limit) => api.getArtists(page, limit, focus.query),
     DEFAULT_LIBRARY_PAGE_SIZE,
   );
+  useReloadOnQuery(focus.query, reload);
+  const filtered = filterCount(focus.params) > 0;
   const sentinelRef = useAutoLoadMore(loadMore, hasMore);
   const { containerRef, onKeyDown } = useGridNavigation<HTMLDivElement>(artists.length);
-
-  if (loading) return <p className="text-gray-400">Loading artists...</p>;
-
-  if (artists.length === 0) {
-    return <p className="text-gray-400">No artists found. Scan your library first.</p>;
-  }
 
   return (
     <div>
       <h2 className="text-2xl font-bold mb-6">
         Artists <span className="text-sm font-normal text-gray-500">({total})</span>
       </h2>
-      {/* Roving-tabindex keyboard nav over the artist-card links. */}
-      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- delegates arrow keys to focusable card links */}
-      <div
-        ref={containerRef}
-        onKeyDown={onKeyDown}
-        role="group"
-        aria-label="Artists"
-        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4"
-      >
-        {artists.map((artist) => (
-          <div key={artist.id} data-play-actions-row className="group relative">
-            <Link
-              to={`/artists/${artist.id}`}
-              data-grid-item
-              onKeyDown={openRowMenuFromKey}
-              onContextMenu={openRowMenuFromPointer}
-              className="block bg-surface-light rounded-lg p-4 text-center hover:bg-surface transition group focus:outline-none focus:ring-2 focus:ring-accent"
-            >
-              <ArtistImage artistId={artist.id} name={artist.name} hasImage={artist.hasImage} />
-              <p className="text-sm font-medium truncate group-hover:text-accent transition">
-                {artist.name}
-              </p>
-            </Link>
-            <CardActions target={{ kind: 'artist', artistId: artist.id, name: artist.name }} />
-          </div>
-        ))}
-      </div>
-
-      {hasMore && (
+      <FocusBar
+        focus={focus}
+        sorts={ARTIST_SORTS}
+        playSort={() => null}
+        countNote="Filters choose artists by their albums; the numbers count albums."
+      />
+      {loading && artists.length === 0 ? (
+        <p className="text-gray-400">Loading artists...</p>
+      ) : artists.length === 0 ? (
+        <p className="text-gray-400">
+          {filtered ? 'No artists match this Focus.' : 'No artists found. Scan your library first.'}
+        </p>
+      ) : (
         <>
-          <div ref={sentinelRef} className="h-10" aria-hidden="true" />
-          <div className="flex justify-center mt-2">
-            <button
-              onClick={loadMore}
-              disabled={loadingMore}
-              className="px-6 py-2 bg-surface-light border border-white/10 rounded hover:border-accent transition disabled:opacity-50"
-            >
-              {loadingMore ? 'Loading...' : `Load More (${artists.length} of ${total})`}
-            </button>
+          {/* Roving-tabindex keyboard nav over the artist-card links. */}
+          {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- delegates arrow keys to focusable card links */}
+          <div
+            ref={containerRef}
+            onKeyDown={onKeyDown}
+            role="group"
+            aria-label="Artists"
+            className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4"
+          >
+            {artists.map((artist) => (
+              <div key={artist.id} data-play-actions-row className="group relative">
+                <Link
+                  to={`/artists/${artist.id}`}
+                  data-grid-item
+                  onKeyDown={openRowMenuFromKey}
+                  onContextMenu={openRowMenuFromPointer}
+                  className="block bg-surface-light rounded-lg p-4 text-center hover:bg-surface transition group focus:outline-none focus:ring-2 focus:ring-accent"
+                >
+                  <ArtistImage artistId={artist.id} name={artist.name} hasImage={artist.hasImage} />
+                  <p className="text-sm font-medium truncate group-hover:text-accent transition">
+                    {artist.name}
+                  </p>
+                </Link>
+                <CardActions target={{ kind: 'artist', artistId: artist.id, name: artist.name }} />
+              </div>
+            ))}
           </div>
+
+          {hasMore && (
+            <>
+              <div ref={sentinelRef} className="h-10" aria-hidden="true" />
+              <div className="flex justify-center mt-2">
+                <button
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="px-6 py-2 bg-surface-light border border-white/10 rounded hover:border-accent transition disabled:opacity-50"
+                >
+                  {loadingMore ? 'Loading...' : `Load More (${artists.length} of ${total})`}
+                </button>
+              </div>
+            </>
+          )}
         </>
       )}
     </div>

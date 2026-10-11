@@ -12,10 +12,12 @@ interface Props {
   pressed?: boolean;
   onClick?: () => void;
   title?: string;
+  /** Accessible name when the visible text is not enough ("Remove Jazz"). */
+  label?: string;
   className?: string;
 }
 
-export default function Chip({ children, pressed, onClick, title, className = '' }: Props) {
+export default function Chip({ children, pressed, onClick, title, label, className = '' }: Props) {
   const tone = pressed
     ? 'bg-accent border-accent'
     : 'bg-surface-dark border-white/10 text-gray-400 hover:border-accent hover:text-white';
@@ -37,6 +39,7 @@ export default function Chip({ children, pressed, onClick, title, className = ''
       onClick={onClick}
       title={title}
       aria-pressed={pressed}
+      aria-label={label}
       className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${tone} ${className}`}
     >
       {children}

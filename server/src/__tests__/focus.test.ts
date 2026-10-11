@@ -254,6 +254,11 @@ describe('Focus', () => {
       expect(res.body.meta.total).toBe(4);
     });
 
+    it('hides duplicate editions in tracks too, so "play all" plays what the list shows', async () => {
+      const res = await request(app).get('/api/library/tracks?dedupeEditions=true&genre=Jazz');
+      expect(ids(res).sort()).toEqual(['t-brew', 't-hh', 't-kob', 't-thrust']);
+    });
+
     it('applies the same language to tracks and artists', async () => {
       const tracks = await request(app).get('/api/library/tracks?composer=ar-dvorak');
       expect(ids(tracks)).toEqual(['t-dvo']);

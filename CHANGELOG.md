@@ -27,6 +27,17 @@ the kind of change, not semver — there are no releases yet.
   Nieuwe index `idx_listening_user_track`. Alle Focus-vragen p95 ≤ 135 ms op
   50 000 tracks in de container.
 
+**Focus-paneel** (`client/src/components/FocusPanel.tsx`)
+
+- Op Albums, Artiesten en een nieuwe Tracks-pagina: sheet op de telefoon,
+  zijpaneel op desktop, chips met aantallen per facet, sorteren met richting.
+- Actieve filters als verwijderbare chips boven de lijst; "Wis alles" laat de
+  sortering staan.
+- De query staat in de URL: deelbaar, overleeft herladen, terugknop maakt een
+  filter ongedaan.
+- "Speel alles" en "Shuffle" op het gefilterde resultaat (max. 1000 tracks).
+- Genres: "Verfijn in Focus" opent Albums met dat genre aan.
+
 ## R04 — Artiest en album zoals Roon (verbeterplan 2, sprint R04)
 
 **Biografieën via identiteit, met bron en licentie** (`server/src/services/artist-bio.ts`)

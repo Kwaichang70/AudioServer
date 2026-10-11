@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import AlbumCover from '../components/AlbumCover.js';
+import { buttonClasses } from '../components/ui/Button.js';
 import {
   CardActions,
   openRowMenuFromKey,
@@ -126,9 +127,19 @@ function GenreDetail({ genre }: { genre: string }) {
       <Link to="/genres" className="text-sm text-gray-400 hover:text-accent transition">
         &larr; All Genres
       </Link>
-      <h2 className="text-2xl font-bold mt-2 mb-6">
-        {genre} <span className="text-sm font-normal text-gray-500">({albums.length} albums)</span>
-      </h2>
+      <div className="flex flex-wrap items-center justify-between gap-2 mt-2 mb-6">
+        <h2 className="text-2xl font-bold">
+          {genre}{' '}
+          <span className="text-sm font-normal text-gray-500">({albums.length} albums)</span>
+        </h2>
+        {/* Focus (R05.2): the genre as the first filter, then narrow it down. */}
+        <Link
+          to={`/albums?${new URLSearchParams({ genre }).toString()}`}
+          className={buttonClasses('outline', 'sm')}
+        >
+          Refine in Focus
+        </Link>
+      </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
         {albums.map((album) => (

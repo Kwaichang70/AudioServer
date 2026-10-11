@@ -1,6 +1,7 @@
 import type { Album, Artist, RadioStation, Track } from '@audioserver/shared';
 import { API_BASE, STORAGE_KEYS } from '../constants.js';
 import type {
+  AlbumFacets,
   ApiMeta,
   ApiResponse,
   AudioPath,
@@ -296,8 +297,9 @@ function searchQuery(q: string, options: SearchFilters): string {
 export const api = {
   // ─── Library ────────────────────────────────────────────────
   getStats: (): Promise<ApiResponse<LibraryStats>> => fetchApi('/library/stats'),
-  getArtists: (page = 1, limit = 50): Promise<PaginatedResponse<LibraryArtist>> =>
-    fetchApi(`/library/artists?page=${page}&limit=${limit}`),
+  /** `focus` is a Focus query string (R05.2): sort and filters, already encoded. */
+  getArtists: (page = 1, limit = 50, focus = ''): Promise<PaginatedResponse<LibraryArtist>> =>
+    fetchApi(`/library/artists?page=${page}&limit=${limit}${focus ? `&${focus}` : ''}`),
   getArtist: (id: string): Promise<ApiResponse<LibraryArtist>> =>
     fetchApi(`/library/artists/${id}`),
   getArtistAlbums: (id: string): Promise<ApiResponse<LibraryAlbum[]>> =>
@@ -316,8 +318,11 @@ export const api = {
     fetchApi(`/library/artists/${id}/top-tracks`),
   getSimilarArtists: (id: string): Promise<ApiResponse<SimilarArtistsResult>> =>
     fetchApi(`/library/artists/${id}/similar`),
-  getAlbums: (page = 1, limit = 50): Promise<PaginatedResponse<LibraryAlbum>> =>
-    fetchApi(`/library/albums?page=${page}&limit=${limit}`),
+  getAlbums: (page = 1, limit = 50, focus = ''): Promise<PaginatedResponse<LibraryAlbum>> =>
+    fetchApi(`/library/albums?page=${page}&limit=${limit}${focus ? `&${focus}` : ''}`),
+  /** How many albums each filter value would give, with the other filters on (R05.1). */
+  getAlbumFacets: (focus = ''): Promise<ApiResponse<AlbumFacets>> =>
+    fetchApi(`/library/albums/facets${focus ? `?${focus}` : ''}`),
   getAlbum: (id: string): Promise<ApiResponse<LibraryAlbum>> => fetchApi(`/library/albums/${id}`),
   /** Composers, from the composer credits (R04.4). */
   getComposers: (): Promise<ApiResponse<ComposerSummary[]>> => fetchApi('/library/composers'),
@@ -331,8 +336,8 @@ export const api = {
     fetchApi(`/library/albums/${id}/versions`),
   getAlbumTracks: (id: string): Promise<ApiResponse<LibraryTrack[]>> =>
     fetchApi(`/library/albums/${id}/tracks`),
-  getTracks: (page = 1, limit = 100): Promise<PaginatedResponse<LibraryTrack>> =>
-    fetchApi(`/library/tracks?page=${page}&limit=${limit}`),
+  getTracks: (page = 1, limit = 100, focus = ''): Promise<PaginatedResponse<LibraryTrack>> =>
+    fetchApi(`/library/tracks?page=${page}&limit=${limit}${focus ? `&${focus}` : ''}`),
   search: (
     q: string,
     limit = 20,

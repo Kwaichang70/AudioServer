@@ -65,6 +65,8 @@ export type FacetKey =
   | 'unplayed';
 
 export const LOSSLESS_FORMATS = ['flac', 'wav', 'aiff', 'aif', 'alac', 'ape'];
+/** A fixed whitelist, so it can be inlined as literals. */
+const LOSSLESS_LIST = () => LOSSLESS_FORMATS.map((f) => `'${f}'`).join(',');
 
 // ─── Parsing ────────────────────────────────────────────────────────────────
 
@@ -144,6 +146,22 @@ interface Clause {
 const placeholders = (n: number) => Array.from({ length: n }, () => '?').join(',');
 
 const DAY = 86400;
+
+/**
+ * "Hide duplicate editions" (R05.4): one album per identity — the release
+ * group when known, otherwise artist + title — keeping the best quality.
+ * Ranked once over the whole table (a window, not a correlated subquery), so
+ * it stays linear in the number of albums: the correlated form took 700 ms at
+ * 10 000 tracks.
+ */
+const BEST_EDITIONS_SQL = `SELECT id FROM (
+    SELECT b.id, ROW_NUMBER() OVER (
+             PARTITION BY COALESCE(b.release_group_mbid, LOWER(b.artist_name) || '|' || LOWER(b.title))
+             ORDER BY (COALESCE(b.bit_depth, 0) * COALESCE(b.sample_rate, 0)) DESC,
+                      (LOWER(b.format) IN (${LOSSLESS_LIST()})) DESC,
+                      b.id) as edition_rank
+      FROM albums b)
+   WHERE edition_rank = 1`;
 const now = () => Math.floor(Date.now() / 1000);
 
 /**
@@ -198,6 +216,7 @@ export function albumClauses(
   if (q.addedWithin && except !== 'addedWithin') {
     add('a.created_at >= ?', now() - q.addedWithin * DAY);
   }
+  if (q.dedupeEditions) add(`a.id IN (${BEST_EDITIONS_SQL})`);
   if (userId) {
     if (q.favorite && except !== 'favorite') {
       add(
@@ -284,6 +303,7 @@ export function trackClauses(q: FocusQuery, userId: string | null, except?: Face
   if (q.addedWithin && except !== 'addedWithin') {
     add('t.created_at >= ?', now() - q.addedWithin * DAY);
   }
+  if (q.dedupeEditions) add(`t.album_id IN (${BEST_EDITIONS_SQL})`);
   if (userId) {
     if (q.favorite && except !== 'favorite') {
       add(
@@ -358,34 +378,13 @@ export function focusAlbums(
       ? 'LEFT JOIN (SELECT album_id, SUM(duration) as duration FROM tracks GROUP BY album_id) dur ON dur.album_id = a.id'
       : 'LEFT JOIN (SELECT NULL as album_id, NULL as duration) dur ON 0';
 
-  // "Hide duplicate editions" (R05.4): one row per album identity — the release
-  // group when known, otherwise artist + title — keeping the best quality.
-  // Ranked once over the whole table (a window, not a correlated subquery),
-  // so it stays linear in the number of albums.
-  const dedupe = q.dedupeEditions
-    ? `AND a.id IN (
-         SELECT id FROM (
-           SELECT b.id, ROW_NUMBER() OVER (
-                    PARTITION BY COALESCE(b.release_group_mbid,
-                                          LOWER(b.artist_name) || '|' || LOWER(b.title))
-                    ORDER BY (COALESCE(b.bit_depth, 0) * COALESCE(b.sample_rate, 0)) DESC,
-                             (LOWER(b.format) IN (${placeholders(LOSSLESS_FORMATS.length)})) DESC,
-                             b.id) as edition_rank
-             FROM albums b)
-          WHERE edition_rank = 1)`
-    : '';
-  const dedupeParams = q.dedupeEditions ? LOSSLESS_FORMATS : [];
-  const filter = clause.sql.length
-    ? `WHERE ${clause.sql.join(' AND ')} ${dedupe}`
-    : dedupe
-      ? `WHERE 1 ${dedupe}`
-      : '';
+  const filter = where(clause);
 
   const total =
     (
-      db
-        .prepare(`SELECT COUNT(*) as count FROM albums a ${filter}`)
-        .get(...clause.params, ...dedupeParams) as { count: number }
+      db.prepare(`SELECT COUNT(*) as count FROM albums a ${filter}`).get(...clause.params) as {
+        count: number;
+      }
     )?.count ?? 0;
 
   const rows = db
@@ -402,13 +401,17 @@ export function focusAlbums(
         ORDER BY ${orderBy}
         LIMIT ? OFFSET ?`,
     )
-    .all(...statsParams, ...clause.params, ...dedupeParams, options.limit, options.offset) as Array<
+    .all(...statsParams, ...clause.params, options.limit, options.offset) as Array<
     Record<string, unknown>
   >;
   return { rows, total };
 }
 
 // ─── Tracks ─────────────────────────────────────────────────────────────────
+
+/** Album by album, each in its own running order — how a record is heard. */
+const ALBUM_TRACK_ORDER =
+  'a.title COLLATE NOCASE, t.album_id, t.disc_number, t.track_number, t.title COLLATE NOCASE';
 
 const TRACK_ORDER: Record<SortKey, { expr: string; defaultOrder: 'asc' | 'desc' }> = {
   title: { expr: 't.title COLLATE NOCASE', defaultOrder: 'asc' },
@@ -424,7 +427,7 @@ export function focusTracks(
   q: FocusQuery,
   userId: string | null,
   options: AlbumListOptions,
-  defaultOrder = 't.album_id COLLATE NOCASE, t.disc_number, t.track_number, t.title COLLATE NOCASE',
+  defaultOrder = ALBUM_TRACK_ORDER,
 ): { rows: Array<Record<string, unknown>>; total: number } {
   const db = getRawDb();
   const clause = trackClauses(q, userId);
@@ -438,7 +441,8 @@ export function focusTracks(
   if (q.sort) {
     const sort = TRACK_ORDER[q.sort];
     const order = (q.order ?? sort.defaultOrder) === 'desc' ? 'DESC' : 'ASC';
-    orderBy = `${sort.expr} IS NULL, ${sort.expr} ${order}, t.title COLLATE NOCASE, t.id`;
+    // Ties keep album order, so "sorted by year" still plays each album through.
+    orderBy = `${sort.expr} IS NULL, ${sort.expr} ${order}, ${ALBUM_TRACK_ORDER}, t.id`;
   }
   const filter = where(clause);
 

@@ -10,6 +10,27 @@ import {
 } from '../components/PlayActions.js';
 import { formatQuality } from '../utils/format.js';
 import { DEFAULT_LIBRARY_PAGE_SIZE } from '../constants.js';
+import { FocusBar } from '../components/FocusPanel.js';
+import { useFocus, useReloadOnQuery } from '../hooks/useFocus.js';
+import { filterCount, type SortKey } from '../utils/focus.js';
+
+const ALBUM_SORTS: SortKey[] = [
+  'title',
+  'artist',
+  'year',
+  'added',
+  'lastPlayed',
+  'plays',
+  'duration',
+];
+
+/**
+ * "Play all" plays tracks. Album-level sorts that tracks share keep their
+ * order; the rest (title, plays, duration) mean something else for a track,
+ * so those play album by album.
+ */
+const albumPlaySort = (sort: string | null) =>
+  sort === 'artist' || sort === 'year' || sort === 'added' ? sort : null;
 
 interface Album {
   id: string;
@@ -25,6 +46,8 @@ interface Album {
 }
 
 export default function AlbumsPage() {
+  const focus = useFocus();
+  const filtered = filterCount(focus.params) > 0;
   const {
     items: albums,
     loading,
@@ -34,7 +57,7 @@ export default function AlbumsPage() {
     loadMore,
     reload,
   } = useInfiniteLoad<Album>(
-    (page, limit) => api.getAlbums(page, limit),
+    (page, limit) => api.getAlbums(page, limit, focus.query),
     DEFAULT_LIBRARY_PAGE_SIZE,
   );
 
@@ -42,14 +65,13 @@ export default function AlbumsPage() {
   // within 400px of the viewport. The "Load More" button below stays as a
   // keyboard/no-JS fallback.
   const sentinelRef = useAutoLoadMore(loadMore, hasMore);
+  useReloadOnQuery(focus.query, reload);
   const { containerRef, onKeyDown } = useGridNavigation<HTMLDivElement>(albums.length);
 
   const startScan = async () => {
     await api.scanLibrary();
     reload();
   };
-
-  if (loading) return <p className="text-gray-400">Loading albums...</p>;
 
   return (
     <div>
@@ -65,7 +87,13 @@ export default function AlbumsPage() {
         </button>
       </div>
 
-      {albums.length === 0 ? (
+      <FocusBar focus={focus} sorts={ALBUM_SORTS} playSort={albumPlaySort} />
+
+      {loading && albums.length === 0 ? (
+        <p className="text-gray-400">Loading albums...</p>
+      ) : albums.length === 0 && filtered ? (
+        <p className="text-center py-20 text-gray-400">No albums match this Focus.</p>
+      ) : albums.length === 0 ? (
         <div className="text-center py-20">
           <p className="text-gray-400 mb-4">No albums found in your library.</p>
           <button

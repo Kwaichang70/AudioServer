@@ -65,6 +65,25 @@ export interface LibraryTrack extends Track {
   playlistPosition?: number;
 }
 
+/** Focus facet counts (R05.1): albums per value, other filters applied. */
+export interface FacetValue {
+  value: string;
+  count: number;
+}
+
+export interface AlbumFacets {
+  total: number;
+  genre: FacetValue[];
+  decade: FacetValue[];
+  format: FacetValue[];
+  quality: FacetValue[];
+  source: FacetValue[];
+  label: FacetValue[];
+  composer: Array<FacetValue & { name: string }>;
+  favorite: number;
+  unplayed: number;
+}
+
 export interface SimilarArtist {
   name: string;
   match: number;
