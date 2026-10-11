@@ -48,6 +48,18 @@ the kind of change, not semver — there are no releases yet.
   maakt van elke oude playlist één groep die dezelfde tracks geeft (getest
   tegen de oude query). Oude clients kunnen nog `rules` sturen.
 
+**Zoeken zonder accenten** (`server/src/utils/search-text.ts`)
+
+- "Dvorak" vindt Dvořák, "Bjork" Björk; genres zijn doorzoekbaar voor albums,
+  componist en dirigent voor tracks.
+- Gevouwen kolommen, bijgehouden door triggers (ook voor genres en credits);
+  bestaande rijen worden bij de start één keer gevuld.
+- Benchmark: zoeken p95 ≈ 34 ms op 50 000 tracks.
+
+**Deploy:** schemaversie 16 (bookmarks, definities, zoekkolommen) — maak
+eerst een back-up van het volume. De eerste start vult de zoekkolommen en
+zet bestaande slimme playlists om.
+
 ## R04 — Artiest en album zoals Roon (verbeterplan 2, sprint R04)
 
 **Biografieën via identiteit, met bron en licentie** (`server/src/services/artist-bio.ts`)

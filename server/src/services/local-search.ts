@@ -1,5 +1,6 @@
 import type { Album, Artist, Track } from '@audioserver/shared';
 import { getRawDb } from '../db/index.js';
+import { searchText } from '../utils/search-text.js';
 
 /**
  * Ranked local search (V07.3).
@@ -11,6 +12,10 @@ import { getRawDb } from '../db/index.js';
  *   rank 3  another field contains it (artist on a track, album on a track)
  * Ties break alphabetically. Missing local files stay in the results, marked
  * by `availability`, so a user understands why a known track cannot play.
+ *
+ * R05.4: matching runs on folded copies (`*_norm`, see utils/search-text):
+ * no accents, no case, so "Dvorak" finds "Dvořák". Genres count for albums,
+ * composer and conductor credits for tracks — at the lowest rank.
  *
  * The benchmark (`npm run bench:search`) showed plain LIKE with these
  * indexes stays far below the 300 ms p95 target at 50 000 tracks, so no
@@ -38,7 +43,7 @@ function escapeLike(value: string): string {
 }
 
 export function searchLocal(query: string, options: LocalSearchOptions = {}): LocalSearchResults {
-  const q = query.trim();
+  const q = searchText(query);
   if (!q) return { artists: [], albums: [], tracks: [] };
   const limit = Math.max(1, Math.min(options.limit ?? 20, 100));
   const db = getRawDb();
@@ -50,8 +55,8 @@ export function searchLocal(query: string, options: LocalSearchOptions = {}): Lo
     .prepare(
       `SELECT id, name, image_url as imageUrl, source
          FROM artists
-        WHERE name LIKE ? ESCAPE '\\'
-        ORDER BY CASE WHEN name = ? COLLATE NOCASE THEN 0 WHEN name LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END,
+        WHERE name_norm LIKE ? ESCAPE '\\'
+        ORDER BY CASE WHEN name_norm = ? THEN 0 WHEN name_norm LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END,
                  name COLLATE NOCASE
         LIMIT ?`,
     )
@@ -63,17 +68,19 @@ export function searchLocal(query: string, options: LocalSearchOptions = {}): Lo
               cover_url as coverUrl, is_compilation as isCompilation, track_count as trackCount,
               format, sample_rate as sampleRate, bit_depth as bitDepth, source
          FROM albums
-        WHERE title LIKE ? ESCAPE '\\' OR artist_name LIKE ? ESCAPE '\\'
-        ORDER BY CASE WHEN title = ? COLLATE NOCASE THEN 0
-                      WHEN title LIKE ? ESCAPE '\\' THEN 1
-                      WHEN title LIKE ? ESCAPE '\\' THEN 2 ELSE 3 END,
+        WHERE title_norm LIKE ? ESCAPE '\\' OR artist_norm LIKE ? ESCAPE '\\'
+           OR genre_norm LIKE ? ESCAPE '\\'
+        ORDER BY CASE WHEN title_norm = ? THEN 0
+                      WHEN title_norm LIKE ? ESCAPE '\\' THEN 1
+                      WHEN title_norm LIKE ? ESCAPE '\\' THEN 2
+                      WHEN artist_norm LIKE ? ESCAPE '\\' THEN 3 ELSE 4 END,
                  title COLLATE NOCASE
         LIMIT ?`,
     )
-    .all(contains, contains, exact, prefix, contains, limit) as Album[];
+    .all(contains, contains, contains, exact, prefix, contains, contains, limit) as Album[];
 
   const filters: string[] = [];
-  const params: unknown[] = [contains, contains, contains];
+  const params: unknown[] = [contains, contains, contains, contains];
   if (options.format) {
     filters.push('AND format = ?');
     params.push(options.format.toLowerCase());
@@ -87,7 +94,7 @@ export function searchLocal(query: string, options: LocalSearchOptions = {}): Lo
     );
     params.push(...LOSSLESS_FORMATS);
   }
-  params.push(exact, prefix, contains, limit);
+  params.push(exact, prefix, contains, contains, contains, limit);
 
   const trackRows = db
     .prepare(
@@ -96,11 +103,14 @@ export function searchLocal(query: string, options: LocalSearchOptions = {}): Lo
               disc_number as discNumber, duration, format, sample_rate as sampleRate,
               bit_depth as bitDepth, file_path as filePath, cover_url as coverUrl, source, availability
          FROM tracks
-        WHERE (title LIKE ? ESCAPE '\\' OR artist_name LIKE ? ESCAPE '\\' OR album_title LIKE ? ESCAPE '\\')
+        WHERE (title_norm LIKE ? ESCAPE '\\' OR artist_norm LIKE ? ESCAPE '\\'
+               OR album_norm LIKE ? ESCAPE '\\' OR credits_norm LIKE ? ESCAPE '\\')
           ${filters.join(' ')}
-        ORDER BY CASE WHEN title = ? COLLATE NOCASE THEN 0
-                      WHEN title LIKE ? ESCAPE '\\' THEN 1
-                      WHEN title LIKE ? ESCAPE '\\' THEN 2 ELSE 3 END,
+        ORDER BY CASE WHEN title_norm = ? THEN 0
+                      WHEN title_norm LIKE ? ESCAPE '\\' THEN 1
+                      WHEN title_norm LIKE ? ESCAPE '\\' THEN 2
+                      WHEN artist_norm LIKE ? ESCAPE '\\' OR album_norm LIKE ? ESCAPE '\\' THEN 3
+                      ELSE 4 END,
                  CASE WHEN availability = 'missing' THEN 1 ELSE 0 END, title COLLATE NOCASE
         LIMIT ?`,
     )

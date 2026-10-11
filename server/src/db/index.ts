@@ -4,6 +4,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import * as schema from './schema.js';
+import { searchText } from '../utils/search-text.js';
 import { legacyDefinition, rulesSchema } from '../services/focus-rules.js';
 import { existsSync, mkdirSync } from 'fs';
 import { randomUUID } from 'crypto';
@@ -81,6 +82,12 @@ export async function initDatabase(overridePath?: string) {
   rawDb = sqlite;
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('foreign_keys = ON');
+  // R05.4: the search fold, available to SQL. Triggers below call it, so it
+  // must be registered on every connection that writes library rows — which
+  // is this one: the app is the only writer.
+  sqlite.function('search_text', { deterministic: true }, (value: unknown) =>
+    searchText(typeof value === 'string' ? value : value == null ? '' : String(value)),
+  );
 
   db = drizzle(sqlite, { schema });
 
@@ -292,6 +299,7 @@ export async function initDatabase(overridePath?: string) {
   // rules become one group with the same conditions, order and limit.
   runMigration(sqlite, 'smart_playlists', 'definition', 'TEXT');
   migrateSmartPlaylistDefinitions(sqlite);
+  addSearchColumns(sqlite);
   // V05.3: one submission per listening session and service.
   runMigration(sqlite, 'scrobble_queue', 'session_id', 'TEXT');
   sqlite.exec(
@@ -541,6 +549,103 @@ export function slugForZone(deviceId: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
   return slug || 'device';
+}
+
+/**
+ * Accent-free search (R05.4): "Dvorak" finds "Dvořák".
+ *
+ * Folded copies of the searched text live next to the originals and are kept
+ * current by triggers, whatever writes the row — the scanner, the identify
+ * job, a provider sync. Genres and composer/conductor credits live in their
+ * own tables, so those tables have triggers too. Rows from before this
+ * version are filled once, here.
+ */
+function addSearchColumns(sqlite: Database.Database): void {
+  const nocase = 'TEXT COLLATE NOCASE';
+  runMigration(sqlite, 'artists', 'name_norm', nocase);
+  runMigration(sqlite, 'albums', 'title_norm', nocase);
+  runMigration(sqlite, 'albums', 'artist_norm', nocase);
+  runMigration(sqlite, 'albums', 'genre_norm', nocase);
+  runMigration(sqlite, 'tracks', 'title_norm', nocase);
+  runMigration(sqlite, 'tracks', 'artist_norm', nocase);
+  runMigration(sqlite, 'tracks', 'album_norm', nocase);
+  runMigration(sqlite, 'tracks', 'credits_norm', nocase);
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_artists_name_norm ON artists (name_norm)');
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_albums_title_norm ON albums (title_norm)');
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_tracks_title_norm ON tracks (title_norm)');
+
+  const artistSet = `name_norm = search_text(NEW.name)`;
+  const albumSet = (id: string) => `
+      title_norm = search_text(NEW.title),
+      artist_norm = search_text(NEW.artist_name),
+      genre_norm = search_text(COALESCE(NEW.genre, '') || ' ' || COALESCE(
+        (SELECT group_concat(genre, ' ') FROM album_genres WHERE album_id = ${id}), ''))`;
+  // Composer and conductor: the tag text plus the credited artists' names.
+  const credits = (composer: string, conductor: string, id: string) => `credits_norm = search_text(
+        COALESCE(${composer}, '') || ' ' || COALESCE(${conductor}, '') || ' ' ||
+        COALESCE((SELECT group_concat(ar.name, ' ') FROM track_artists ta JOIN artists ar ON ar.id = ta.artist_id
+                   WHERE ta.track_id = ${id} AND ta.role IN ('composer', 'conductor')), ''))`;
+  const creditsOf = (id: string) =>
+    credits(
+      `(SELECT t2.composer FROM tracks t2 WHERE t2.id = ${id})`,
+      `(SELECT t2.conductor FROM tracks t2 WHERE t2.id = ${id})`,
+      id,
+    );
+  const trackSet = `
+      title_norm = search_text(NEW.title),
+      artist_norm = search_text(COALESCE(NEW.artist_name, '') || ' ' || COALESCE(NEW.artist_names, '')),
+      album_norm = search_text(NEW.album_title),
+      ${credits('NEW.composer', 'NEW.conductor', 'NEW.id')}`;
+  sqlite.exec(`
+    CREATE TRIGGER IF NOT EXISTS trg_artists_norm_ins AFTER INSERT ON artists BEGIN
+      UPDATE artists SET ${artistSet} WHERE id = NEW.id; END;
+    CREATE TRIGGER IF NOT EXISTS trg_artists_norm_upd AFTER UPDATE OF name ON artists BEGIN
+      UPDATE artists SET ${artistSet} WHERE id = NEW.id; END;
+    CREATE TRIGGER IF NOT EXISTS trg_albums_norm_ins AFTER INSERT ON albums BEGIN
+      UPDATE albums SET ${albumSet('NEW.id')} WHERE id = NEW.id; END;
+    CREATE TRIGGER IF NOT EXISTS trg_albums_norm_upd AFTER UPDATE OF title, artist_name, genre ON albums BEGIN
+      UPDATE albums SET ${albumSet('NEW.id')} WHERE id = NEW.id; END;
+    CREATE TRIGGER IF NOT EXISTS trg_album_genres_norm_ins AFTER INSERT ON album_genres BEGIN
+      UPDATE albums SET genre_norm = search_text(COALESCE(genre, '') || ' ' || COALESCE(
+        (SELECT group_concat(genre, ' ') FROM album_genres WHERE album_id = NEW.album_id), ''))
+       WHERE id = NEW.album_id; END;
+    CREATE TRIGGER IF NOT EXISTS trg_album_genres_norm_del AFTER DELETE ON album_genres BEGIN
+      UPDATE albums SET genre_norm = search_text(COALESCE(genre, '') || ' ' || COALESCE(
+        (SELECT group_concat(genre, ' ') FROM album_genres WHERE album_id = OLD.album_id), ''))
+       WHERE id = OLD.album_id; END;
+    CREATE TRIGGER IF NOT EXISTS trg_tracks_norm_ins AFTER INSERT ON tracks BEGIN
+      UPDATE tracks SET ${trackSet} WHERE id = NEW.id; END;
+    CREATE TRIGGER IF NOT EXISTS trg_tracks_norm_upd
+      AFTER UPDATE OF title, artist_name, artist_names, album_title, composer, conductor ON tracks BEGIN
+      UPDATE tracks SET ${trackSet} WHERE id = NEW.id; END;
+    CREATE TRIGGER IF NOT EXISTS trg_track_artists_norm_ins AFTER INSERT ON track_artists BEGIN
+      UPDATE tracks SET ${creditsOf('NEW.track_id')} WHERE id = NEW.track_id; END;
+    CREATE TRIGGER IF NOT EXISTS trg_track_artists_norm_del AFTER DELETE ON track_artists BEGIN
+      UPDATE tracks SET ${creditsOf('OLD.track_id')} WHERE id = OLD.track_id; END;
+  `);
+
+  // Fill what existed before the triggers (one pass; NULL means "never folded").
+  const filled =
+    sqlite
+      .prepare(`UPDATE artists SET ${artistSet.replaceAll('NEW.', '')} WHERE name_norm IS NULL`)
+      .run().changes +
+    sqlite
+      .prepare(
+        `UPDATE albums SET ${albumSet('albums.id').replaceAll('NEW.', '')} WHERE title_norm IS NULL`,
+      )
+      .run().changes +
+    sqlite
+      .prepare(
+        `UPDATE tracks SET ${trackSet
+          .replace(
+            credits('NEW.composer', 'NEW.conductor', 'NEW.id'),
+            credits('composer', 'conductor', 'tracks.id'),
+          )
+          .replaceAll('NEW.', '')}
+          WHERE title_norm IS NULL`,
+      )
+      .run().changes;
+  if (filled > 0) logger.info(`Migration: ${filled} rows made searchable without accents (R05.4)`);
 }
 
 /**

@@ -165,6 +165,8 @@ async function main(): Promise<void> {
     ['prefix', ['Sil', 'Gold', 'Ra']],
     ['contains (worst case)', ['ver', 'ight', 'on']],
     ['artist', ['Adele', 'Miles', 'Björk', 'Чайковский', '宇多田']],
+    // R05.4: typed without accents, found through the folded columns.
+    ['without accents', ['Bjork', 'Sigur Ros', 'Cafe Tacvba', 'Olafur']],
     ['version word', ['Live', 'Remastered']],
   ];
   console.log(`\nquery class                p50     p95     max   (ms, ${ROUNDS} rounds)`);
