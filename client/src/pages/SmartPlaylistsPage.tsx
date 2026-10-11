@@ -5,6 +5,9 @@ import { useAudioContext } from '../context/AudioContext.js';
 import { formatDuration } from '../utils/format.js';
 import { useToast } from '../components/Toast.js';
 import PlayActions, { openRowMenuFromPointer, toTrackInfo } from '../components/PlayActions.js';
+import type { SmartDefinition, SmartPlaylist as StoredSmartPlaylist } from '../api/types.js';
+import { SORT_LABELS, activeFilters, type SortKey } from '../utils/focus.js';
+import Button from '../components/ui/Button.js';
 
 interface Rule {
   field: string;
@@ -13,12 +16,10 @@ interface Rule {
   value2?: string;
 }
 
-interface SmartPlaylist {
-  id: string;
-  name: string;
-  rules: string;
-  trackCount: number;
-}
+type SmartPlaylist = Pick<
+  StoredSmartPlaylist,
+  'id' | 'name' | 'rules' | 'trackCount' | 'definition'
+>;
 
 interface Track {
   id: string;
@@ -208,6 +209,204 @@ function parseRules(rulesJson: string): Rule[] {
   return [{ ...EMPTY_RULE }];
 }
 
+// ─── Focus definitions (R05.3) ───────────────────────────────────
+
+/**
+ * A playlist made of field conditions only is one the rule editor can still
+ * edit without losing anything. Anything built in Focus is edited as groups.
+ */
+function isRuleOnly(definition: SmartDefinition | null | undefined): boolean {
+  if (!definition) return true;
+  if (definition.groups.length !== 1) return false;
+  return [...new URLSearchParams(definition.groups[0]).keys()].every((key) => key === 'rule');
+}
+
+/** A group in words, the way the Focus bar shows active filters. */
+function groupLabel(group: string): string {
+  const chips = activeFilters(new URLSearchParams(group));
+  return chips.length > 0 ? chips.map((c) => c.label).join(' · ') : 'All tracks';
+}
+
+/** Open a group as a Focus page, with the playlist's sort. */
+function groupHref(group: string, definition: SmartDefinition): string {
+  const params = new URLSearchParams(group);
+  if (definition.sort) params.set('sort', definition.sort);
+  if (definition.order) params.set('order', definition.order);
+  const query = params.toString();
+  return query ? `/tracks?${query}` : '/tracks';
+}
+
+const PLAYLIST_SORTS: SortKey[] = [
+  'artist',
+  'title',
+  'year',
+  'added',
+  'lastPlayed',
+  'plays',
+  'duration',
+];
+
+function DefinitionSummary({ definition }: { definition: SmartDefinition }) {
+  return (
+    <div className="mt-3 space-y-1 text-sm text-gray-400" data-testid="smart-definition">
+      <p className="text-xs uppercase tracking-wider text-gray-500">
+        {definition.groups.length > 1 ? 'Tracks matching any of' : 'Tracks matching'}
+      </p>
+      <ul className="space-y-1">
+        {definition.groups.map((group, i) => (
+          <li key={`${i}-${group}`} className="flex flex-wrap items-center gap-2">
+            {i > 0 && <span className="text-xs text-gray-500">or</span>}
+            <span>{groupLabel(group)}</span>
+            <Link to={groupHref(group, definition)} className="text-xs text-accent hover:underline">
+              Open in Focus
+            </Link>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-gray-500">
+        {definition.sort
+          ? `Sorted by ${SORT_LABELS[definition.sort as SortKey] ?? definition.sort}`
+          : 'Album order'}
+        {definition.order === 'desc' ? ' ↓' : ''} · at most {definition.limit ?? 200} tracks
+      </p>
+    </div>
+  );
+}
+
+function DefinitionEditor({
+  playlist,
+  onCancel,
+  onSaved,
+}: {
+  playlist: SmartPlaylist;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const definition = playlist.definition!;
+  const [name, setName] = useState(playlist.name);
+  const [groups, setGroups] = useState(definition.groups);
+  const [sort, setSort] = useState(definition.sort ?? '');
+  const [order, setOrder] = useState<'asc' | 'desc'>(definition.order ?? 'asc');
+  const [limit, setLimit] = useState(String(definition.limit ?? 200));
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
+
+  const save = async () => {
+    const max = Math.round(Number(limit));
+    if (!name.trim() || !Number.isFinite(max) || max < 1 || max > 1000) {
+      toast('A name, and a limit between 1 and 1000', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      if (name.trim() !== playlist.name)
+        await api.updateSmartPlaylist(playlist.id, { name: name.trim() });
+      await api.setSmartPlaylistDefinition(playlist.id, {
+        groups,
+        sort: sort || undefined,
+        order: sort ? order : undefined,
+        limit: max,
+      });
+      toast('Smart playlist updated', 'success');
+      onSaved();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Save failed', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form
+      aria-label="Edit smart playlist"
+      className="space-y-4 rounded-lg bg-surface-light p-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void save();
+      }}
+    >
+      <label className="block text-xs text-gray-400">
+        Name
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="mt-1 block w-full rounded bg-surface-dark border border-white/10 px-3 py-2 text-sm text-white"
+        />
+      </label>
+      <div>
+        <p className="text-xs text-gray-400 mb-1">Groups (a track that matches any group is in)</p>
+        <ul className="space-y-1">
+          {groups.map((group, i) => (
+            <li key={`${i}-${group}`} className="flex items-center gap-2 text-sm">
+              <span className="flex-1">{groupLabel(group)}</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={groups.length === 1}
+                onClick={() => setGroups(groups.filter((_, j) => j !== i))}
+                aria-label={`Remove group ${groupLabel(group)}`}
+              >
+                Remove
+              </Button>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-1 text-xs text-gray-500">
+          Add a group from any Focus page: Save → “Add to smart playlist”.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="text-xs text-gray-400">
+          Sort
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+            className="mt-1 block rounded bg-surface-dark border border-white/10 px-2 py-1.5 text-sm text-white"
+          >
+            <option value="">Album order</option>
+            {PLAYLIST_SORTS.map((key) => (
+              <option key={key} value={key}>
+                {SORT_LABELS[key]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs text-gray-400">
+          Direction
+          <select
+            value={order}
+            disabled={!sort}
+            onChange={(e) => setOrder(e.target.value === 'desc' ? 'desc' : 'asc')}
+            className="mt-1 block rounded bg-surface-dark border border-white/10 px-2 py-1.5 text-sm text-white"
+          >
+            <option value="asc">Ascending</option>
+            <option value="desc">Descending</option>
+          </select>
+        </label>
+        <label className="text-xs text-gray-400">
+          At most
+          <input
+            type="number"
+            min={1}
+            max={1000}
+            value={limit}
+            onChange={(e) => setLimit(e.target.value)}
+            className="mt-1 block w-24 rounded bg-surface-dark border border-white/10 px-2 py-1.5 text-sm text-white"
+          />
+        </label>
+      </div>
+      <div className="flex gap-2">
+        <Button type="submit" variant="accent" size="sm" disabled={saving}>
+          {saving ? 'Saving...' : 'Save changes'}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 // ─── Page entry ──────────────────────────────────────────────────
 
 export default function SmartPlaylistsPage() {
@@ -277,6 +476,18 @@ function SmartPlaylistList() {
           + New Smart Playlist
         </button>
       </div>
+
+      <p className="-mt-4 mb-6 text-xs text-gray-500">
+        Or build one with Focus: filter{' '}
+        <Link to="/tracks" className="text-accent hover:underline">
+          Tracks
+        </Link>{' '}
+        or{' '}
+        <Link to="/albums" className="text-accent hover:underline">
+          Albums
+        </Link>
+        , then Save → New smart playlist.
+      </p>
 
       {showCreate && (
         <div className="mb-6">
@@ -429,11 +640,14 @@ function SmartPlaylistDetail({ id }: { id: string }) {
               onClick={startEdit}
               className="text-xs text-gray-400 hover:text-accent transition"
             >
-              Edit rules
+              {isRuleOnly(playlist.definition) ? 'Edit rules' : 'Edit'}
             </button>
           )}
         </div>
-        <p className="text-sm text-gray-500">{tracks.length} tracks (auto-generated from rules)</p>
+        <p className="text-sm text-gray-500">{tracks.length} tracks (auto-generated)</p>
+        {!editing && playlist?.definition && !isRuleOnly(playlist.definition) && (
+          <DefinitionSummary definition={playlist.definition} />
+        )}
         {!editing && tracks.length > 0 && (
           <button
             onClick={() => playAlbum(tracks)}
@@ -444,7 +658,16 @@ function SmartPlaylistDetail({ id }: { id: string }) {
         )}
       </div>
 
-      {editing ? (
+      {editing && playlist && !isRuleOnly(playlist.definition) ? (
+        <DefinitionEditor
+          playlist={playlist}
+          onCancel={cancelEdit}
+          onSaved={() => {
+            setEditing(false);
+            void loadAll();
+          }}
+        />
+      ) : editing ? (
         <RuleEditor
           name={editName}
           onNameChange={setEditName}

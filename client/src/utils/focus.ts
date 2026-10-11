@@ -7,7 +7,7 @@
  * below belong to Focus; anything else on the URL is left alone.
  */
 
-export const FOCUS_LIST_KEYS = ['genre', 'format', 'source', 'label', 'composer'] as const;
+export const FOCUS_LIST_KEYS = ['genre', 'format', 'source', 'label', 'composer', 'rule'] as const;
 export const FOCUS_SCALAR_KEYS = [
   'sort',
   'order',
@@ -188,6 +188,13 @@ export function activeFilters(
       remove: (p) => toggleValue(p, 'composer', value),
     });
   }
+  for (const value of params.getAll('rule')) {
+    chips.push({
+      id: `rule:${value}`,
+      label: ruleLabel(value),
+      remove: (p) => toggleValue(p, 'rule', value),
+    });
+  }
   const flags: Array<[FocusScalarKey, string]> = [
     ['favorite', 'Favourites'],
     ['unplayed', 'Never played'],
@@ -211,4 +218,36 @@ export function activeFilters(
     });
   }
   return chips;
+}
+
+const RULE_FIELDS: Record<string, string> = {
+  genre: 'Genre',
+  year: 'Year',
+  format: 'Format',
+  sampleRate: 'Sample rate',
+  bitDepth: 'Bit depth',
+  artistName: 'Artist',
+};
+const RULE_OPERATORS: Record<string, string> = {
+  equals: 'is',
+  contains: 'contains',
+  greaterThan: '>',
+  lessThan: '<',
+};
+
+/** A field condition (from an older smart playlist) in words: "Artist contains Davis". */
+export function ruleLabel(json: string): string {
+  try {
+    const rule = JSON.parse(json) as {
+      field: string;
+      operator: string;
+      value: string;
+      value2?: string;
+    };
+    const field = RULE_FIELDS[rule.field] ?? rule.field;
+    if (rule.operator === 'between') return `${field} ${rule.value}–${rule.value2 ?? rule.value}`;
+    return `${field} ${RULE_OPERATORS[rule.operator] ?? rule.operator} ${rule.value}`;
+  } catch {
+    return 'Condition';
+  }
 }

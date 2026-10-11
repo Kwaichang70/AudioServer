@@ -13,6 +13,10 @@ const mocks = vi.hoisted(() => ({
     getAlbums: vi.fn(),
     getAlbumFacets: vi.fn(),
     getTracks: vi.fn(),
+    getSmartPlaylists: vi.fn(),
+    createBookmark: vi.fn(),
+    createSmartPlaylistFromFocus: vi.fn(),
+    setSmartPlaylistDefinition: vi.fn(),
     scanLibrary: vi.fn(),
     getAlbumCoverUrl: vi.fn((id: string) => `/covers/${id}`),
   },
@@ -68,6 +72,20 @@ describe('Focus on the albums page', () => {
       meta: { page: 1, limit: 50, total: 1, totalPages: 1 },
     });
     mocks.api.getAlbumFacets.mockResolvedValue({ data: facets });
+    mocks.api.getSmartPlaylists.mockResolvedValue({
+      data: [
+        {
+          id: 'sp-1',
+          name: 'Late night',
+          rules: '[]',
+          trackCount: 3,
+          definition: { groups: ['genre=Blues'], limit: 200 },
+        },
+      ],
+    });
+    mocks.api.createBookmark.mockResolvedValue({ data: { id: 'b-1' } });
+    mocks.api.createSmartPlaylistFromFocus.mockResolvedValue({ data: { id: 'sp-2' } });
+    mocks.api.setSmartPlaylistDefinition.mockResolvedValue({ data: { id: 'sp-1' } });
     mocks.api.getTracks.mockResolvedValue({
       data: [
         { id: 't-1', title: 'Palm Grease', artistName: 'Herbie Hancock', albumId: 'al-1' },
@@ -145,5 +163,61 @@ describe('Focus on the albums page', () => {
     });
     renderAt('/albums?genre=Polka');
     expect(await screen.findByText('No albums match this Focus.')).toBeInTheDocument();
+  });
+
+  describe('saving a Focus (R05.3)', () => {
+    const QUERY = 'sort=year&order=desc&quality=hires&unplayed=true&genre=Jazz';
+
+    it('bookmarks this page with this question and tells the sidebar', async () => {
+      const changed = vi.fn();
+      window.addEventListener('audioserver:bookmarks-changed', changed);
+      renderAt(`/albums?${QUERY}`);
+      await screen.findAllByText('Thrust');
+      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      const form = screen.getByRole('form', { name: 'Save this Focus' });
+      // The name is suggested from the active filters.
+      expect(within(form).getByRole('textbox')).toHaveValue('Hi-Res, Jazz, Never played');
+      fireEvent.change(within(form).getByRole('textbox'), {
+        target: { value: 'Seventies hi-res' },
+      });
+      fireEvent.click(within(form).getByRole('button', { name: 'Bookmark' }));
+      await waitFor(() =>
+        expect(mocks.api.createBookmark).toHaveBeenCalledWith('Seventies hi-res', '/albums', QUERY),
+      );
+      await waitFor(() => expect(changed).toHaveBeenCalled());
+      expect(await screen.findByText('Bookmarked as “Seventies hi-res”.')).toBeInTheDocument();
+      window.removeEventListener('audioserver:bookmarks-changed', changed);
+    });
+
+    it('stores the tracks behind the page as a smart playlist', async () => {
+      renderAt(`/albums?${QUERY}`);
+      await screen.findAllByText('Thrust');
+      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      fireEvent.click(screen.getByRole('button', { name: 'New smart playlist' }));
+      await waitFor(() => expect(mocks.api.createSmartPlaylistFromFocus).toHaveBeenCalled());
+      expect(mocks.api.createSmartPlaylistFromFocus).toHaveBeenCalledWith(
+        'Hi-Res, Jazz, Never played',
+        {
+          groups: ['quality=hires&unplayed=true&genre=Jazz'],
+          sort: 'year',
+          order: 'desc',
+        },
+      );
+    });
+
+    it('adds the question to an existing smart playlist as an OR group', async () => {
+      renderAt(`/albums?${QUERY}`);
+      await screen.findAllByText('Thrust');
+      fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+      const select = await screen.findByRole('combobox', { name: 'Smart playlist to add to' });
+      fireEvent.change(select, { target: { value: 'sp-1' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Add (OR)' }));
+      await waitFor(() =>
+        expect(mocks.api.setSmartPlaylistDefinition).toHaveBeenCalledWith('sp-1', {
+          groups: ['genre=Blues', 'quality=hires&unplayed=true&genre=Jazz'],
+          limit: 200,
+        }),
+      );
+    });
   });
 });

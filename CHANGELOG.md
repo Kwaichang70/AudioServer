@@ -38,6 +38,16 @@ the kind of change, not semver — there are no releases yet.
 - "Speel alles" en "Shuffle" op het gefilterde resultaat (max. 1000 tracks).
 - Genres: "Verfijn in Focus" opent Albums met dat genre aan.
 
+**Bookmarks en slimme playlists als opgeslagen vragen** (schemaversie 16)
+
+- "☆ Save" in de Focus-balk: als bookmark (zijbalk en "Meer"), als nieuwe
+  slimme playlist, of als extra OR-groep bij een bestaande.
+- Slimme playlists zijn Focus-vragen: OR-groepen, één sortering, een limiet
+  tot 1000. De pagina toont de groepen in woorden met "Open in Focus".
+- Oude zes-veld-regels zijn een deel van de Focus-taal geworden; de migratie
+  maakt van elke oude playlist één groep die dezelfde tracks geeft (getest
+  tegen de oude query). Oude clients kunnen nog `rules` sturen.
+
 ## R04 — Artiest en album zoals Roon (verbeterplan 2, sprint R04)
 
 **Biografieën via identiteit, met bron en licentie** (`server/src/services/artist-bio.ts`)

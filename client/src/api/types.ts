@@ -691,11 +691,33 @@ export interface PlaylistImportMeta extends ApiMeta {
   matched: number;
 }
 
+/** A stored Focus question (R05.3): Focus query strings ORed, one sort, a limit. */
+export interface SmartDefinition {
+  version?: 2;
+  groups: string[];
+  sort?: string;
+  order?: 'asc' | 'desc';
+  limit?: number;
+}
+
 export interface SmartPlaylist {
   id: string;
   name: string;
+  /** Six-field rules of pre-Focus playlists (JSON); `definition` is what plays. */
   rules: string;
+  definition?: SmartDefinition | null;
   trackCount: number;
+  userId?: string | null;
+  shared?: boolean;
+}
+
+/** A named Focus question in the sidebar (R05.3). */
+export interface Bookmark {
+  id: string;
+  name: string;
+  path: '/albums' | '/artists' | '/tracks';
+  query: string;
+  createdAt: number | null;
 }
 
 export interface ProviderStatus {

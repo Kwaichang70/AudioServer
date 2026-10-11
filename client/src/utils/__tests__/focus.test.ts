@@ -7,6 +7,7 @@ import {
   setValue,
   toggleDecade,
   toggleValue,
+  ruleLabel,
 } from '../focus.js';
 
 /** Focus in the URL (R05.2): one filter, one stable string. */
@@ -60,5 +61,22 @@ describe('Focus URL helpers', () => {
     const year = chips.find((c) => c.id === 'year')!;
     expect(year.remove(q).has('yearFrom')).toBe(false);
     expect(setValue(q, 'quality', undefined).has('quality')).toBe(false);
+  });
+});
+
+describe('field conditions from older smart playlists', () => {
+  it('reads as words in the active filters', () => {
+    const rule = JSON.stringify({
+      field: 'year',
+      operator: 'between',
+      value: '1960',
+      value2: '1979',
+    });
+    const chips = activeFilters(new URLSearchParams({ rule }));
+    expect(chips.map((c) => c.label)).toEqual(['Year 1960–1979']);
+    expect(
+      ruleLabel(JSON.stringify({ field: 'artistName', operator: 'contains', value: 'Davis' })),
+    ).toBe('Artist contains Davis');
+    expect(ruleLabel('not json')).toBe('Condition');
   });
 });

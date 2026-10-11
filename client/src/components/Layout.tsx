@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, Link, useLocation, useNavigate } from 'react-router-dom';
 import NowPlayingBar from './NowPlayingBar.js';
 import { AudioProvider } from '../context/AudioContext.js';
 import { KeyboardShortcuts } from './KeyboardShortcuts.js';
@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext.js';
 import AppStatusBanners from './AppStatusBanners.js';
 import SearchBar from './SearchBar.js';
 import { Menu, MenuItem, MenuSeparator } from './ui/Menu.js';
+import { bookmarkHref, useBookmarks } from '../hooks/useBookmarks.js';
 
 const NowPlayingFull = lazy(() => import('./NowPlayingFull.js'));
 
@@ -17,7 +18,7 @@ const NowPlayingFull = lazy(() => import('./NowPlayingFull.js'));
  * and on a phone they were a drawer you had to open first. A desktop now gets
  * a sidebar with named groups, a phone gets five tabs within thumb reach, and
  * both get the search bar in the header. Groups that belong to later sprints
- * (composers, tags, bookmarks) are simply not here yet.
+ * (tags) are simply not here yet. Bookmarks (R05.3) appear once you have one.
  */
 
 interface NavItem {
@@ -93,6 +94,9 @@ export default function Layout() {
   const moreRef = useRef<HTMLButtonElement | null>(null);
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const { bookmarks, remove: removeBookmark } = useBookmarks();
+  const here = `${location.pathname}${location.search}`;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -131,6 +135,35 @@ export default function Layout() {
                   ))}
                 </div>
               ))}
+              {bookmarks.length > 0 && (
+                <div className="mb-4">
+                  <p className="px-3 pb-1 text-[10px] uppercase tracking-wider text-gray-500">
+                    Bookmarks
+                  </p>
+                  {bookmarks.map((bookmark) => {
+                    const href = bookmarkHref(bookmark);
+                    return (
+                      <div key={bookmark.id} className="group/bm flex items-center">
+                        <Link
+                          to={href}
+                          aria-current={here === href ? 'page' : undefined}
+                          className={`min-w-0 flex-1 truncate ${sidebarLink({ isActive: here === href })}`}
+                        >
+                          {bookmark.name}
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => void removeBookmark(bookmark.id)}
+                          aria-label={`Delete bookmark ${bookmark.name}`}
+                          className="ml-1 rounded px-1.5 text-xs text-gray-500 opacity-0 transition hover:text-white focus:opacity-100 group-hover/bm:opacity-100"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </nav>
             {user && (
               <button
@@ -212,6 +245,17 @@ export default function Layout() {
               onClose={() => setMoreOpen(false)}
             >
               {item.label}
+            </MenuItem>
+          ))}
+          {bookmarks.length > 0 && <MenuSeparator />}
+          {bookmarks.map((bookmark) => (
+            <MenuItem
+              key={bookmark.id}
+              onSelect={() => navigate(bookmarkHref(bookmark))}
+              onClose={() => setMoreOpen(false)}
+              hint="Bookmark"
+            >
+              {bookmark.name}
             </MenuItem>
           ))}
           {user && (

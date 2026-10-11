@@ -2,6 +2,8 @@ import type { Album, Artist, RadioStation, Track } from '@audioserver/shared';
 import { API_BASE, STORAGE_KEYS } from '../constants.js';
 import type {
   AlbumFacets,
+  Bookmark,
+  SmartDefinition,
   ApiMeta,
   ApiResponse,
   AudioPath,
@@ -803,6 +805,25 @@ export const api = {
     data: { name?: string; rules?: unknown[] },
   ): Promise<ApiResponse<SmartPlaylist>> =>
     fetchApi(`/smart-playlists/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  /** A smart playlist from a Focus question (R05.3). */
+  createSmartPlaylistFromFocus: (
+    name: string,
+    definition: SmartDefinition,
+  ): Promise<ApiResponse<SmartPlaylist>> =>
+    fetchApi('/smart-playlists', { method: 'POST', body: JSON.stringify({ name, definition }) }),
+  setSmartPlaylistDefinition: (
+    id: string,
+    definition: SmartDefinition,
+  ): Promise<ApiResponse<SmartPlaylist>> =>
+    fetchApi(`/smart-playlists/${id}`, { method: 'PATCH', body: JSON.stringify({ definition }) }),
+
+  // ─── Bookmarks (R05.3) ──────────────────────────────────────
+  getBookmarks: (): Promise<ApiResponse<Bookmark[]>> => fetchApi('/bookmarks'),
+  createBookmark: (name: string, path: string, query: string): Promise<ApiResponse<Bookmark>> =>
+    fetchApi('/bookmarks', { method: 'POST', body: JSON.stringify({ name, path, query }) }),
+  deleteBookmark: (id: string): Promise<OkResponse> =>
+    fetchApi(`/bookmarks/${id}`, { method: 'DELETE' }),
+
   deleteSmartPlaylist: (id: string): Promise<OkResponse> =>
     fetchApi(`/smart-playlists/${id}`, { method: 'DELETE' }),
 

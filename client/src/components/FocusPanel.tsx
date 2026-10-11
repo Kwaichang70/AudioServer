@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useLocation } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
 import type { FocusHandle } from '../hooks/useFocus.js';
+import { notifyBookmarksChanged } from '../hooks/useBookmarks.js';
+import type { SmartDefinition, SmartPlaylist } from '../api/types.js';
+import { getErrorMessage } from '../pages/settings/shared.js';
 import {
   RECENT_DAYS,
   SORT_LABELS,
@@ -52,17 +56,17 @@ export function FocusBar({ focus, sorts, playSort, countNote }: BarProps) {
   const [starting, setStarting] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
+  const [saving, setSaving] = useState(false);
+  const question = () => trackQuestion(focus.query, playSort);
+
   const play = async (shuffle: boolean) => {
     setStarting(true);
     setNote(null);
     try {
-      const query = new URLSearchParams(focus.query);
-      const sort = playSort ? playSort(query.get('sort')) : query.get('sort');
-      query.delete('sort');
-      query.delete('order');
+      const { filters, sort, order } = question();
+      const query = new URLSearchParams(filters);
       if (sort) {
         query.set('sort', sort);
-        const order = params.get('order');
         if (order) query.set('order', order);
       }
       const tracks = [];
@@ -116,7 +120,26 @@ export function FocusBar({ focus, sorts, playSort, countNote }: BarProps) {
         <Button size="sm" variant="ghost" disabled={starting} onClick={() => void play(true)}>
           ⤮ Shuffle
         </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-expanded={saving}
+          onClick={() => setSaving((on) => !on)}
+        >
+          ☆ Save
+        </Button>
       </div>
+      {saving && (
+        <SaveFocus
+          suggestion={chips.map((c) => c.label).join(', ')}
+          query={focus.query}
+          question={question()}
+          onDone={(message) => {
+            setSaving(false);
+            setNote(message);
+          }}
+        />
+      )}
       {chips.length > 0 && (
         <ul className="flex flex-wrap items-center gap-2" aria-label="Active filters">
           {chips.map((chip) => (
@@ -153,6 +176,167 @@ export function FocusBar({ focus, sorts, playSort, countNote }: BarProps) {
         countNote={countNote}
       />
     </div>
+  );
+}
+
+/**
+ * The tracks behind a Focus page: its filters, and the page's sort as far as
+ * it means the same for a track (see `playSort`). "Play all" plays it and a
+ * smart playlist stores it.
+ */
+function trackQuestion(
+  focusQuery: string,
+  playSort?: (sort: string | null) => string | null,
+): { filters: string; sort?: string; order?: 'asc' | 'desc' } {
+  const query = new URLSearchParams(focusQuery);
+  const pageSort = query.get('sort');
+  const order = query.get('order');
+  query.delete('sort');
+  query.delete('order');
+  const sort = playSort ? playSort(pageSort) : pageSort;
+  return {
+    filters: query.toString(),
+    sort: sort ?? undefined,
+    order: sort && (order === 'asc' || order === 'desc') ? order : undefined,
+  };
+}
+
+/**
+ * Save the current Focus (R05.3): as a bookmark (this page with this
+ * question, in the sidebar), as a new smart playlist, or as one more OR group
+ * of a smart playlist you already have.
+ */
+function SaveFocus({
+  suggestion,
+  query,
+  question,
+  onDone,
+}: {
+  suggestion: string;
+  query: string;
+  question: ReturnType<typeof trackQuestion>;
+  onDone: (message: string) => void;
+}) {
+  const location = useLocation();
+  const [name, setName] = useState(suggestion);
+  const [mine, setMine] = useState<SmartPlaylist[]>([]);
+  const [target, setTarget] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getSmartPlaylists()
+      .then((res) => {
+        if (!cancelled) setMine((res.data ?? []).filter((sp) => sp.definition));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const run = async (action: () => Promise<string>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      onDone(await action());
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not save'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const named = name.trim();
+  const definition = (): SmartDefinition => ({
+    groups: [question.filters],
+    sort: question.sort,
+    order: question.order,
+  });
+
+  return (
+    <form
+      aria-label="Save this Focus"
+      className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-surface-light p-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!named) return;
+        void run(async () => {
+          await api.createBookmark(named, location.pathname, query);
+          notifyBookmarksChanged();
+          return `Bookmarked as “${named}”.`;
+        });
+      }}
+    >
+      <label className="flex min-w-[12rem] flex-1 items-center gap-2 text-xs text-gray-400">
+        Name
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={120}
+          placeholder="e.g. Hi-Res jazz, never played"
+          className="min-w-0 flex-1 rounded bg-surface-dark border border-white/10 px-2 py-1.5 text-sm text-white"
+        />
+      </label>
+      <Button size="sm" variant="accent" type="submit" disabled={busy || !named}>
+        Bookmark
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={busy || !named}
+        onClick={() =>
+          void run(async () => {
+            await api.createSmartPlaylistFromFocus(named, definition());
+            return `Smart playlist “${named}” created.`;
+          })
+        }
+      >
+        New smart playlist
+      </Button>
+      {mine.length > 0 && (
+        <span className="flex items-center gap-2">
+          <select
+            aria-label="Smart playlist to add to"
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+            className="rounded bg-surface-dark border border-white/10 px-2 py-1.5 text-sm"
+          >
+            <option value="">Add to smart playlist…</option>
+            {mine.map((sp) => (
+              <option key={sp.id} value={sp.id}>
+                {sp.name}
+              </option>
+            ))}
+          </select>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy || !target}
+            onClick={() =>
+              void run(async () => {
+                const sp = mine.find((p) => p.id === target)!;
+                const current = sp.definition!;
+                await api.setSmartPlaylistDefinition(sp.id, {
+                  ...current,
+                  groups: [...current.groups, question.filters],
+                });
+                return `Added to “${sp.name}” as another group (OR).`;
+              })
+            }
+          >
+            Add (OR)
+          </Button>
+        </span>
+      )}
+      {error && (
+        <p role="alert" className="w-full text-xs text-red-300">
+          {error}
+        </p>
+      )}
+    </form>
   );
 }
 
