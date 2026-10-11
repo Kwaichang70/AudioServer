@@ -6,6 +6,64 @@
 
 const ok = (description: string) => ({ description });
 
+const pageParams = [
+  { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1 } },
+  { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 200 } },
+];
+
+/**
+ * Focus (R05.1): one filter language for albums, artists and tracks. Lists
+ * take repeated keys or comma lists; OR within a filter, AND across filters.
+ * Unknown values are ignored, so an old bookmark never breaks a page.
+ */
+const list = { type: 'array', items: { type: 'string' } };
+const focusParams = [
+  {
+    name: 'sort',
+    in: 'query',
+    schema: {
+      type: 'string',
+      enum: ['title', 'artist', 'year', 'added', 'lastPlayed', 'plays', 'duration'],
+    },
+  },
+  { name: 'order', in: 'query', schema: { type: 'string', enum: ['asc', 'desc'] } },
+  { name: 'genre', in: 'query', schema: list, style: 'form', explode: true },
+  { name: 'yearFrom', in: 'query', schema: { type: 'integer' } },
+  { name: 'yearTo', in: 'query', schema: { type: 'integer' } },
+  { name: 'format', in: 'query', schema: list, style: 'form', explode: true },
+  { name: 'quality', in: 'query', schema: { type: 'string', enum: ['lossless', 'hires'] } },
+  { name: 'source', in: 'query', schema: list, style: 'form', explode: true },
+  { name: 'label', in: 'query', schema: list, style: 'form', explode: true },
+  {
+    name: 'composer',
+    in: 'query',
+    description: 'Composer artist ids',
+    schema: list,
+    style: 'form',
+    explode: true,
+  },
+  { name: 'favorite', in: 'query', description: 'My favourites', schema: { type: 'boolean' } },
+  {
+    name: 'playedWithin',
+    in: 'query',
+    description: 'Played by me in the last N days',
+    schema: { type: 'integer', minimum: 1 },
+  },
+  {
+    name: 'addedWithin',
+    in: 'query',
+    description: 'Added in the last N days',
+    schema: { type: 'integer', minimum: 1 },
+  },
+  { name: 'unplayed', in: 'query', description: 'Never played by me', schema: { type: 'boolean' } },
+  {
+    name: 'dedupeEditions',
+    in: 'query',
+    description: 'One edition per album, the best quality',
+    schema: { type: 'boolean' },
+  },
+];
+
 const Pagination = {
   type: 'object',
   properties: {
@@ -706,12 +764,8 @@ export const openApiSpec = {
     '/library/albums': {
       get: {
         tags: ['Library'],
-        summary: 'List albums (paginated)',
-        parameters: [
-          { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1 } },
-          { name: 'pageSize', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 200 } },
-          { name: 'search', in: 'query', schema: { type: 'string' } },
-        ],
+        summary: 'List albums (paginated), with optional Focus sort and filters',
+        parameters: [...pageParams, ...focusParams],
         responses: {
           200: {
             description: 'Albums page',
@@ -730,6 +784,20 @@ export const openApiSpec = {
         },
       },
     },
+    '/library/albums/facets': {
+      get: {
+        tags: ['Library'],
+        summary: 'Focus facet counts for albums',
+        description:
+          "Every facet value with the number of albums it would give, counted with all filters except the facet's own.",
+        parameters: focusParams,
+        responses: {
+          200: ok(
+            '{ total, genre, decade, format, quality, source, label, composer, favorite, unplayed }',
+          ),
+        },
+      },
+    },
     '/library/albums/{id}': {
       get: {
         tags: ['Library'],
@@ -741,8 +809,17 @@ export const openApiSpec = {
     '/library/artists': {
       get: {
         tags: ['Library'],
-        summary: 'List artists (paginated)',
+        summary: 'List artists (paginated); Focus filters select artists by their albums',
+        parameters: [...pageParams, ...focusParams],
         responses: { 200: ok('artists page') },
+      },
+    },
+    '/library/tracks': {
+      get: {
+        tags: ['Library'],
+        summary: 'List tracks (paginated), with optional Focus sort and filters',
+        parameters: [...pageParams, ...focusParams],
+        responses: { 200: ok('tracks page') },
       },
     },
     '/library/artists/{id}/tracks': {

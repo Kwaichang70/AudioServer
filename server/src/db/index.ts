@@ -669,6 +669,11 @@ function assignPersonalOwnership(sqlite: InstanceType<typeof Database>): void {
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_playlists_owner ON playlists (user_id)');
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_smart_playlists_owner ON smart_playlists (user_id)');
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_listening_user ON listening_sessions (user_id)');
+  // Focus (R05.1): "played by me", "unplayed", plays and last played all read
+  // one listener's qualified plays per track — answered from the index alone.
+  sqlite.exec(
+    'CREATE INDEX IF NOT EXISTS idx_listening_user_track ON listening_sessions (user_id, qualified, track_id, started_at)',
+  );
   // One scrobble account per user; the pre-V09 singleton keeps its row.
   sqlite.exec(
     'CREATE UNIQUE INDEX IF NOT EXISTS idx_scrobble_config_owner ON scrobble_config (user_id)',

@@ -4,6 +4,29 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## R05 — Focus: sorteren, filteren, bookmarks (verbeterplan 2, sprint R05)
+
+**Eén filtertaal voor elke lijst** (`server/src/services/focus.ts`)
+
+- `GET /api/library/albums`, `/artists` en `/tracks` nemen `sort` (titel,
+  artiest, jaar, toegevoegd, laatst gespeeld, plays, duur) en filters op genre,
+  jaren, formaat, kwaliteit (lossless/hi-res), bron, label, componist,
+  favoriet, recent gespeeld, recent toegevoegd en nooit gespeeld. Meerdere
+  waarden binnen één filter zijn OR, filters onderling AND.
+- `GET /api/library/albums/facets` geeft per waarde hoeveel albums je zou
+  krijgen, geteld met alle filters behalve die van de facet zelf — een menu,
+  geen bonnetje.
+- Luistergegevens zijn persoonlijk: "nooit gespeeld" betekent door jou.
+- Niets uit het verzoek komt als tekst in SQL; onbekende sorteringen of
+  waarden worden genegeerd, niet geweigerd. Zonder query zijn de lijsten
+  precies wat ze waren.
+- "Verberg dubbele edities": één rij per release group (of artiest + titel),
+  de hoogste kwaliteit wint.
+- Benchmark uitgebreid met Focus-vragen; twee knelpunten opgelost (dubbele
+  edities kwadratisch, facetten die tien keer de luistergeschiedenis lazen).
+  Nieuwe index `idx_listening_user_track`. Alle Focus-vragen p95 ≤ 135 ms op
+  50 000 tracks in de container.
+
 ## R04 — Artiest en album zoals Roon (verbeterplan 2, sprint R04)
 
 **Biografieën via identiteit, met bron en licentie** (`server/src/services/artist-bio.ts`)

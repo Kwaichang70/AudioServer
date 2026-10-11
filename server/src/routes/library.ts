@@ -41,6 +41,14 @@ import {
   getLocalArtistImagePath,
 } from '../services/coverart-fetch.js';
 import { parsePagination, buildMeta } from '../utils/pagination.js';
+import { ownerOf } from '../utils/ownership.js';
+import {
+  albumFacets,
+  focusAlbums,
+  focusArtists,
+  focusTracks,
+  parseFocusQuery,
+} from '../services/focus.js';
 import { getSimilarArtists, similarArtistsAvailable } from '../services/similar-artists.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { requireOwner } from '../utils/ownership.js';
@@ -93,23 +101,16 @@ libraryRouter.get('/stats', (_req, res) => {
 
 libraryRouter.get('/artists', (req, res) => {
   const { page, limit, offset } = parsePagination(req, 50);
-  const raw = getRawDb();
-  const total =
-    raw.prepare<[], { count: number }>('SELECT COUNT(*) as count FROM artists').get()?.count ?? 0;
-  const rows = raw
-    .prepare(
-      `
-    SELECT id, name, image_url as imageUrl, source, created_at as createdAt, updated_at as updatedAt
-    FROM artists ORDER BY name COLLATE NOCASE LIMIT ? OFFSET ?
-  `,
-    )
-    .all(limit, offset) as Array<{ id: string; imageUrl: string | null }>;
+  // Focus (R05.1): sort and filters are optional; without them this is the
+  // plain A–Z list it always was.
+  const query = parseFocusQuery(req.query as Record<string, unknown>);
+  const { rows, total } = focusArtists(query, ownerOf(req), { limit, offset });
   // hasImage lets the client skip requesting /artists/:id/image for artists that
   // have no picture (provider URL or a fetched file on disk) — avoiding a 404 per
   // artist tile. A scan/fetch keeps the on-disk state authoritative.
   const data = rows.map((r) => ({
     ...r,
-    hasImage: !!r.imageUrl || getLocalArtistImagePath(r.id) !== null,
+    hasImage: !!r.imageUrl || getLocalArtistImagePath(r.id as string) !== null,
   }));
   res.json({ data, meta: buildMeta(page, limit, total) });
 });
@@ -393,27 +394,21 @@ libraryRouter.get('/composers/:id', (req, res) => {
 
 libraryRouter.get('/albums', (req, res) => {
   const { page, limit, offset } = parsePagination(req, 50);
-  const raw = getRawDb();
-  const total =
-    raw.prepare<[], { count: number }>('SELECT COUNT(*) as count FROM albums').get()?.count ?? 0;
-  const rows = raw
-    .prepare(
-      `
-    SELECT id, title, artist_id as artistId, artist_name as artistName, year,
-      cover_url as coverUrl, genre, track_count as trackCount, source,
-      format, sample_rate as sampleRate, bit_depth as bitDepth,
-      replay_gain_album as replayGainAlbum, replay_gain_album_peak as replayGainAlbumPeak,
-      created_at as createdAt, updated_at as updatedAt
-    FROM albums ORDER BY title COLLATE NOCASE LIMIT ? OFFSET ?
-  `,
-    )
-    .all(limit, offset) as Array<{ id: string; coverUrl: string | null }>;
+  const query = parseFocusQuery(req.query as Record<string, unknown>);
+  const { rows, total } = focusAlbums(query, ownerOf(req), { limit, offset });
   // hasCover lets the client skip requesting /albums/:id/cover when no art exists
   // — avoiding a 404 per album tile. The scanner caches embedded art to disk and
   // the cover-fetch job stores fetched art there too, so an on-disk file (or a
   // provider cover_url) is an authoritative "has art" signal after a scan/fetch.
-  const data = addAlbumCoverAvailability(rows);
+  const data = addAlbumCoverAvailability(rows as Array<{ id: string; coverUrl: string | null }>);
   res.json({ data, meta: buildMeta(page, limit, total) });
+});
+
+// Facet counts for the Focus panel (R05.1): every value with how many albums
+// it would give, given all the other filters.
+libraryRouter.get('/albums/facets', (req, res) => {
+  const query = parseFocusQuery(req.query as Record<string, unknown>);
+  res.json({ data: albumFacets(query, ownerOf(req)) });
 });
 
 // Recently added albums
@@ -557,26 +552,9 @@ libraryRouter.get(
 
 libraryRouter.get('/tracks', (req, res) => {
   const { page, limit, offset } = parsePagination(req, 100);
-  const raw = getRawDb();
-  const total = (raw.prepare('SELECT COUNT(*) as count FROM tracks').get() as { count: number })
-    .count;
-  const data = raw
-    .prepare(
-      `
-    SELECT id, title, album_id as albumId, album_title as albumTitle,
-      artist_id as artistId, artist_name as artistName,
-      track_number as trackNumber, disc_number as discNumber, duration,
-      format, sample_rate as sampleRate, bit_depth as bitDepth,
-      file_path as filePath, cover_url as coverUrl,
-      replay_gain_track as replayGainTrack, replay_gain_track_peak as replayGainTrackPeak,
-      source, availability, created_at as createdAt, updated_at as updatedAt
-    FROM tracks
-    ORDER BY album_id COLLATE NOCASE, disc_number, track_number, title COLLATE NOCASE
-    LIMIT ? OFFSET ?
-  `,
-    )
-    .all(limit, offset);
-  res.json({ data, meta: buildMeta(page, limit, total) });
+  const query = parseFocusQuery(req.query as Record<string, unknown>);
+  const { rows, total } = focusTracks(query, ownerOf(req), { limit, offset });
+  res.json({ data: rows, meta: buildMeta(page, limit, total) });
 });
 
 libraryRouter.get('/tracks/:id', (req, res) => {
