@@ -222,6 +222,18 @@ export const artistBios = sqliteTable('artist_bios', {
   expiresAt: integer('expires_at').notNull(),
 });
 
+/** A saved Focus question (R05.3): a name, the page and its query. */
+export const bookmarks = sqliteTable('bookmarks', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  name: text('name').notNull(),
+  /** '/albums' | '/artists' | '/tracks' */
+  path: text('path').notNull(),
+  /** Focus query string, normalized by the server. */
+  query: text('query').notNull(),
+  createdAt: integer('created_at'),
+});
+
 /** One row per library scan (V06.3): what was scanned, what happened, when. */
 export const scanRuns = sqliteTable('scan_runs', {
   id: text('id').primaryKey(),
@@ -478,7 +490,9 @@ export const queueItems = sqliteTable(
 export const smartPlaylists = sqliteTable('smart_playlists', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
-  rules: text('rules').notNull(), // JSON: array of rule objects
+  rules: text('rules').notNull(), // JSON: array of rule objects (pre-R05.3; kept for old clients)
+  /** R05.3: the stored Focus question — OR groups, sort and limit (JSON). */
+  definition: text('definition'),
   trackCount: integer('track_count').default(0),
   /** Owner (V09.1); a smart playlist reads that user's own favourites and history. */
   userId: text('user_id'),

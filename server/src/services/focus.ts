@@ -1,4 +1,5 @@
 import { getRawDb } from '../db/index.js';
+import { encodeRule, parseRuleParams, ruleSql, type Rule } from './focus-rules.js';
 
 /**
  * Focus (R05.1): every list is a question to the library.
@@ -49,6 +50,8 @@ export interface FocusQuery {
   unplayed?: boolean;
   /** Show one edition per album, the best quality (R05.4). */
   dedupeEditions?: boolean;
+  /** Field conditions, as the pre-Focus smart playlists had them (R05.3). */
+  rules?: Rule[];
 }
 
 export type FacetKey =
@@ -122,6 +125,15 @@ export function parseFocusQuery(input: Record<string, unknown>): FocusQuery {
     addedWithin: int(one('addedWithin'), 1, 36500),
     unplayed: flag(one('unplayed')),
     dedupeEditions: flag(one('dedupeEditions')),
+    // JSON objects contain commas: never split these like the other lists.
+    rules: parseRuleParams(
+      (Array.isArray(get('rule'))
+        ? (get('rule') as unknown[])
+        : get('rule')
+          ? [get('rule')]
+          : []
+      ).map(String),
+    ),
   };
 }
 
@@ -130,6 +142,10 @@ export function serializeFocusQuery(query: FocusQuery): string {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
     if (value === undefined || value === false) continue;
+    if (key === 'rules') {
+      (value as Rule[]).forEach((rule) => params.append('rule', encodeRule(rule)));
+      continue;
+    }
     if (Array.isArray(value)) value.forEach((v) => params.append(key, String(v)));
     else params.set(key, String(value));
   }
@@ -217,6 +233,14 @@ export function albumClauses(
     add('a.created_at >= ?', now() - q.addedWithin * DAY);
   }
   if (q.dedupeEditions) add(`a.id IN (${BEST_EDITIONS_SQL})`);
+  if (q.rules) {
+    // Conditions are about tracks: an album answers when one of its tracks does.
+    const rules = ruleSql(q.rules);
+    add(
+      `EXISTS (SELECT 1 FROM tracks t WHERE t.album_id = a.id AND ${rules.sql.join(' AND ')})`,
+      ...rules.params,
+    );
+  }
   if (userId) {
     if (q.favorite && except !== 'favorite') {
       add(
@@ -304,6 +328,11 @@ export function trackClauses(q: FocusQuery, userId: string | null, except?: Face
     add('t.created_at >= ?', now() - q.addedWithin * DAY);
   }
   if (q.dedupeEditions) add(`t.album_id IN (${BEST_EDITIONS_SQL})`);
+  if (q.rules) {
+    const rules = ruleSql(q.rules);
+    rules.sql.forEach((fragment) => sql.push(fragment));
+    params.push(...rules.params);
+  }
   if (userId) {
     if (q.favorite && except !== 'favorite') {
       add(
@@ -429,8 +458,28 @@ export function focusTracks(
   options: AlbumListOptions,
   defaultOrder = ALBUM_TRACK_ORDER,
 ): { rows: Array<Record<string, unknown>>; total: number } {
+  return focusTrackGroups([q], q, userId, options, defaultOrder);
+}
+
+/**
+ * Tracks matching ANY of several Focus queries (R05.3: the OR groups of a
+ * smart playlist), in one order. A single group is just `focusTracks`.
+ */
+export function focusTrackGroups(
+  groups: FocusQuery[],
+  sortBy: Pick<FocusQuery, 'sort' | 'order'>,
+  userId: string | null,
+  options: AlbumListOptions,
+  defaultOrder = ALBUM_TRACK_ORDER,
+): { rows: Array<Record<string, unknown>>; total: number } {
   const db = getRawDb();
-  const clause = trackClauses(q, userId);
+  const clauses = groups.map((group) => trackClauses(group, userId));
+  // A group without conditions matches every track, and so does the OR.
+  const matchesAll = clauses.length === 0 || clauses.some((c) => c.sql.length === 0);
+  const filter = matchesAll
+    ? ''
+    : `WHERE ${clauses.map((c) => `(${c.sql.join(' AND ')})`).join(' OR ')}`;
+  const filterParams = matchesAll ? [] : clauses.flatMap((c) => c.params);
   const stats = userId
     ? `LEFT JOIN (SELECT track_id, COUNT(*) as plays, MAX(started_at) as last_played
                     FROM listening_sessions WHERE user_id = ? AND qualified = 1
@@ -438,13 +487,12 @@ export function focusTracks(
     : 'LEFT JOIN (SELECT NULL as track_id, NULL as plays, NULL as last_played) stats ON 0';
   const statsParams = userId ? [userId] : [];
   let orderBy = `${defaultOrder}, t.id`;
-  if (q.sort) {
-    const sort = TRACK_ORDER[q.sort];
-    const order = (q.order ?? sort.defaultOrder) === 'desc' ? 'DESC' : 'ASC';
+  if (sortBy.sort) {
+    const sort = TRACK_ORDER[sortBy.sort];
+    const order = (sortBy.order ?? sort.defaultOrder) === 'desc' ? 'DESC' : 'ASC';
     // Ties keep album order, so "sorted by year" still plays each album through.
     orderBy = `${sort.expr} IS NULL, ${sort.expr} ${order}, ${ALBUM_TRACK_ORDER}, t.id`;
   }
-  const filter = where(clause);
 
   const total =
     (
@@ -452,17 +500,19 @@ export function focusTracks(
         .prepare(
           `SELECT COUNT(*) as count FROM tracks t LEFT JOIN albums a ON a.id = t.album_id ${filter}`,
         )
-        .get(...clause.params) as { count: number }
+        .get(...filterParams) as { count: number }
     )?.count ?? 0;
 
   const rows = db
     .prepare(
       `SELECT t.id, t.title, t.album_id as albumId, t.album_title as albumTitle,
               t.artist_id as artistId, t.artist_name as artistName,
+              t.artist_names as artistNames, t.composer, t.conductor,
               t.track_number as trackNumber, t.disc_number as discNumber, t.duration,
               t.format, t.sample_rate as sampleRate, t.bit_depth as bitDepth,
               t.file_path as filePath, t.cover_url as coverUrl,
               t.replay_gain_track as replayGainTrack, t.replay_gain_track_peak as replayGainTrackPeak,
+              a.replay_gain_album as replayGainAlbum, a.replay_gain_album_peak as replayGainAlbumPeak,
               t.source, t.availability, t.created_at as createdAt, t.updated_at as updatedAt,
               stats.plays as plays, stats.last_played as lastPlayed
          FROM tracks t
@@ -472,7 +522,7 @@ export function focusTracks(
         ORDER BY ${orderBy}
         LIMIT ? OFFSET ?`,
     )
-    .all(...statsParams, ...clause.params, options.limit, options.offset) as Array<
+    .all(...statsParams, ...filterParams, options.limit, options.offset) as Array<
     Record<string, unknown>
   >;
   return { rows, total };

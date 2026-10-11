@@ -57,6 +57,15 @@ const focusParams = [
   },
   { name: 'unplayed', in: 'query', description: 'Never played by me', schema: { type: 'boolean' } },
   {
+    name: 'rule',
+    in: 'query',
+    description:
+      'Field condition as JSON ({ field, operator, value, value2? }), as smart playlists had them; repeatable, ANDed',
+    schema: list,
+    style: 'form',
+    explode: true,
+  },
+  {
     name: 'dedupeEditions',
     in: 'query',
     description: 'One edition per album, the best quality',
@@ -1134,6 +1143,88 @@ export const openApiSpec = {
           { name: 'streaming', in: 'query', schema: { type: 'boolean' } },
         ],
         responses: { 200: ok('versions'), 404: ok('unknown album') },
+      },
+    },
+    '/smart-playlists': {
+      get: {
+        tags: ['Smart playlists'],
+        summary: 'Your smart playlists and shared ones',
+        responses: { 200: ok('smart playlists, each with its parsed definition') },
+      },
+      post: {
+        tags: ['Smart playlists'],
+        summary: 'Create a smart playlist: a stored Focus question (R05.3)',
+        description:
+          'Send `definition` ({ groups: Focus query strings ORed together, sort?, order?, limit? ≤ 1000 }) or, from an older client, six-field `rules` (one group).',
+        responses: { 201: ok('created'), 400: ok('neither rules nor a valid definition') },
+      },
+    },
+    '/smart-playlists/{id}': {
+      patch: {
+        tags: ['Smart playlists'],
+        summary: 'Rename, share, or change the definition (owner only)',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('updated'), 404: ok('not yours') },
+      },
+      delete: {
+        tags: ['Smart playlists'],
+        summary: 'Delete (owner only)',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('{ ok }'), 404: ok('not yours') },
+      },
+    },
+    '/smart-playlists/{id}/tracks': {
+      get: {
+        tags: ['Smart playlists'],
+        summary: "The playlist's tracks, evaluated now with the owner's listening data",
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: {
+          200: ok('Track[]'),
+          404: ok('not visible'),
+          500: ok('stored rules unreadable'),
+        },
+      },
+    },
+    '/bookmarks': {
+      get: {
+        tags: ['Bookmarks'],
+        summary: 'Your bookmarks: named Focus questions (R05.3)',
+        responses: { 200: ok('{ id, name, path, query, createdAt }[]') },
+      },
+      post: {
+        tags: ['Bookmarks'],
+        summary: 'Save a Focus question; the query is normalized to Focus keys',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['name', 'path', 'query'],
+                properties: {
+                  name: { type: 'string', minLength: 1, maxLength: 120 },
+                  path: { type: 'string', enum: ['/albums', '/artists', '/tracks'] },
+                  query: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        responses: { 201: ok('bookmark'), 400: ok('invalid') },
+      },
+    },
+    '/bookmarks/{id}': {
+      patch: {
+        tags: ['Bookmarks'],
+        summary: 'Rename a bookmark',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('bookmark'), 404: ok('not yours') },
+      },
+      delete: {
+        tags: ['Bookmarks'],
+        summary: 'Delete a bookmark',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('{ ok }'), 404: ok('not yours') },
       },
     },
     '/library/composers': {

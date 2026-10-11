@@ -4,6 +4,7 @@ import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import * as schema from './schema.js';
+import { legacyDefinition, rulesSchema } from '../services/focus-rules.js';
 import { existsSync, mkdirSync } from 'fs';
 import { randomUUID } from 'crypto';
 import { dirname, join } from 'path';
@@ -19,7 +20,7 @@ import { fileURLToPath } from 'url';
  * it does not understand. Databases from before this check carry version 0,
  * which every build accepts and upgrades.
  */
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 export class DatabaseVersionError extends Error {
   constructor(
@@ -275,6 +276,22 @@ export async function initDatabase(overridePath?: string) {
       expires_at INTEGER NOT NULL
     )
   `);
+  // R05.3: bookmarks are stored Focus questions, one person's own.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS bookmarks (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL,
+      query TEXT NOT NULL,
+      created_at INTEGER
+    )
+  `);
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_bookmarks_owner ON bookmarks (user_id)');
+  // R05.3: a smart playlist is a stored Focus question too. Old six-field
+  // rules become one group with the same conditions, order and limit.
+  runMigration(sqlite, 'smart_playlists', 'definition', 'TEXT');
+  migrateSmartPlaylistDefinitions(sqlite);
   // V05.3: one submission per listening session and service.
   runMigration(sqlite, 'scrobble_queue', 'session_id', 'TEXT');
   sqlite.exec(
@@ -524,6 +541,35 @@ export function slugForZone(deviceId: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
   return slug || 'device';
+}
+
+/**
+ * Give every smart playlist without a definition one made from its rules.
+ * Unreadable rules are left alone: the route already reports those, and a
+ * guess would silently change what the playlist plays.
+ */
+function migrateSmartPlaylistDefinitions(sqlite: Database.Database): void {
+  const rows = sqlite
+    .prepare('SELECT id, rules FROM smart_playlists WHERE definition IS NULL')
+    .all() as Array<{ id: string; rules: string }>;
+  if (rows.length === 0) return;
+  const update = sqlite.prepare('UPDATE smart_playlists SET definition = ? WHERE id = ?');
+  let migrated = 0;
+  for (const row of rows) {
+    let rules: unknown;
+    try {
+      rules = JSON.parse(row.rules);
+    } catch {
+      continue;
+    }
+    const parsed = rulesSchema.safeParse(rules);
+    if (!parsed.success) continue;
+    update.run(JSON.stringify(legacyDefinition(parsed.data)), row.id);
+    migrated += 1;
+  }
+  if (migrated > 0) {
+    logger.info(`Migration: ${migrated} smart playlist(s) are Focus questions now (R05.3)`);
+  }
 }
 
 function runMigration(
