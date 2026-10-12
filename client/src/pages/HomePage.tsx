@@ -1,7 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
+import type { HomeData, ListenBrainzDiscover, MixItem } from '../api/types.js';
+import { useAudioContext } from '../context/AudioContext.js';
+import type { TrackInfo } from '../types/playback.js';
+import AlbumCover from '../components/AlbumCover.js';
 import GettingStarted from '../components/GettingStarted.js';
+import { CardActions, shuffledCopy } from '../components/PlayActions.js';
+import Button from '../components/ui/Button.js';
+import { formatTime } from '../utils/format.js';
+import { isUnplayable } from '../utils/availability.js';
 
 interface Stats {
   artists: number;
@@ -9,24 +17,10 @@ interface Stats {
   tracks: number;
 }
 
-interface RecentAlbum {
-  album_id: string;
-  title: string;
-  artist_name: string;
-  year?: number;
-}
-
 interface TopArtist {
   id: string;
   name: string;
   play_count: number;
-}
-
-interface RecentlyAddedAlbum {
-  id: string;
-  title: string;
-  artistName: string;
-  year?: number;
 }
 
 interface LibraryStats {
@@ -43,12 +37,53 @@ function formatTotalDuration(seconds: number): string {
   return `${hours}h ${mins}m`;
 }
 
+const mixToTrack = (item: MixItem): TrackInfo => ({
+  id: item.id,
+  title: item.title,
+  artistName: item.artistName,
+  albumTitle: item.albumTitle,
+  albumId: item.albumId ?? undefined,
+  duration: item.duration ?? undefined,
+  source: item.source,
+});
+
+function Section({
+  title,
+  action,
+  children,
+  testId,
+}: {
+  title: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+  testId?: string;
+}) {
+  return (
+    <section data-testid={testId}>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h3 className="text-xl font-semibold">{title}</h3>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * Home as Roon's overview (R08.2): continue where you left off, today's mix,
+ * what ListenBrainz suggests that you can play now, what is new, the genres
+ * you play — each with a cover and something to play.
+ */
 export default function HomePage() {
   const [stats, setStats] = useState<Stats | null>(null);
-  const [recentAlbums, setRecentAlbums] = useState<RecentAlbum[]>([]);
+  const [home, setHome] = useState<HomeData | null>(null);
+  const [forYou, setForYou] = useState<ListenBrainzDiscover | null>(null);
   const [topArtists, setTopArtists] = useState<TopArtist[]>([]);
-  const [recentlyAdded, setRecentlyAdded] = useState<RecentlyAddedAlbum[]>([]);
   const [libraryStats, setLibraryStats] = useState<LibraryStats | null>(null);
+  const [showWhy, setShowWhy] = useState(false);
+  const { playAlbum, startRadio, seek, currentTrack, isPlaying } = useAudioContext();
+  // "Continue" resumes mid-track: seek once that track is actually playing.
+  const pendingSeek = useRef<{ trackId: string; position: number } | null>(null);
 
   useEffect(() => {
     api
@@ -56,16 +91,16 @@ export default function HomePage() {
       .then((res) => setStats(res.data))
       .catch(() => {});
     api
-      .getRecentAlbums()
-      .then((res) => setRecentAlbums(res.data))
+      .getHome()
+      .then((res) => setHome(res.data))
+      .catch(() => {});
+    api
+      .listenbrainzDiscover()
+      .then((res) => setForYou(res.data))
       .catch(() => {});
     api
       .getTopArtists()
       .then((res) => setTopArtists(res.data))
-      .catch(() => {});
-    api
-      .getRecentlyAdded(12)
-      .then((res) => setRecentlyAdded(res.data))
       .catch(() => {});
     api
       .getHealth()
@@ -75,9 +110,40 @@ export default function HomePage() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    const pending = pendingSeek.current;
+    if (pending && isPlaying && currentTrack?.id === pending.trackId) {
+      pendingSeek.current = null;
+      seek(pending.position);
+    }
+  }, [currentTrack, isPlaying, seek]);
+
+  const resume = async (item: HomeData['continueListening'][number]) => {
+    const res = await api.getAlbumTracks(item.albumId);
+    const list = (res.data ?? [])
+      .filter((t) => !isUnplayable(t))
+      .map((t) => t as unknown as TrackInfo);
+    const index = Math.max(
+      0,
+      list.findIndex((t) => t.id === item.resumeTrackId),
+    );
+    if (list.length === 0) return;
+    if (item.resumePosition > 0 && item.resumeTrackId) {
+      pendingSeek.current = { trackId: item.resumeTrackId, position: item.resumePosition };
+    }
+    playAlbum(list, index);
+  };
+
+  // ListenBrainz suggestions you can play now: the ones that matched a local track.
+  const playableForYou = (forYou?.playlists ?? [])
+    .flatMap((p) => p.tracks)
+    .filter((t) => t.localTrackId)
+    .slice(0, 12);
+
+  const mix = home?.dailyMix.items ?? [];
+
   return (
     <div className="space-y-10">
-      {/* Welcome + Stats */}
       <section>
         <h2 className="text-3xl font-bold mb-2">Welcome</h2>
         {stats && (
@@ -98,102 +164,216 @@ export default function HomePage() {
       {/* Guided first experience (V08.2) */}
       <GettingStarted />
 
-      {/* Recently Added */}
-      {recentlyAdded.length > 0 && (
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-semibold">Recently Added</h3>
-            <Link to="/albums" className="text-sm text-gray-400 hover:text-accent transition">
+      {home && home.continueListening.length > 0 && (
+        <Section title="Continue listening" testId="home-continue">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+            {home.continueListening.map((item) => (
+              <button
+                key={item.albumId}
+                type="button"
+                onClick={() => void resume(item)}
+                className="group rounded-lg bg-surface-light p-3 text-left transition hover:bg-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                aria-label={`Continue ${item.title} with ${item.resumeTitle ?? 'the next track'}`}
+              >
+                <div className="mb-2">
+                  <AlbumCover
+                    albumId={item.albumId}
+                    title={item.title}
+                    artistName={item.artistName}
+                    coverUrl={item.coverUrl ?? undefined}
+                  />
+                </div>
+                <p className="truncate text-sm font-medium group-hover:text-accent">{item.title}</p>
+                <p className="truncate text-xs text-gray-400">{item.artistName}</p>
+                <p className="truncate text-[11px] text-gray-500">
+                  ▶ {item.resumeTitle}
+                  {item.resumePosition > 0 ? ` · ${formatTime(item.resumePosition)}` : ''}
+                </p>
+                <div className="mt-1 h-1 rounded bg-white/10" aria-hidden="true">
+                  <div
+                    className="h-1 rounded bg-accent"
+                    style={{ width: `${Math.round(item.progress * 100)}%` }}
+                  />
+                </div>
+              </button>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {mix.length > 0 && (
+        <Section
+          title="Today’s mix"
+          testId="home-daily-mix"
+          action={
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="accent" onClick={() => playAlbum(mix.map(mixToTrack), 0)}>
+                ▶ Play
+              </Button>
+              <Button size="sm" onClick={() => playAlbum(shuffledCopy(mix.map(mixToTrack)), 0)}>
+                ⤮ Shuffle
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-pressed={showWhy}
+                onClick={() => setShowWhy(!showWhy)}
+              >
+                Why these?
+              </Button>
+            </div>
+          }
+        >
+          <p className="mb-3 text-xs text-gray-500">{home?.dailyMix.basis}</p>
+          <ol className="grid gap-1 sm:grid-cols-2">
+            {mix.slice(0, 10).map((item, i) => (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  onClick={() => playAlbum(mix.map(mixToTrack), i)}
+                  className="w-full truncate rounded px-2 py-1 text-left text-sm hover:bg-white/5"
+                >
+                  {item.title} <span className="text-gray-500">— {item.artistName}</span>
+                  {showWhy && <span className="block text-[11px] text-gray-500">{item.why}</span>}
+                </button>
+              </li>
+            ))}
+          </ol>
+        </Section>
+      )}
+
+      {playableForYou.length > 0 && (
+        <Section
+          title="For you"
+          testId="home-for-you"
+          action={
+            <Button
+              size="sm"
+              variant="accent"
+              onClick={() =>
+                playAlbum(
+                  playableForYou.map((t) => ({
+                    id: t.localTrackId!,
+                    title: t.title,
+                    artistName: t.artist,
+                    albumTitle: '',
+                    albumId: t.localAlbumId ?? undefined,
+                  })),
+                  0,
+                )
+              }
+            >
+              ▶ Play
+            </Button>
+          }
+        >
+          <p className="mb-3 text-xs text-gray-500">
+            From ListenBrainz, only what is in your library.{' '}
+            <Link to="/discover" className="text-accent hover:underline">
+              More in Discover
+            </Link>
+          </p>
+          <ul className="grid gap-1 sm:grid-cols-2">
+            {playableForYou.map((t) => (
+              <li key={t.localTrackId} className="truncate px-2 py-1 text-sm">
+                {t.title} <span className="text-gray-500">— {t.artist}</span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {home && home.newInLibrary.length > 0 && (
+        <Section
+          title="New in your library"
+          testId="home-new"
+          action={
+            <Link to="/albums?sort=added" className="text-sm text-gray-400 hover:text-accent">
               View all
             </Link>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {recentlyAdded.map((album) => (
-              <Link
-                key={album.id}
-                to={`/albums/${album.id}`}
-                className="group bg-surface-light rounded-lg p-3 hover:bg-surface transition"
-              >
-                <div className="aspect-square bg-surface-dark rounded mb-2 overflow-hidden">
-                  <img
-                    src={api.getAlbumCoverUrl(album.id)}
-                    alt={album.title}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                    decoding="async"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
-                    }}
-                  />
-                </div>
-                <p className="text-sm font-medium truncate group-hover:text-accent transition">
-                  {album.title}
-                </p>
-                <p className="text-xs text-gray-400 truncate">{album.artistName}</p>
-                {album.year && <p className="text-xs text-gray-500">{album.year}</p>}
-              </Link>
+          }
+        >
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+            {home.newInLibrary.map((album) => (
+              <div key={album.id} data-play-actions-row className="group relative">
+                <Link
+                  to={`/albums/${album.id}`}
+                  className="block rounded-lg bg-surface-light p-3 transition hover:bg-surface"
+                >
+                  <div className="mb-2">
+                    <AlbumCover
+                      albumId={album.id}
+                      title={album.title}
+                      artistName={album.artistName}
+                      coverUrl={album.coverUrl ?? undefined}
+                    />
+                  </div>
+                  <p className="truncate text-sm font-medium">{album.title}</p>
+                  <p className="truncate text-xs text-gray-400">
+                    {album.source === 'qobuz' && (
+                      <span className="mr-1 rounded bg-sky-500/20 px-1 text-[10px] uppercase text-sky-300">
+                        Qobuz
+                      </span>
+                    )}
+                    {album.artistName}
+                  </p>
+                </Link>
+                <CardActions target={{ kind: 'album', albumId: album.id, title: album.title }} />
+              </div>
             ))}
           </div>
-        </section>
+        </Section>
       )}
 
-      {/* Recently Played */}
-      {recentAlbums.length > 0 && (
-        <section>
-          <h3 className="text-xl font-semibold mb-4">Recently Played</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {recentAlbums.map((album) => (
-              <Link
-                key={album.album_id}
-                to={`/albums/${album.album_id}`}
-                className="group bg-surface-light rounded-lg p-3 hover:bg-surface transition"
-              >
-                <div className="aspect-square bg-surface-dark rounded mb-2 overflow-hidden">
-                  <img
-                    src={api.getAlbumCoverUrl(album.album_id)}
-                    alt={album.title}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                    decoding="async"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
-                    }}
-                  />
-                </div>
-                <p className="text-sm font-medium truncate group-hover:text-accent transition">
-                  {album.title}
-                </p>
-                <p className="text-xs text-gray-400 truncate">{album.artist_name}</p>
-              </Link>
+      {home && home.genresForYou.length > 0 && (
+        <Section title="Genres for you" testId="home-genres">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+            {home.genresForYou.map((g) => (
+              <div key={g.genre} className="rounded-lg bg-surface-light p-3">
+                <Link
+                  to={`/albums?${new URLSearchParams({ genre: g.genre }).toString()}`}
+                  className="block"
+                >
+                  <div className="mb-2 grid grid-cols-2 gap-0.5 overflow-hidden rounded">
+                    {g.albumIds.slice(0, 4).map((id) => (
+                      <img
+                        key={id}
+                        src={api.getAlbumCoverUrl(id)}
+                        alt=""
+                        className="aspect-square w-full object-cover"
+                      />
+                    ))}
+                  </div>
+                  <p className="truncate text-sm font-medium">{g.genre}</p>
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => void startRadio({ type: 'genre', id: g.genre }).catch(() => {})}
+                  className="mt-1 text-xs text-gray-400 hover:text-accent"
+                  aria-label={`Start ${g.genre} radio`}
+                >
+                  ▶ Radio
+                </button>
+              </div>
             ))}
           </div>
-        </section>
+        </Section>
       )}
 
-      {/* Top Artists */}
       {topArtists.length > 0 && (
-        <section>
-          <h3 className="text-xl font-semibold mb-4">Top Artists</h3>
-          <div className="flex gap-4 flex-wrap">
+        <Section title="Top Artists">
+          <div className="flex flex-wrap gap-2">
             {topArtists.map((artist) => (
               <Link
                 key={artist.id}
                 to={`/artists/${artist.id}`}
-                className="flex items-center gap-3 bg-surface-light rounded-full px-4 py-2 hover:bg-surface transition group"
+                className="rounded-full bg-surface-light px-4 py-2 text-sm transition hover:bg-surface"
               >
-                <div className="w-8 h-8 rounded-full bg-surface-dark flex items-center justify-center text-sm text-gray-500">
-                  &#9835;
-                </div>
-                <div>
-                  <p className="text-sm font-medium group-hover:text-accent transition">
-                    {artist.name}
-                  </p>
-                  <p className="text-xs text-gray-500">{artist.play_count} plays</p>
-                </div>
+                {artist.name} <span className="text-xs text-gray-500">{artist.play_count}</span>
               </Link>
             ))}
           </div>
-        </section>
+        </Section>
       )}
 
       {/* Library Stats */}
@@ -236,8 +416,7 @@ export default function HomePage() {
         </section>
       )}
 
-      {/* Quick Links */}
-      {recentAlbums.length === 0 && (
+      {home && home.continueListening.length === 0 && mix.length === 0 && (
         <section className="text-center py-12">
           <p className="text-gray-500 mb-4">Start playing music to see your history here.</p>
           <div className="flex gap-4 justify-center">

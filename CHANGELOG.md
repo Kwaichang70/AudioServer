@@ -15,6 +15,12 @@ the kind of change, not semver — there are no releases yet.
 - "Start radio" in elk speelactiemenu en op de artiestpagina; radio-knop in de
   speler.
 
+**Home als overzicht**
+
+- Verder luisteren (met positie), de mix van vandaag (zonder extern account,
+  de hele dag dezelfde), For you (ListenBrainz, alleen speelbaar), nieuw in je
+  bibliotheek, genres voor jou met genre-radio.
+
 ## R07 — Eén bibliotheek: Qobuz in de collectie (verbeterplan 2, sprint R07)
 
 **Toevoegen aan de bibliotheek** (`server/src/services/qobuz-library.ts`, schemaversie 18)

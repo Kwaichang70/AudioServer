@@ -898,6 +898,31 @@ export interface ListenBrainzDiscover {
   }>;
 }
 
+/** Home as an overview (R08.2). */
+export interface HomeData {
+  continueListening: Array<{
+    albumId: string;
+    title: string;
+    artistName: string;
+    coverUrl: string | null;
+    lastPlayed: number;
+    resumeTrackId: string | null;
+    resumeTitle: string | null;
+    resumePosition: number;
+    progress: number;
+  }>;
+  newInLibrary: Array<{
+    id: string;
+    title: string;
+    artistName: string;
+    coverUrl: string | null;
+    source: string;
+    createdAt: number | null;
+  }>;
+  genresForYou: Array<{ genre: string; plays: number; albumIds: string[] }>;
+  dailyMix: { date: string; items: MixItem[]; basis: string };
+}
+
 /** One track of a local mix, with the basis that put it there (V12.2). */
 export interface MixItem {
   id: string;

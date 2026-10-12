@@ -1309,6 +1309,14 @@ export const openApiSpec = {
         },
       },
     },
+    '/home': {
+      get: {
+        tags: ['Home'],
+        summary:
+          'Home (R08.2): continue listening (with position), new in the library, genres for you, today’s mix',
+        responses: { 200: ok('{ continueListening, newInLibrary, genresForYou, dailyMix }') },
+      },
+    },
     '/tags': {
       get: {
         tags: ['Tags'],

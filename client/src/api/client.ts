@@ -2,6 +2,7 @@ import type { Album, Artist, RadioStation, Track } from '@audioserver/shared';
 import { API_BASE, STORAGE_KEYS } from '../constants.js';
 import type {
   AlbumFacets,
+  HomeData,
   RadioSeedType,
   RadioState,
   QobuzSyncStatus,
@@ -557,6 +558,9 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ tracks, startIndex, deviceId, shuffle, repeat, ...options }),
     }),
+  /** Home as an overview (R08.2): continue, new, genres, today's mix. */
+  getHome: (): Promise<ApiResponse<HomeData>> => fetchApi('/home'),
+
   // ─── Radio (R08.1) ──────────────────────────────────────────
   getRadio: (): Promise<ApiResponse<RadioState>> => fetchApi('/playback/radio'),
   setRadioEnabled: (enabled: boolean): Promise<ApiResponse<RadioState>> =>
