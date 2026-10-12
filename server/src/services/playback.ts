@@ -109,6 +109,19 @@ interface TrackRow {
  * track to a DLNA/Sonos device without any client involvement, so playback
  * continues while the tablet sleeps.
  */
+/**
+ * Told whenever a zone starts a track, with how many queue items follow it
+ * (R08.1: radio tops the queue up before it runs out). Observers must not
+ * throw and must not block: anything slow happens after they return.
+ */
+export type TrackStartObserver = (zoneId: string, remaining: number) => void;
+const trackStartObservers = new Set<TrackStartObserver>();
+
+export function observeTrackStarts(observer: TrackStartObserver): () => void {
+  trackStartObservers.add(observer);
+  return () => trackStartObservers.delete(observer);
+}
+
 export interface PlaybackHooks {
   onAdvance?: (deviceId: string, track: TrackInfo, itemId: string | null, zoneId: string) => void;
   onIdle?: (deviceId: string, zoneId: string) => void;
@@ -1442,7 +1455,20 @@ export class PlaybackService {
     }
   }
 
+  /** Queue items after the current one. */
+  remainingAfterCurrent(): number {
+    if (this.queueIndex < 0) return this.queue.length;
+    return Math.max(0, this.queue.length - this.queueIndex - 1);
+  }
+
   private emitTrackChanged(track: TrackInfo, origin: PlaybackOrigin): void {
+    for (const observer of trackStartObservers) {
+      try {
+        observer(this.zoneId, this.remainingAfterCurrent());
+      } catch (err) {
+        logger.debug(`PlaybackService: track-start observer failed: ${err}`);
+      }
+    }
     const payload: PlaybackTrack = { ...track };
     try {
       this.sink?.emit('playback:track-changed', {

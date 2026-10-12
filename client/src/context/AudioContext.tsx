@@ -18,6 +18,8 @@ import type {
   PlaybackQueueEntry,
   PlaybackSnapshot,
   SleepTimer,
+  RadioSeedType,
+  RadioState,
   ZoneOverview,
 } from '../api/types.js';
 import { useToast } from '../components/Toast.js';
@@ -100,6 +102,11 @@ interface AudioContextValue {
   toggleRepeat: () => void;
   /** This room's sleep timer as the server last reported it (E01). */
   sleepTimer: SleepTimer | null;
+  /** This room's radio (R08.1): on/off, seed, and why each pick was chosen. */
+  radio: RadioState | null;
+  /** Start radio from an artist, album, track, genre or tag: plays ten picks. */
+  startRadio: (seed: { type: RadioSeedType; id: string }) => Promise<void>;
+  setRadioEnabled: (enabled: boolean) => Promise<void>;
   /** The rooms this server knows and the one this tab steers (V10). */
   zones: ZoneOverview[];
   zoneId: string | null;
@@ -416,6 +423,24 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     if (socket.sleep) setSleepTimer(socket.sleep.sleep);
   }, [socket.sleep]);
 
+  // Radio (R08.1): asked once per room, then kept up to date by the socket.
+  const [radio, setRadio] = useState<RadioState | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.resolve()
+      .then(() => api.getRadio())
+      .then((res) => {
+        if (!cancelled) setRadio(res.data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [zoneId]);
+  useEffect(() => {
+    if (socket.radio) setRadio(socket.radio);
+  }, [socket.radio]);
+
   // Queue edits made anywhere (this tab, another tab, the server).
   useEffect(() => {
     const ev = socket.queueEvent;
@@ -514,6 +539,36 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       playTracks(tracks, Math.max(0, Math.min(startIndex, tracks.length - 1))),
     [playTracks],
   );
+
+  // R08.1: the server picks ten related tracks (with reasons) and keeps radio
+  // on for this room; they play like any list, so every output works.
+  const startRadio = useCallback(
+    async (seed: { type: RadioSeedType; id: string }) => {
+      const res = await api.startRadio(seed);
+      setRadio(res.data.radio);
+      const list: TrackInfo[] = res.data.tracks.map((t) => ({
+        id: t.id,
+        title: t.title,
+        artistName: t.artistName,
+        albumTitle: t.albumTitle,
+        albumId: t.albumId,
+        duration: t.duration,
+        format: t.format,
+        sampleRate: t.sampleRate,
+        bitDepth: t.bitDepth,
+        source: t.source,
+        replayGainTrack: t.replayGainTrack,
+        replayGainTrackPeak: t.replayGainTrackPeak,
+      }));
+      if (list.length > 0) playAlbum(list, 0);
+    },
+    [playAlbum],
+  );
+
+  const setRadioEnabled = useCallback(async (enabled: boolean) => {
+    const res = await api.setRadioEnabled(enabled);
+    setRadio(res.data);
+  }, []);
 
   // Play a specific position in the EXISTING queue (QueuePage taps). playTrack
   // would replace the whole queue with just that track.
@@ -1289,6 +1344,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       seek,
       setSelectedDeviceId,
       sleepTimer,
+      radio,
+      startRadio,
+      setRadioEnabled,
       toggleShuffle,
       toggleRepeat,
       zones: zoneList,
@@ -1331,6 +1389,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       seek,
       setSelectedDeviceId,
       sleepTimer,
+      radio,
+      startRadio,
+      setRadioEnabled,
       toggleShuffle,
       toggleRepeat,
       zoneList,

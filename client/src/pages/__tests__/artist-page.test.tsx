@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
     getAlbumCoverUrl: vi.fn((id: string) => `/covers/${id}`),
     getArtistImageUrl: vi.fn((id: string) => `/artists/${id}/image`),
   },
-  audio: { playAlbum: vi.fn() },
+  audio: { playAlbum: vi.fn(), startRadio: vi.fn(() => Promise.resolve()) },
 }));
 
 vi.mock('../../api/client.js', () => ({ api: mocks.api }));
@@ -169,9 +169,11 @@ describe('ArtistPage', () => {
     expect(index).toBe(0);
   });
 
-  it('shows radio as not available yet rather than a button that does nothing', async () => {
+  it('starts artist radio (R08.1)', async () => {
     renderPage();
-    const radio = await screen.findByText('Start radio');
-    expect((radio as HTMLButtonElement).disabled ?? radio.closest('button')?.disabled).toBe(true);
+    fireEvent.click(await screen.findByRole('button', { name: 'Start radio' }));
+    await waitFor(() =>
+      expect(mocks.audio.startRadio).toHaveBeenCalledWith({ type: 'artist', id: 'ar-1' }),
+    );
   });
 });

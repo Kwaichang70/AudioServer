@@ -18,6 +18,7 @@ import type {
   PlaybackStateEvent,
   PlaybackTrackChangedEvent,
   SleepTimer,
+  RadioState,
   ZoneSummary,
 } from '../api/types.js';
 
@@ -57,6 +58,7 @@ interface ServerToClientEvents {
   'playback:track-changed': (event: PlaybackTrackChangedEvent) => void;
   'playback:dispatch': (status: DispatchStatus) => void;
   'playback:sleep': (event: { zoneId: string; sleep: SleepTimer | null }) => void;
+  'playback:radio': (event: RadioState & { zoneId: string }) => void;
   'device:playback-update': (update: DevicePlaybackUpdate) => void;
   'library:scan-progress': (progress: LibraryScanProgress) => void;
   'zones:changed': (zones: ZoneSummary[]) => void;
@@ -83,6 +85,8 @@ interface UseSocketReturn {
   dispatch: DispatchStatus | null;
   /** The sleep timer of this room, pushed when any client sets or cancels one (E01). */
   sleep: { zoneId: string; sleep: SleepTimer | null } | null;
+  /** This room's radio after a switch, a top-up or running dry (R08.1). */
+  radio: (RadioState & { zoneId: string }) | null;
   scanProgress: LibraryScanProgress | null;
   subscribeDevice: (deviceId: string) => void;
   unsubscribeDevice: (deviceId: string) => void;
@@ -105,6 +109,7 @@ export function useSocket(): UseSocketReturn {
   const [trackChanged, setTrackChanged] = useState<PlaybackTrackChangedEvent | null>(null);
   const [dispatch, setDispatch] = useState<DispatchStatus | null>(null);
   const [sleep, setSleep] = useState<{ zoneId: string; sleep: SleepTimer | null } | null>(null);
+  const [radio, setRadio] = useState<(RadioState & { zoneId: string }) | null>(null);
   const [scanProgress, setScanProgress] = useState<LibraryScanProgress | null>(null);
   const [zones, setZones] = useState<ZoneSummary[]>([]);
   const subscribedDeviceRef = useRef<string | null>(null);
@@ -157,6 +162,7 @@ export function useSocket(): UseSocketReturn {
     socket.on('playback:track-changed', mine(setTrackChanged));
     socket.on('playback:dispatch', mine(setDispatch));
     socket.on('playback:sleep', mine(setSleep));
+    socket.on('playback:radio', mine(setRadio));
     socket.on('zones:changed', setZones);
     socket.on('library:scan-progress', setScanProgress);
 
@@ -222,6 +228,7 @@ export function useSocket(): UseSocketReturn {
       trackChanged,
       dispatch,
       sleep,
+      radio,
       scanProgress,
       subscribeDevice,
       unsubscribeDevice,
@@ -238,6 +245,7 @@ export function useSocket(): UseSocketReturn {
       trackChanged,
       dispatch,
       sleep,
+      radio,
       scanProgress,
       subscribeDevice,
       unsubscribeDevice,

@@ -5,6 +5,7 @@ import { api } from '../api/client.js';
 import DeviceSelector from './DeviceSelector.js';
 import SeekBar, { seekDisabledReason } from './player/SeekBar.js';
 import FavoriteTrackButton from './player/FavoriteTrackButton.js';
+import RadioToggle, { useRadioReason } from './player/RadioToggle.js';
 import AudioPathBadge from './player/AudioPathBadge.js';
 import SleepTimerMenu from './SleepTimerMenu.js';
 import {
@@ -56,6 +57,7 @@ export default function NowPlayingFull({ onClose, initialView = 'upnext' }: Prop
   const { currentTime, duration } = useProgress();
 
   const [showLyrics, setShowLyrics] = useState(initialView === 'lyrics');
+  const radioReason = useRadioReason(currentTrack?.id);
 
   if (!currentTrack) return null;
 
@@ -92,6 +94,7 @@ export default function NowPlayingFull({ onClose, initialView = 'upnext' }: Prop
         <p className="text-xs text-gray-500 uppercase tracking-widest">Now Playing</p>
         <div className="flex items-center gap-3">
           <FavoriteTrackButton trackId={currentTrack.id} title={currentTrack.title} size="lg" />
+          <RadioToggle size="lg" />
           <button
             onClick={() => setShowLyrics(!showLyrics)}
             className={`text-sm px-3 py-1 rounded transition ${showLyrics ? 'bg-accent text-on-accent' : 'text-gray-500 hover:text-white'}`}
@@ -125,6 +128,11 @@ export default function NowPlayingFull({ onClose, initialView = 'upnext' }: Prop
             </h2>
             <p className="text-lg text-gray-400 truncate">{currentTrack.artistName}</p>
             <p className="text-sm text-gray-500 truncate">{currentTrack.albumTitle}</p>
+            {radioReason && (
+              <p className="mt-1 text-xs text-accent" data-testid="radio-reason">
+                Radio · {radioReason}
+              </p>
+            )}
             {currentTrack.format && (
               <div className="flex items-center gap-2 mt-2">
                 <span className="text-xs px-2 py-0.5 rounded bg-white/10 text-gray-400">

@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     playNextTracks: vi.fn(() => Promise.resolve()),
     queueTracks: vi.fn(() => Promise.resolve()),
     playAlbum: vi.fn(),
+    startRadio: vi.fn(() => Promise.resolve()),
   },
   toast: vi.fn(),
 }));
@@ -120,7 +121,8 @@ describe('PlayActions', () => {
 
     expect(screen.getByRole('menuitem', { name: 'Play now' })).toHaveFocus();
     fireEvent.keyDown(menu, { key: 'ArrowDown' });
-    expect(screen.getByRole('menuitem', { name: 'Play next' })).toHaveFocus();
+    // R08.1: radio sits right under "Play now".
+    expect(screen.getByRole('menuitem', { name: 'Start radio' })).toHaveFocus();
     fireEvent.keyDown(menu, { key: 'ArrowUp' });
     fireEvent.keyDown(menu, { key: 'ArrowUp' });
     // Wraps from the first item to the last.
@@ -293,5 +295,14 @@ describe('PlayActions', () => {
       expect(screen.queryByRole('menu')).not.toBeInTheDocument();
       expect(mocks.audio.playNow).not.toHaveBeenCalled();
     });
+  });
+
+  it('starts radio from a track (R08.1)', async () => {
+    render(<PlayActions target={{ kind: 'track', track }} />);
+    openMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Start radio' }));
+    await waitFor(() =>
+      expect(mocks.audio.startRadio).toHaveBeenCalledWith({ type: 'track', id: 't1' }),
+    );
   });
 });

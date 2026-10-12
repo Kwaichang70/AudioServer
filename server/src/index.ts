@@ -36,6 +36,7 @@ import { deviceMonitor } from './services/device-monitor.js';
 import { initServerPlayer, reconcileAllZones } from './services/server-player.js';
 import { configureSleepTimers, initializeSleepTimers } from './services/sleep-timer.js';
 import { startQobuzSync, stopQobuzSync } from './services/qobuz-sync.js';
+import { initLibraryRadio } from './services/radio-wiring.js';
 import { closeOrphanedSessions, playbackListeningObserver } from './services/listening.js';
 import { globalLimiter } from './middleware/rateLimiter.js';
 import { requestLogger } from './middleware/requestLogger.js';
@@ -245,6 +246,14 @@ async function main() {
     },
   });
   initializeSleepTimers();
+  // Radio (R08.1): a zone with radio on tops its queue up before it runs out.
+  initLibraryRadio((zoneId, state) => {
+    try {
+      getIO().emit('playback:radio', { zoneId, ...state });
+    } catch {
+      // No socket server yet; GET /api/playback/radio has the same state.
+    }
+  });
   // Library ⇄ Qobuz favourites (R07.2): at start and every six hours.
   startQobuzSync();
   // A queue survives a restart; whether the speaker is still playing it is

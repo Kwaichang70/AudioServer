@@ -122,6 +122,14 @@ export interface ServerToClientEvents {
   'playback:dispatch': (status: DispatchStatus) => void;
   /** A zone's sleep timer was set, cancelled or fired (E01). */
   'playback:sleep': (event: { zoneId: string; sleep: SleepTimerSummary | null }) => void;
+  /** A zone's radio was switched, topped up, or ran dry (R08.1). */
+  'playback:radio': (event: {
+    zoneId: string;
+    enabled: boolean;
+    seed: { type: string; id: string; label: string } | null;
+    reasons: Record<string, string>;
+    note?: string;
+  }) => void;
   'device:playback-update': (update: DevicePlaybackUpdate) => void;
   'device:discovered': (device: { id: string; name: string; type: string }) => void;
   'device:lost': (device: { id: string; name: string }) => void;

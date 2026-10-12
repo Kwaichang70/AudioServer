@@ -7,6 +7,7 @@ import { formatTime } from '../utils/format.js';
 import SortableList from './SortableList.js';
 import SeekBar, { seekDisabledReason } from './player/SeekBar.js';
 import FavoriteTrackButton from './player/FavoriteTrackButton.js';
+import RadioToggle, { useRadioReason } from './player/RadioToggle.js';
 import {
   PlayIcon,
   PauseIcon,
@@ -89,6 +90,8 @@ export default function NowPlayingBar({ onExpandClick, onLyricsClick }: NowPlayi
   } = useAudioContext();
   const { currentTime, duration } = useProgress();
   const [showQueue, setShowQueue] = useState(false);
+  // R08.1: when radio chose this track, the bar says why.
+  const radioReason = useRadioReason(currentTrack?.id);
 
   if (!currentTrack) {
     return (
@@ -169,12 +172,18 @@ export default function NowPlayingBar({ onExpandClick, onLyricsClick }: NowPlayi
               </span>
             )}
             {external && <span className="truncate text-accent">Playing on external device</span>}
+            {radioReason && (
+              <span className="hidden md:inline truncate" title={radioReason}>
+                Radio · {radioReason}
+              </span>
+            )}
           </p>
         </div>
         {/* R01.3: the heart for what is playing. Desktop only — the phone bar
             has no room left, and the full player (tap the cover) has it. */}
-        <span className="hidden md:inline-flex">
+        <span className="hidden md:inline-flex items-center gap-2">
           <FavoriteTrackButton trackId={currentTrack.id} title={currentTrack.title} />
+          <RadioToggle />
         </span>
       </div>
 

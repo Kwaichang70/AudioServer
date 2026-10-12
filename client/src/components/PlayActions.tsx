@@ -125,7 +125,7 @@ function menuLabel(target: PlayActionTarget): string {
 }
 
 export default function PlayActions({ target, triggerTabIndex, className }: Props) {
-  const { playNow, playNextTracks, queueTracks, playAlbum } = useAudioContext();
+  const { playNow, playNextTracks, queueTracks, playAlbum, startRadio } = useAudioContext();
   const { toast } = useToast();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -252,6 +252,18 @@ export default function PlayActions({ target, triggerTabIndex, className }: Prop
     }
   };
 
+  /** R08.1: radio from this artist, album or track — ten related tracks. */
+  const startRadioHere = async () => {
+    const { type, id } = favoriteKey(target);
+    try {
+      await startRadio({ type, id });
+      toast(`Radio from ${menuLabel(target)}`, 'success');
+    } catch (err) {
+      if (!isApiError(err))
+        toast(`Radio could not start: ${(err as Error).message ?? err}`, 'error');
+    }
+  };
+
   /** R07.1: a Qobuz track into the library, with its album row. */
   const addToLibrary = async () => {
     if (target.kind !== 'track') return;
@@ -346,6 +358,11 @@ export default function PlayActions({ target, triggerTabIndex, className }: Prop
                 disabled={busy}
               >
                 Shuffle
+              </MenuItem>
+            )}
+            {!isProviderTrack && (
+              <MenuItem onSelect={() => void startRadioHere()} onClose={close} disabled={busy}>
+                Start radio
               </MenuItem>
             )}
             <MenuItem onSelect={() => void run(playNextTracks)} onClose={close} disabled={busy}>

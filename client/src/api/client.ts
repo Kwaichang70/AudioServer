@@ -2,6 +2,8 @@ import type { Album, Artist, RadioStation, Track } from '@audioserver/shared';
 import { API_BASE, STORAGE_KEYS } from '../constants.js';
 import type {
   AlbumFacets,
+  RadioSeedType,
+  RadioState,
   QobuzSyncStatus,
   Tag,
   TagDetail,
@@ -555,6 +557,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ tracks, startIndex, deviceId, shuffle, repeat, ...options }),
     }),
+  // ─── Radio (R08.1) ──────────────────────────────────────────
+  getRadio: (): Promise<ApiResponse<RadioState>> => fetchApi('/playback/radio'),
+  setRadioEnabled: (enabled: boolean): Promise<ApiResponse<RadioState>> =>
+    fetchApi('/playback/radio', { method: 'POST', body: JSON.stringify({ enabled }) }),
+  startRadio: (seed: {
+    type: RadioSeedType;
+    id: string;
+  }): Promise<ApiResponse<{ radio: RadioState; tracks: Array<LibraryTrack & { why: string }> }>> =>
+    fetchApi('/playback/radio/start', { method: 'POST', body: JSON.stringify({ seed }) }),
+
   // ─── Sleep timer (E01) ──────────────────────────────────────
   // Per room, and run by the server: it fires with this tab closed.
   getSleepTimer: (): Promise<ApiResponse<SleepTimer | null>> => fetchApi('/playback/sleep'),

@@ -4,6 +4,17 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## R08 — Radio en ontdekken (verbeterplan 2, sprint R08)
+
+**Radio per zone** (`server/src/services/library-radio.ts`, schemaversie 19)
+
+- Als de wachtrij leegloopt speelt de kamer door met verwante muziek uit de
+  bibliotheek (Last.fm-verwantschap, genre, tags), en zegt waarom.
+- Nooit iets onspeelbaars, niets opnieuw binnen 50 nummers; geen kandidaat →
+  netjes stoppen met uitleg.
+- "Start radio" in elk speelactiemenu en op de artiestpagina; radio-knop in de
+  speler.
+
 ## R07 — Eén bibliotheek: Qobuz in de collectie (verbeterplan 2, sprint R07)
 
 **Toevoegen aan de bibliotheek** (`server/src/services/qobuz-library.ts`, schemaversie 18)

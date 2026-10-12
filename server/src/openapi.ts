@@ -1286,6 +1286,29 @@ export const openApiSpec = {
         },
       },
     },
+    '/playback/radio': {
+      get: {
+        tags: ['Playback'],
+        summary: "This zone's radio (R08.1): on/off, seed, and why each pick was chosen",
+        responses: { 200: ok('{ enabled, seed, reasons }') },
+      },
+      post: {
+        tags: ['Playback'],
+        summary: 'Radio on or off; on without a seed follows what is playing',
+        responses: { 200: ok('{ enabled, seed, reasons }') },
+      },
+    },
+    '/playback/radio/start': {
+      post: {
+        tags: ['Playback'],
+        summary: 'Start radio from an artist, album, track, genre or tag: ten picks with reasons',
+        responses: {
+          200: ok('{ radio, tracks: Track & { why }[] }'),
+          404: ok('unknown seed'),
+          409: ok('nothing in the library is close enough'),
+        },
+      },
+    },
     '/tags': {
       get: {
         tags: ['Tags'],

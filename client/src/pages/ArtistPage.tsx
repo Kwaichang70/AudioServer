@@ -168,7 +168,7 @@ export default function ArtistPage() {
   const [sort, setSort] = useState<SortMode>('year');
   const activeArtistIdRef = useRef(id);
   activeArtistIdRef.current = id;
-  const { playAlbum } = useAudioContext();
+  const { playAlbum, startRadio } = useAudioContext();
   const [starting, setStarting] = useState(false);
 
   /** Start every available track of this artist, in album order or shuffled. */
@@ -307,8 +307,18 @@ export default function ArtistPage() {
             <Button onClick={() => void playArtist(true)} disabled={starting || ownCount === 0}>
               Shuffle
             </Button>
-            {/* Radio arrives in R08; the button says so instead of doing nothing. */}
-            <Button disabled title="Artist radio comes with a later update">
+            {/* R08.1: related music from the library, with a reason per track. */}
+            <Button
+              disabled={starting}
+              onClick={() => {
+                setStarting(true);
+                startRadio({ type: 'artist', id: artist.id })
+                  .catch(() => {
+                    // The toast layer shows why (nothing related enough, offline).
+                  })
+                  .finally(() => setStarting(false));
+              }}
+            >
               Start radio
             </Button>
             <PlayActions target={{ kind: 'artist', artistId: artist.id, name: artist.name }} />

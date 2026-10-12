@@ -1,3 +1,12 @@
+import {
+  getRadioState,
+  pickRadioTracks,
+  recentlyHeard,
+  rememberPicks,
+  resolveSeed,
+  setRadio,
+  topUp,
+} from '../services/library-radio.js';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { SERVER_ORIGIN, StaleRevisionError, type PlaybackService } from '../services/playback.js';
@@ -12,6 +21,7 @@ import { validate } from '../utils/validate.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { getIO } from '../socketio.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { ownerOf } from '../utils/ownership.js';
 import {
   forgetCapabilities,
   getAllOutputCapabilities,
@@ -398,6 +408,13 @@ playbackRouter.get('/sleep', (req, res) => {
   res.json({ data: getSleepTimer(session.getZoneId()) });
 });
 
+// Radio of this zone (R08.1): on/off, its seed, and why each pick was chosen.
+playbackRouter.get('/radio', (req, res) => {
+  const session = sessionOf(req, res);
+  if (!session) return;
+  res.json({ data: getRadioState(session.getZoneId()) });
+});
+
 // Everything below mutates the household session.
 playbackRouter.use(requireClientId);
 
@@ -454,6 +471,12 @@ playbackRouter.post(
     const origin = originOf(req);
     const session = sessionOf(req, res);
     if (!session) return;
+    // A queue you choose yourself — not the one "Start radio" just picked —
+    // means radio, if on, follows what plays from now on (R08.1).
+    const radio = getRadioState(session.getZoneId());
+    if (radio.seed && !req.body.tracks.every((t: { id: string }) => t.id in radio.reasons)) {
+      setRadio(session.getZoneId(), radio.enabled, null, ownerOf(req));
+    }
     runCommand(res, session, req.body.commandId, () => {
       session.setQueue(
         req.body.tracks.map(withMetadata),
@@ -702,6 +725,68 @@ playbackRouter.delete('/sleep', (req, res) => {
   const had = cancelSleepTimer(session.getZoneId());
   res.json({ data: { ok: true, cancelled: had } });
 });
+
+// ─── Radio (R08.1) ───────────────────────────────────────────────
+
+const radioSeedSchema = z.object({
+  type: z.enum(['artist', 'album', 'track', 'genre', 'tag']),
+  id: z.string().min(1).max(256),
+});
+
+// "Start radio" from an artist, album, track, genre or tag: the first ten
+// picks, each with its reason, for the client to play like any list; radio
+// stays on for this zone and keeps the queue going from the same seed.
+playbackRouter.post(
+  '/radio/start',
+  validate({ body: z.object({ seed: radioSeedSchema }) }),
+  asyncHandler(async (req, res) => {
+    const session = sessionOf(req, res);
+    if (!session) return;
+    const userId = ownerOf(req);
+    const seed = resolveSeed(req.body.seed.type, req.body.seed.id, userId);
+    if (!seed) return res.status(404).json({ error: 'Nothing to start a radio from' });
+    const picks = await pickRadioTracks(seed, {
+      count: 10,
+      exclude: recentlyHeard(session.getZoneId(), [], userId),
+      userId,
+    });
+    if (picks.length === 0) {
+      return res.status(409).json({
+        error: 'RadioEmpty',
+        message: `Nothing in the library is close enough to “${seed.label}” to make a radio.`,
+      });
+    }
+    setRadio(session.getZoneId(), true, seed, userId);
+    rememberPicks(session.getZoneId(), picks);
+    res.json({
+      data: {
+        radio: getRadioState(session.getZoneId()),
+        tracks: picks.map((p) => ({ ...p.track, ...(p.track.metadata ?? {}), why: p.why })),
+      },
+    });
+  }),
+);
+
+// Radio on or off. Switched on without a seed, it follows what is playing.
+playbackRouter.post(
+  '/radio',
+  validate({ body: z.object({ enabled: z.boolean() }) }),
+  asyncHandler(async (req, res) => {
+    const session = sessionOf(req, res);
+    if (!session) return;
+    const zoneId = session.getZoneId();
+    const current = getRadioState(zoneId);
+    const state = setRadio(
+      zoneId,
+      req.body.enabled,
+      req.body.enabled ? current.seed : null,
+      ownerOf(req),
+    );
+    // Switched on near the end of the queue: fill it now, not at the next track.
+    if (req.body.enabled) await topUp(zoneId, session.remainingAfterCurrent());
+    res.json({ data: getRadioState(zoneId) ?? state });
+  }),
+);
 
 playbackRouter.post('/stop', (req, res) => {
   const session = sessionOf(req, res);

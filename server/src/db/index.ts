@@ -21,7 +21,7 @@ import { fileURLToPath } from 'url';
  * it does not understand. Databases from before this check carry version 0,
  * which every build accepts and upgrades.
  */
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 19;
 
 export class DatabaseVersionError extends Error {
   constructor(
@@ -306,6 +306,25 @@ export async function initDatabase(overridePath?: string) {
   runMigration(sqlite, 'albums', 'source_ref', 'TEXT');
   runMigration(sqlite, 'tracks', 'source_ref', 'TEXT');
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_albums_source ON albums (source)');
+  // R08.1: radio per zone — on/off and what it started from — and every pick
+  // with the reason it was chosen, so the player can say why.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS zone_radio (
+      zone_id TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      seed TEXT,
+      user_id TEXT,
+      updated_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS radio_picks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      zone_id TEXT NOT NULL,
+      track_id TEXT NOT NULL,
+      why TEXT NOT NULL,
+      picked_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_radio_picks_zone ON radio_picks (zone_id, id);
+  `);
   // R07.3: a playlist item names its source explicitly — 'qobuz:track:123' —
   // beside the snapshot that makes it readable when the source is away.
   runMigration(sqlite, 'playlist_tracks', 'source_ref', 'TEXT');

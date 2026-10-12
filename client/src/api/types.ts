@@ -321,6 +321,18 @@ export interface ZoneOverview extends ZoneSummary {
 }
 
 /** A room's sleep timer (E01); the server runs it, so it fires with the app closed. */
+/** A zone's radio (R08.1). */
+export type RadioSeedType = 'artist' | 'album' | 'track' | 'genre' | 'tag';
+
+export interface RadioState {
+  enabled: boolean;
+  seed: { type: RadioSeedType; id: string; label: string } | null;
+  /** Why radio picked a track, by track id. */
+  reasons: Record<string, string>;
+  /** Set when radio ran out of candidates. */
+  note?: string;
+}
+
 export interface SleepTimer {
   zoneId: string;
   mode: 'in' | 'endOfTrack' | 'endOfAlbum' | 'endOfQueue';
