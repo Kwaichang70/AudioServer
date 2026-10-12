@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
     getRecommendationSettings: vi.fn(),
     updateRecommendationSettings: vi.fn(),
     saveRecommendationMix: vi.fn(),
+    getAlbumCoverUrl: vi.fn((id: string) => `/covers/${id}`),
   },
   audio: { playAlbum: vi.fn(), playTrack: vi.fn() },
 }));
@@ -140,7 +141,7 @@ describe('Discover page', () => {
       </MemoryRouter>,
     );
     await screen.findByText(/Use my listening history/);
-    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Use my listening history/ }));
     await waitFor(() =>
       expect(mocks.api.updateRecommendationSettings).toHaveBeenCalledWith({
         useHistory: false,
@@ -162,5 +163,22 @@ describe('Discover page', () => {
       expect(mocks.api.saveRecommendationMix).toHaveBeenCalledWith(expect.any(String), ['track-1']),
     );
     expect(await screen.findByText('Mix of 2026-09-18')).toBeTruthy();
+  });
+
+  it('hides the reasons when asked, and remembers that (R08.3)', async () => {
+    render(
+      <MemoryRouter>
+        <DiscoverPage />
+      </MemoryRouter>,
+    );
+    await screen.findByText('Deep Cut');
+    const why = screen.getByRole('checkbox', { name: 'Show why each item is here' });
+    expect(why).toBeChecked();
+    expect(screen.getByText(/played Known Artist 4 times/)).toBeTruthy();
+    fireEvent.click(why);
+    expect(why).not.toBeChecked();
+    expect(screen.queryByText(/played Known Artist 4 times/)).toBeNull();
+    expect(localStorage.getItem('audioserver.discover.showWhy')).toBe('off');
+    localStorage.removeItem('audioserver.discover.showWhy');
   });
 });

@@ -11,7 +11,7 @@ import type {
 import type { TrackInfo } from '../types/playback.js';
 
 /**
- * Discover (V12.2).
+ * Discover (V12.2, R08.3: covers, play buttons, reasons that can be hidden).
  *
  * Two things this page insists on. A recommendation is only started when the
  * server is CERTAIN which local recording it is: a probable match opens the
@@ -22,6 +22,8 @@ import type { TrackInfo } from '../types/playback.js';
  */
 
 type Discover = ListenBrainzDiscover;
+
+const WHY_KEY = 'audioserver.discover.showWhy';
 
 // A recommended item we don't own: link to a unified search (local + Spotify +
 // Qobuz) pre-filled with "artist title" so the user can play it from a source
@@ -38,6 +40,7 @@ function Item({
   why,
   onPlay,
   matchNote,
+  showWhy = true,
 }: {
   primary: string;
   secondary?: string;
@@ -47,6 +50,8 @@ function Item({
   /** Only set when the server is certain which local recording this is. */
   onPlay?: () => void;
   matchNote?: string;
+  /** R08.3: the reasons can be hidden; they stay one switch away. */
+  showWhy?: boolean;
 }) {
   const to = albumId ? `/albums/${albumId}` : searchQ;
   const owned = !!albumId;
@@ -57,10 +62,28 @@ function Item({
         className="flex items-center gap-3 py-1.5 px-2 rounded hover:bg-surface-light transition flex-1 min-w-0"
         title={owned ? 'In your library' : 'Search across your sources'}
       >
+        {/* R08.3: a cover where the library has one. */}
+        <div className="h-10 w-10 shrink-0 overflow-hidden rounded bg-surface-dark">
+          {albumId ? (
+            <img
+              src={api.getAlbumCoverUrl(albumId)}
+              alt=""
+              loading="lazy"
+              className="h-full w-full object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.visibility = 'hidden';
+              }}
+            />
+          ) : (
+            <span className="flex h-full w-full items-center justify-center text-sm text-gray-600">
+              {primary.charAt(0).toUpperCase()}
+            </span>
+          )}
+        </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm truncate text-white">{primary}</p>
           {secondary && <p className="text-xs text-gray-500 truncate">{secondary}</p>}
-          {why && <p className="text-[11px] text-gray-600 truncate">{why}</p>}
+          {why && showWhy && <p className="text-[11px] text-gray-600 truncate">{why}</p>}
           {matchNote && <p className="text-[11px] text-amber-500/70 truncate">{matchNote}</p>}
         </div>
         <span
@@ -94,6 +117,24 @@ export default function DiscoverPage() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<{ id: string; name: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  // R08.3: reasons per recommendation, hideable; remembered in this browser only.
+  const [showWhy, setShowWhy] = useState(() => {
+    try {
+      return localStorage.getItem(WHY_KEY) !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const toggleWhy = () => {
+    setShowWhy((on) => {
+      try {
+        localStorage.setItem(WHY_KEY, on ? 'off' : 'on');
+      } catch {
+        // Private mode: the choice lasts this visit.
+      }
+      return !on;
+    });
+  };
   const { playAlbum, playTrack } = useAudioContext();
 
   const loadMix = useCallback(() => {
@@ -186,6 +227,11 @@ export default function DiscoverPage() {
         </p>
       </div>
 
+      <label className="mb-4 flex items-center gap-2 text-xs text-gray-400">
+        <input type="checkbox" checked={showWhy} onChange={toggleWhy} className="accent-accent" />
+        Show why each item is here
+      </label>
+
       {loading && <p className="text-gray-500 text-sm">Loading&hellip;</p>}
       {error && <p className="text-red-400 text-sm">{error}</p>}
 
@@ -251,6 +297,7 @@ export default function DiscoverPage() {
                     albumId={item.albumId}
                     searchQ={searchHref(item.artistName, item.title)}
                     why={item.why}
+                    showWhy={showWhy}
                     onPlay={() => playTrack(asTrack(item))}
                   />
                 ))}
@@ -274,7 +321,30 @@ export default function DiscoverPage() {
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-1">
                   {pl.title}
                 </h2>
-                <p className="text-xs text-gray-500 mb-3">{pl.why}</p>
+                {showWhy && <p className="text-xs text-gray-500 mb-3">{pl.why}</p>}
+                {pl.tracks.some((t) => t.match?.playable) && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      playAlbum(
+                        pl.tracks
+                          .filter((t) => t.match?.playable)
+                          .map((t) => ({
+                            id: t.match!.trackId,
+                            title: t.match!.title,
+                            artistName: t.match!.artistName,
+                            albumTitle: t.match!.albumTitle,
+                            albumId: t.match!.albumId ?? undefined,
+                            duration: t.match!.duration ?? undefined,
+                            source: 'local',
+                          })),
+                      )
+                    }
+                    className="mb-3 text-xs px-3 py-1.5 bg-accent rounded-full hover:bg-accent-hover transition"
+                  >
+                    Play what is in your library
+                  </button>
+                )}
                 <ol className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
                   {pl.tracks.map((t, j) => (
                     <Item
@@ -284,6 +354,7 @@ export default function DiscoverPage() {
                       albumId={t.localAlbumId}
                       searchQ={searchHref(t.artist, t.title)}
                       matchNote={t.match && !t.match.playable ? t.match.note : undefined}
+                      showWhy={showWhy}
                       onPlay={
                         t.match?.playable
                           ? () =>
@@ -318,6 +389,7 @@ export default function DiscoverPage() {
                     albumId={r.localAlbumId}
                     searchQ={searchHref(r.artist, r.title)}
                     why={r.why}
+                    showWhy={showWhy}
                   />
                 ))}
               </ol>
