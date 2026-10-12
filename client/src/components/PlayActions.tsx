@@ -1,6 +1,7 @@
 import { useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { api } from '../api/client.js';
-import type { LibraryTrack, StoredPlaylist } from '../api/types.js';
+import type { LibraryTrack, StoredPlaylist, Tag, TagItemType } from '../api/types.js';
+import { notifyTagsChanged } from '../hooks/useTags.js';
 import { useAudioContext, type TrackInfo } from '../context/AudioContext.js';
 import { Menu, MenuItem, MenuSeparator } from './ui/Menu.js';
 import { useToast } from './Toast.js';
@@ -125,7 +126,11 @@ export default function PlayActions({ target, triggerTabIndex, className }: Prop
   const { toast } = useToast();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState<'actions' | 'playlists'>('actions');
+  const [view, setView] = useState<'actions' | 'playlists' | 'tags'>('actions');
+  // R06.2: your own tags, and which of them this item already has.
+  const [myTags, setMyTags] = useState<Tag[] | null>(null);
+  const [onItem, setOnItem] = useState<Set<string>>(new Set());
+  const [newTag, setNewTag] = useState('');
   const [favorited, setFavorited] = useState<boolean | null>(null);
   const [playlists, setPlaylists] = useState<StoredPlaylist[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -198,6 +203,50 @@ export default function PlayActions({ target, triggerTabIndex, className }: Prop
       toast(res.data.favorited ? 'Added to favorites' : 'Removed from favorites', 'success');
     } catch (err) {
       if (!isApiError(err)) toast(`Favorite failed: ${(err as Error).message ?? err}`, 'error');
+    }
+  };
+
+  const showTags = () => {
+    setView('tags');
+    const { type, id } = favoriteKey(target);
+    Promise.all([api.getTags(), api.getTagsOn(type as TagItemType, id)])
+      .then(([all, on]) => {
+        setMyTags((all.data ?? []).filter((t) => t.mine));
+        setOnItem(new Set((on.data ?? []).map((t) => t.id)));
+      })
+      .catch(() => setMyTags([]));
+  };
+
+  const toggleTag = async (tag: Tag) => {
+    const { type, id } = favoriteKey(target);
+    const has = onItem.has(tag.id);
+    try {
+      if (has) await api.removeTagItem(tag.id, type as TagItemType, id);
+      else await api.addTagItem(tag.id, type as TagItemType, id);
+      setOnItem((prev) => {
+        const next = new Set(prev);
+        if (has) next.delete(tag.id);
+        else next.add(tag.id);
+        return next;
+      });
+      notifyTagsChanged();
+      toast(has ? `Removed from "${tag.name}"` : `Tagged "${tag.name}"`, 'success');
+    } catch (err) {
+      if (!isApiError(err)) toast(`Tagging failed: ${(err as Error).message ?? err}`, 'error');
+    }
+  };
+
+  const createAndTag = async () => {
+    const name = newTag.trim();
+    if (!name) return;
+    try {
+      const created = (await api.createTag(name)).data;
+      setNewTag('');
+      setMyTags((prev) => [...(prev ?? []), created]);
+      await toggleTag(created);
+    } catch (err) {
+      if (!isApiError(err))
+        toast(`Could not create "${name}": ${(err as Error).message ?? err}`, 'error');
     }
   };
 
@@ -304,10 +353,56 @@ export default function PlayActions({ target, triggerTabIndex, className }: Prop
               </MenuItem>
             )}
             {canFavorite && (
+              <MenuItem onSelect={showTags} keepOpen hint={'›'}>
+                Add tag
+              </MenuItem>
+            )}
+            {canFavorite && (
               <MenuItem onSelect={() => void toggleFavorite()} onClose={close}>
                 {favorited ? 'Remove from favorites' : 'Add to favorites'}
               </MenuItem>
             )}
+          </>
+        ) : view === 'tags' ? (
+          <>
+            <MenuItem onSelect={() => setView('actions')} keepOpen hint={'‹'}>
+              Back
+            </MenuItem>
+            <MenuSeparator />
+            {myTags === null && <p className="px-4 py-2 text-xs text-gray-500">Loading tags…</p>}
+            {myTags?.map((tag) => (
+              <MenuItem
+                key={tag.id}
+                onSelect={() => void toggleTag(tag)}
+                keepOpen
+                hint={onItem.has(tag.id) ? '✓' : undefined}
+              >
+                {tag.name}
+              </MenuItem>
+            ))}
+            <form
+              className="flex gap-2 px-4 py-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void createAndTag();
+              }}
+            >
+              <input
+                value={newTag}
+                onChange={(e) => setNewTag(e.target.value)}
+                maxLength={80}
+                placeholder="New tag"
+                aria-label="New tag name"
+                className="min-w-0 flex-1 rounded bg-surface-dark border border-white/10 px-2 py-1 text-sm"
+              />
+              <button
+                type="submit"
+                disabled={!newTag.trim()}
+                className="rounded bg-accent px-2 py-1 text-xs disabled:opacity-40"
+              >
+                Add
+              </button>
+            </form>
           </>
         ) : (
           <>

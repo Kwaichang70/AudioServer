@@ -181,4 +181,40 @@ describe('Tags', () => {
       expect(left.n).toBe(0);
     });
   });
+
+  describe('as a Focus facet (R06.2)', () => {
+    it('filters albums and tracks by tag, through artists and tracks too', async () => {
+      const tag = (await request(app).post('/api/tags').send({ name: 'Focus tag' })).body.data;
+      await request(app)
+        .post(`/api/tags/${tag.id}/items`)
+        .send({ itemType: 'artist', itemId: 'ar-1' });
+      await request(app)
+        .post(`/api/tags/${tag.id}/items`)
+        .send({ itemType: 'track', itemId: 't-3' });
+
+      const albums = await request(app).get(`/api/library/albums?tag=${tag.id}`);
+      expect(albums.body.data.map((a: { id: string }) => a.id).sort()).toEqual(['al-1', 'al-2']);
+      const tracks = await request(app).get(`/api/library/tracks?tag=${tag.id}`);
+      expect(tracks.body.data.map((t: { id: string }) => t.id).sort()).toEqual([
+        't-1',
+        't-2',
+        't-3',
+      ]);
+
+      const facets = await request(app).get('/api/library/albums/facets');
+      const entry = facets.body.data.tag.find((t: { value: string }) => t.value === tag.id);
+      expect(entry).toMatchObject({ name: 'Focus tag', count: 2, mine: true });
+    });
+
+    it("never filters by someone else's private tag", async () => {
+      const secret = (await request(app).post('/api/tags').send({ name: 'Hidden' })).body.data;
+      await request(app)
+        .post(`/api/tags/${secret.id}/items`)
+        .send({ itemType: 'album', itemId: 'al-1' });
+      const probe = await asMember(request(app).get(`/api/library/albums?tag=${secret.id}`));
+      expect(probe.body.meta.total).toBe(0);
+      const facets = await asMember(request(app).get('/api/library/albums/facets'));
+      expect(facets.body.data.tag.map((t: { name: string }) => t.name)).not.toContain('Hidden');
+    });
+  });
 });

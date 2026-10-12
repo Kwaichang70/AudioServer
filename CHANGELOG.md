@@ -11,6 +11,8 @@ the kind of change, not semver — there are no releases yet.
 - Eigen labels op albums, artiesten, tracks en playlists. Van jou om te
   bewerken; gedeeld = leesbaar voor het huishouden, niet bewerkbaar; anders 404.
 - "Speel" op een tag speelt de tracks, albums en artiesten die hij bevat.
+- "Add tag" in elk speelactiemenu; tagpagina's met Play/Shuffle; tags in de
+  zijbalk, als chips op album- en artiestpagina, en als Focus-facet.
 
 ## R05 — Focus: sorteren, filteren, bookmarks (verbeterplan 2, sprint R05)
 

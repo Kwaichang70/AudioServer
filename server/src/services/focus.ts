@@ -42,6 +42,8 @@ export interface FocusQuery {
   label?: string[];
   /** Composer artist ids. */
   composer?: string[];
+  /** Tag ids (R06.2); only tags the listener may see count. */
+  tag?: string[];
   /** Played by this listener in the last N days. */
   playedWithin?: number;
   /** Added to the library in the last N days. */
@@ -63,6 +65,7 @@ export type FacetKey =
   | 'favorite'
   | 'label'
   | 'composer'
+  | 'tag'
   | 'playedWithin'
   | 'addedWithin'
   | 'unplayed';
@@ -121,6 +124,7 @@ export function parseFocusQuery(input: Record<string, unknown>): FocusQuery {
     favorite: flag(one('favorite')),
     label: list(get('label')),
     composer: list(get('composer')),
+    tag: list(get('tag')),
     playedWithin: int(one('playedWithin'), 1, 36500),
     addedWithin: int(one('addedWithin'), 1, 36500),
     unplayed: flag(one('unplayed')),
@@ -162,6 +166,19 @@ interface Clause {
 const placeholders = (n: number) => Array.from({ length: n }, () => '?').join(',');
 
 const DAY = 86400;
+
+/**
+ * Items carrying one of these tags, as long as the listener may see the tag:
+ * a guessed id of someone's private tag must not reveal what is in it.
+ */
+function tagged(type: 'album' | 'artist' | 'track', tags: string[], userId: string) {
+  return {
+    sql: `SELECT ti.item_id FROM tag_items ti JOIN tags tg ON tg.id = ti.tag_id
+           WHERE ti.item_type = '${type}' AND tg.id IN (${placeholders(tags.length)})
+             AND (tg.user_id = ? OR tg.shared = 1)`,
+    params: [...tags, userId],
+  };
+}
 
 /**
  * "Hide duplicate editions" (R05.4): one album per identity — the release
@@ -231,6 +248,22 @@ export function albumClauses(
   }
   if (q.addedWithin && except !== 'addedWithin') {
     add('a.created_at >= ?', now() - q.addedWithin * DAY);
+  }
+  if (q.tag && except !== 'tag') {
+    if (!userId) add('0');
+    else {
+      // An album is in a tag itself, through its artist, or through a track.
+      const [al, ar, tr] = (['album', 'artist', 'track'] as const).map((t) =>
+        tagged(t, q.tag!, userId),
+      );
+      add(
+        `(a.id IN (${al.sql}) OR a.artist_id IN (${ar.sql})
+          OR a.id IN (SELECT album_id FROM tracks WHERE id IN (${tr.sql})))`,
+        ...al.params,
+        ...ar.params,
+        ...tr.params,
+      );
+    }
   }
   if (q.dedupeEditions) add(`a.id IN (${BEST_EDITIONS_SQL})`);
   if (q.rules) {
@@ -326,6 +359,20 @@ export function trackClauses(q: FocusQuery, userId: string | null, except?: Face
   }
   if (q.addedWithin && except !== 'addedWithin') {
     add('t.created_at >= ?', now() - q.addedWithin * DAY);
+  }
+  if (q.tag && except !== 'tag') {
+    if (!userId) add('0');
+    else {
+      const [al, ar, tr] = (['album', 'artist', 'track'] as const).map((t) =>
+        tagged(t, q.tag!, userId),
+      );
+      add(
+        `(t.id IN (${tr.sql}) OR t.album_id IN (${al.sql}) OR t.artist_id IN (${ar.sql}))`,
+        ...tr.params,
+        ...al.params,
+        ...ar.params,
+      );
+    }
   }
   if (q.dedupeEditions) add(`t.album_id IN (${BEST_EDITIONS_SQL})`);
   if (q.rules) {
@@ -600,6 +647,7 @@ export interface AlbumFacets {
   source: FacetValue[];
   label: FacetValue[];
   composer: Array<FacetValue & { name: string }>;
+  tag: Array<FacetValue & { name: string; mine: boolean }>;
   favorite: number;
   unplayed: number;
 }
@@ -679,7 +727,20 @@ export function albumFacets(q: FocusQuery, userId: string | null): AlbumFacets {
   );
   let favorite = 0;
   let unplayed = 0;
+  let tag: AlbumFacets['tag'] = [];
   if (userId) {
+    tag = run<{ value: string; name: string; mine: number; count: number }>(
+      `SELECT tg.id as value, tg.name as name, (tg.user_id = ?) as mine, COUNT(DISTINCT a.id) as count
+         FROM tags tg
+         JOIN tag_items ti ON ti.tag_id = tg.id
+         JOIN albums a ON (ti.item_type = 'album' AND a.id = ti.item_id)
+                       OR (ti.item_type = 'artist' AND a.artist_id = ti.item_id)
+                       OR (ti.item_type = 'track' AND a.id = (SELECT album_id FROM tracks WHERE id = ti.item_id))
+        WHERE (tg.user_id = ? OR tg.shared = 1) /*FILTER*/
+        GROUP BY tg.id ORDER BY mine DESC, tg.name COLLATE NOCASE`,
+      'tag',
+      [userId, userId],
+    ).map((row) => ({ ...row, mine: row.mine === 1 }));
     favorite =
       run<{ count: number }>(
         `SELECT COUNT(*) as count FROM albums a
@@ -696,5 +757,17 @@ export function albumFacets(q: FocusQuery, userId: string | null): AlbumFacets {
         [played!.json],
       )[0]?.count ?? 0;
   }
-  return { total, genre, decade, format, quality, source, label, composer, favorite, unplayed };
+  return {
+    total,
+    genre,
+    decade,
+    format,
+    quality,
+    source,
+    label,
+    composer,
+    tag,
+    favorite,
+    unplayed,
+  };
 }

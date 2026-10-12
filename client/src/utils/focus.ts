@@ -7,7 +7,15 @@
  * below belong to Focus; anything else on the URL is left alone.
  */
 
-export const FOCUS_LIST_KEYS = ['genre', 'format', 'source', 'label', 'composer', 'rule'] as const;
+export const FOCUS_LIST_KEYS = [
+  'genre',
+  'format',
+  'source',
+  'label',
+  'composer',
+  'tag',
+  'rule',
+] as const;
 export const FOCUS_SCALAR_KEYS = [
   'sort',
   'order',
@@ -129,7 +137,7 @@ export interface ActiveFilter {
 const QUALITY_LABELS: Record<string, string> = { lossless: 'Lossless', hires: 'Hi-Res' };
 const SOURCE_LABELS: Record<string, string> = { local: 'Local', qobuz: 'Qobuz', tidal: 'Tidal' };
 
-/** Every active filter as a removable chip. `names` resolves composer ids. */
+/** Every active filter as a removable chip. `names` resolves composer and tag ids. */
 export function activeFilters(
   params: URLSearchParams,
   names: Record<string, string> = {},
@@ -186,6 +194,13 @@ export function activeFilters(
       id: `composer:${value}`,
       label: names[value] ?? 'Composer',
       remove: (p) => toggleValue(p, 'composer', value),
+    });
+  }
+  for (const value of params.getAll('tag')) {
+    chips.push({
+      id: `tag:${value}`,
+      label: names[value] ? `# ${names[value]}` : 'Tag',
+      remove: (p) => toggleValue(p, 'tag', value),
     });
   }
   for (const value of params.getAll('rule')) {

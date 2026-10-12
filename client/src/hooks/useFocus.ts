@@ -36,8 +36,12 @@ export function useFocus() {
     };
   }, [query]);
 
+  // Ids that chips show by name: composers and tags.
   const composerNames = useMemo(
-    () => Object.fromEntries((facets?.composer ?? []).map((c) => [c.value, c.name])),
+    () =>
+      Object.fromEntries(
+        [...(facets?.composer ?? []), ...(facets?.tag ?? [])].map((c) => [c.value, c.name]),
+      ),
     [facets],
   );
 

@@ -2,6 +2,9 @@ import type { Album, Artist, RadioStation, Track } from '@audioserver/shared';
 import { API_BASE, STORAGE_KEYS } from '../constants.js';
 import type {
   AlbumFacets,
+  Tag,
+  TagDetail,
+  TagItemType,
   Bookmark,
   SmartDefinition,
   ApiMeta,
@@ -816,6 +819,26 @@ export const api = {
     definition: SmartDefinition,
   ): Promise<ApiResponse<SmartPlaylist>> =>
     fetchApi(`/smart-playlists/${id}`, { method: 'PATCH', body: JSON.stringify({ definition }) }),
+
+  // ─── Tags (R06) ─────────────────────────────────────────────
+  getTags: (): Promise<ApiResponse<Tag[]>> => fetchApi('/tags'),
+  getTag: (id: string): Promise<ApiResponse<TagDetail>> => fetchApi(`/tags/${id}`),
+  getTagTracks: (id: string): Promise<ApiResponse<LibraryTrack[]>> =>
+    fetchApi(`/tags/${id}/tracks`),
+  getTagsOn: (type: TagItemType, id: string): Promise<ApiResponse<Tag[]>> =>
+    fetchApi(`/tags/on/${type}/${encodeURIComponent(id)}`),
+  createTag: (name: string, shared = false): Promise<ApiResponse<Tag>> =>
+    fetchApi('/tags', { method: 'POST', body: JSON.stringify({ name, shared }) }),
+  updateTag: (
+    id: string,
+    changes: { name?: string; shared?: boolean },
+  ): Promise<ApiResponse<Tag>> =>
+    fetchApi(`/tags/${id}`, { method: 'PATCH', body: JSON.stringify(changes) }),
+  deleteTag: (id: string): Promise<OkResponse> => fetchApi(`/tags/${id}`, { method: 'DELETE' }),
+  addTagItem: (id: string, itemType: TagItemType, itemId: string): Promise<ApiResponse<Tag>> =>
+    fetchApi(`/tags/${id}/items`, { method: 'POST', body: JSON.stringify({ itemType, itemId }) }),
+  removeTagItem: (id: string, itemType: TagItemType, itemId: string): Promise<ApiResponse<Tag>> =>
+    fetchApi(`/tags/${id}/items/${itemType}/${encodeURIComponent(itemId)}`, { method: 'DELETE' }),
 
   // ─── Bookmarks (R05.3) ──────────────────────────────────────
   getBookmarks: (): Promise<ApiResponse<Bookmark[]>> => fetchApi('/bookmarks'),

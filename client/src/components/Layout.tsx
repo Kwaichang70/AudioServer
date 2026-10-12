@@ -8,6 +8,7 @@ import AppStatusBanners from './AppStatusBanners.js';
 import SearchBar from './SearchBar.js';
 import { Menu, MenuItem, MenuSeparator } from './ui/Menu.js';
 import { bookmarkHref, useBookmarks } from '../hooks/useBookmarks.js';
+import { useTags } from '../hooks/useTags.js';
 
 const NowPlayingFull = lazy(() => import('./NowPlayingFull.js'));
 
@@ -18,7 +19,7 @@ const NowPlayingFull = lazy(() => import('./NowPlayingFull.js'));
  * and on a phone they were a drawer you had to open first. A desktop now gets
  * a sidebar with named groups, a phone gets five tabs within thumb reach, and
  * both get the search bar in the header. Groups that belong to later sprints
- * (tags) are simply not here yet. Bookmarks (R05.3) appear once you have one.
+ * Bookmarks (R05.3) and your tags (R06.2) appear once you have one.
  */
 
 interface NavItem {
@@ -49,6 +50,7 @@ const NAV: NavGroup[] = [
       { to: '/tracks', label: 'Tracks' },
       { to: '/genres', label: 'Genres' },
       { to: '/composers', label: 'Composers' },
+      { to: '/tags', label: 'Tags' },
     ],
   },
   {
@@ -96,6 +98,7 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { bookmarks, remove: removeBookmark } = useBookmarks();
+  const { tags } = useTags();
   const here = `${location.pathname}${location.search}`;
 
   useEffect(() => {
@@ -162,6 +165,18 @@ export default function Layout() {
                       </div>
                     );
                   })}
+                </div>
+              )}
+              {tags.length > 0 && (
+                <div className="mb-4">
+                  <p className="px-3 pb-1 text-[10px] uppercase tracking-wider text-gray-500">
+                    Your tags
+                  </p>
+                  {tags.map((tag) => (
+                    <NavLink key={tag.id} to={`/tags/${tag.id}`} className={sidebarLink}>
+                      <span className="block truncate"># {tag.name}</span>
+                    </NavLink>
+                  ))}
                 </div>
               )}
             </nav>

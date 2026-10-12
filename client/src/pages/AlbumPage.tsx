@@ -4,6 +4,7 @@ import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
 import PlayActions, { toTrackInfo } from '../components/PlayActions.js';
 import Button from '../components/ui/Button.js';
+import ItemTags from '../components/ItemTags.js';
 import AlbumCover from '../components/AlbumCover.js';
 import { formatDuration, formatQuality } from '../utils/format.js';
 import type { AlbumCredit, AlbumVersions } from '../api/types.js';
@@ -227,6 +228,7 @@ export default function AlbumPage() {
         <div className="flex flex-col justify-end">
           <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Album</p>
           <h2 className="text-3xl font-bold mb-2">{album.title}</h2>
+          {id && !providerType && <ItemTags type="album" id={id} />}
           <p className="text-gray-400">
             {album.artistName}
             {album.year && <span> &middot; {album.year}</span>}

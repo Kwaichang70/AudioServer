@@ -556,6 +556,14 @@ export function FocusPanel({ open, onClose, focus, sorts, countNote }: PanelProp
         {(sources.length > 1 || params.has('source')) && (
           <Section title="Source">{list('source', sources)}</Section>
         )}
+        {facets && (facets.tag?.length ?? 0) > 0 && (
+          <Section title="Tags">
+            {list('tag', facets.tag, (id) => {
+              const tag = facets.tag.find((t) => t.value === id);
+              return tag ? `# ${tag.name}` : 'Tag';
+            })}
+          </Section>
+        )}
         {facets && facets.composer.length > 0 && (
           <Section title="Composer">{list('composer', facets.composer, composerName)}</Section>
         )}

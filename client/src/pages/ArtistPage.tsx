@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import ItemTags from '../components/ItemTags.js';
 import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
 import PlayActions, {
@@ -282,6 +283,7 @@ export default function ArtistPage() {
               {favorited ? '♥' : '♡'}
             </button>
           </div>
+          {id && <ItemTags type="artist" id={id} />}
           <p className="text-sm text-gray-500 mt-1">
             {ownCount} release{ownCount === 1 ? '' : 's'}
             {discography && discography.appearsOn.length > 0

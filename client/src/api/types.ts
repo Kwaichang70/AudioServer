@@ -80,6 +80,7 @@ export interface AlbumFacets {
   source: FacetValue[];
   label: FacetValue[];
   composer: Array<FacetValue & { name: string }>;
+  tag: Array<FacetValue & { name: string; mine: boolean }>;
   favorite: number;
   unplayed: number;
 }
@@ -709,6 +710,33 @@ export interface SmartPlaylist {
   trackCount: number;
   userId?: string | null;
   shared?: boolean;
+}
+
+/** A listener's own label (R06.1). Only `mine` tags can be changed. */
+export type TagItemType = 'album' | 'artist' | 'track' | 'playlist';
+
+export interface Tag {
+  id: string;
+  name: string;
+  shared: boolean;
+  mine: boolean;
+  ownerName: string | null;
+  itemCount: number;
+  counts: Record<TagItemType, number>;
+}
+
+export interface TagDetail extends Tag {
+  items: {
+    albums: LibraryAlbum[];
+    artists: LibraryArtist[];
+    tracks: LibraryTrack[];
+    playlists: Array<{
+      id: string;
+      name: string;
+      shared: number | boolean;
+      mine: number | boolean;
+    }>;
+  };
 }
 
 /** A named Focus question in the sidebar (R05.3). */

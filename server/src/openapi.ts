@@ -42,6 +42,14 @@ const focusParams = [
     style: 'form',
     explode: true,
   },
+  {
+    name: 'tag',
+    in: 'query',
+    description: 'Tag ids you can see (an album counts through its artist and tracks too)',
+    schema: list,
+    style: 'form',
+    explode: true,
+  },
   { name: 'favorite', in: 'query', description: 'My favourites', schema: { type: 'boolean' } },
   {
     name: 'playedWithin',
