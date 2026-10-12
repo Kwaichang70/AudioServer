@@ -54,7 +54,9 @@ describe('Radio and Home keep profiles apart', () => {
        VALUES (?, ?, 'al-a', 'ar-a', 'x', 'A', ?, 300000, 300, 'ended', 1, ?)`,
     );
     const now = Math.floor(Date.now() / 1000);
-    for (let i = 0; i < 4; i++) listen.run(`s${i}`, `a${i + 1}`, now - i * 10, admin.id);
+    // Always the same track: the mix draws three of A's six tracks and skips
+    // what was heard this month, so at least two always remain.
+    for (let i = 0; i < 4; i++) listen.run(`s${i}`, 'a1', now - i * 10, admin.id);
   });
 
   afterAll(() => {
