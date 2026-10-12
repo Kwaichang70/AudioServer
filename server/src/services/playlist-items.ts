@@ -55,6 +55,8 @@ export interface PlaylistItem {
   unavailableReason?: string;
   /** True when the row below is the snapshot rather than a live library row. */
   fromSnapshot: boolean;
+  /** Where the item comes from, stable across restarts: 'qobuz:track:123' (R07.3). */
+  sourceRef: string;
 }
 
 interface ItemRow {
@@ -69,6 +71,7 @@ interface ItemRow {
   duration: number | null;
   metadata: string | null;
   position: number;
+  source_ref: string | null;
 }
 
 interface LocalRow {
@@ -129,6 +132,12 @@ function localTrack(trackId: string): LocalRow | undefined {
   }
 }
 
+/** 'local:track:<id>', 'qobuz:track:123', 'radio:track:<uuid>' (R07.3). */
+export function sourceRefOf(trackId: string, source: string = sourceOf(trackId)): string {
+  const bare = trackId.includes(':') ? trackId.slice(trackId.indexOf(':') + 1) : trackId;
+  return `${source}:track:${bare}`;
+}
+
 function parseMetadata(raw: string | null): Record<string, unknown> {
   if (!raw) return {};
   try {
@@ -172,6 +181,21 @@ export function snapshotOf(input: ItemInput): {
     };
   }
 
+  // A Qobuz title in the library (R07.1) describes itself: the id is enough.
+  const inLibrary = localTrack(input.trackId);
+  if (inLibrary && !input.title) {
+    return {
+      trackId: inLibrary.id,
+      source,
+      title: inLibrary.title,
+      artistName: inLibrary.artist_name,
+      albumTitle: inLibrary.album_title,
+      albumId: inLibrary.album_id,
+      duration: inLibrary.duration,
+      metadata: inLibrary.cover_url ? JSON.stringify({ coverUrl: inLibrary.cover_url }) : null,
+    };
+  }
+
   const title = input.title?.trim();
   const artistName = input.artistName?.trim();
   if (!title || !artistName) throw new MissingSnapshotError(input.trackId);
@@ -204,14 +228,15 @@ export function addItem(playlistId: string, input: ItemInput): string {
   const itemId = `pli-${randomUUID()}`;
   db.prepare(
     `INSERT INTO playlist_tracks
-       (playlist_id, item_id, track_id, source, track_title, artist_name, album_title,
+       (playlist_id, item_id, track_id, source, source_ref, track_title, artist_name, album_title,
         album_id, duration, metadata, position, added_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`,
   ).run(
     playlistId,
     itemId,
     snapshot.trackId,
     snapshot.source,
+    sourceRefOf(snapshot.trackId, snapshot.source),
     snapshot.title,
     snapshot.artistName,
     snapshot.albumTitle,
@@ -227,7 +252,7 @@ export function rawItems(playlistId: string): ItemRow[] {
   try {
     return getRawDb()
       .prepare(
-        `SELECT id, item_id, track_id, source, track_title, artist_name, album_title,
+        `SELECT id, item_id, track_id, source, source_ref, track_title, artist_name, album_title,
                 album_id, duration, metadata, position
            FROM playlist_tracks WHERE playlist_id = ? ORDER BY position ASC, id ASC`,
       )
@@ -278,9 +303,18 @@ function toItem(row: ItemRow): PlaylistItem {
     coverUrl: typeof extra.coverUrl === 'string' ? extra.coverUrl : null,
     availability: 'available',
     fromSnapshot: true,
+    sourceRef: row.source_ref ?? sourceRefOf(row.track_id, source),
   };
 
   if (source !== 'local') {
+    // A Qobuz title in the library that Qobuz withdrew says so (R07.2) — the
+    // more specific reason, and one a new login would not fix.
+    const inLibrary = localTrack(row.track_id);
+    if (inLibrary?.availability === 'unavailable') {
+      base.availability = 'unavailable';
+      base.unavailableReason = 'Qobuz no longer streams this title (R07.2).';
+      return base;
+    }
     const reason = sourceReason(source);
     if (reason) {
       base.availability = 'unavailable';

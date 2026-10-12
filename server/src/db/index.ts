@@ -306,6 +306,15 @@ export async function initDatabase(overridePath?: string) {
   runMigration(sqlite, 'albums', 'source_ref', 'TEXT');
   runMigration(sqlite, 'tracks', 'source_ref', 'TEXT');
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_albums_source ON albums (source)');
+  // R07.3: a playlist item names its source explicitly — 'qobuz:track:123' —
+  // beside the snapshot that makes it readable when the source is away.
+  runMigration(sqlite, 'playlist_tracks', 'source_ref', 'TEXT');
+  sqlite.exec(`
+    UPDATE playlist_tracks
+       SET source_ref = COALESCE(source, 'local') || ':track:' ||
+           CASE WHEN instr(track_id, ':') > 0 THEN substr(track_id, instr(track_id, ':') + 1) ELSE track_id END
+     WHERE source_ref IS NULL
+  `);
   // R07.2: what the last sync with the Qobuz favourites agreed on, so the next
   // one knows which side changed. 'synced' = in both; 'removed_on_qobuz' =
   // still in the library, waiting for you to decide; 'library_only' = you

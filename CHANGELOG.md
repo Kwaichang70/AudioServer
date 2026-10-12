@@ -18,6 +18,11 @@ the kind of change, not semver — there are no releases yet.
   wacht op jouw "Keep" of "Remove" in Instellingen.
 - Ingetrokken titels worden "not on Qobuz", gedimd zoals een ontbrekend bestand.
 
+**Playlists over bronnen heen**
+
+- Elk item noemt zijn bron (`qobuz:track:123`); een gemengde playlist is na
+  een herstart identiek.
+
 ## R06 — Tags, favorieten overal, waarderingen (verbeterplan 2, sprint R06)
 
 **Tags** (`server/src/services/tags.ts`, schemaversie 17)
