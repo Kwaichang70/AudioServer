@@ -714,6 +714,20 @@ export interface SmartPlaylist {
   shared?: boolean;
 }
 
+/** Library ⇄ Qobuz favourites (R07.2). */
+export interface QobuzSyncStatus {
+  last: {
+    at: number;
+    addedToLibrary: string[];
+    favoritedOnQobuz: string[];
+    unfavoritedOnQobuz: string[];
+    removedOnQobuz: string[];
+    errors: string[];
+  } | null;
+  /** Removed from the Qobuz favourites, still in the library: your call. */
+  waiting: Array<{ id: string; title: string; artistName: string }>;
+}
+
 /** A listener's own label (R06.1). Only `mine` tags can be changed. */
 export type TagItemType = 'album' | 'artist' | 'track' | 'playlist';
 

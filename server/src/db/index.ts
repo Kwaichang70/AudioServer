@@ -306,6 +306,17 @@ export async function initDatabase(overridePath?: string) {
   runMigration(sqlite, 'albums', 'source_ref', 'TEXT');
   runMigration(sqlite, 'tracks', 'source_ref', 'TEXT');
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_albums_source ON albums (source)');
+  // R07.2: what the last sync with the Qobuz favourites agreed on, so the next
+  // one knows which side changed. 'synced' = in both; 'removed_on_qobuz' =
+  // still in the library, waiting for you to decide; 'library_only' = you
+  // chose to keep it without it being a Qobuz favourite.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS qobuz_album_sync (
+      album_id TEXT PRIMARY KEY,
+      state TEXT NOT NULL,
+      updated_at INTEGER
+    )
+  `);
   // R06.1: the listener's own order, apart from metadata. A tag belongs to one
   // person; `shared` makes it readable (never editable) for the household.
   sqlite.exec(`

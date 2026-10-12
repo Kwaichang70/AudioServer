@@ -62,7 +62,7 @@ const defaults: ShuffleDeps = {
       // a queue can outlive a database that was restored from a backup — so
       // it is left in rather than quietly skipped.
       if (availability === undefined) return true;
-      return availability !== 'missing';
+      return availability !== 'missing' && availability !== 'unavailable';
     }
     try {
       const caps = getCapabilities(kind);

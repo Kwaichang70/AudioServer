@@ -261,7 +261,7 @@ export function tagTracks(tagId: string): Array<Record<string, unknown>> {
   return getRawDb()
     .prepare(
       `SELECT ${TRACK_FIELDS} FROM tracks t
-        WHERE COALESCE(t.availability, 'available') != 'missing' AND (
+        WHERE COALESCE(t.availability, 'available') NOT IN ('missing', 'unavailable') AND (
               t.id IN (SELECT item_id FROM tag_items WHERE tag_id = ? AND item_type = 'track')
            OR t.album_id IN (SELECT item_id FROM tag_items WHERE tag_id = ? AND item_type = 'album')
            OR t.artist_id IN (SELECT item_id FROM tag_items WHERE tag_id = ? AND item_type = 'artist'))

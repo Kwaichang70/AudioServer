@@ -51,6 +51,13 @@ import {
 } from '../services/qobuz-library.js';
 import { QobuzProviderError } from '../providers/qobuz.js';
 import {
+  afterAdd,
+  afterRemove,
+  qobuzSyncStatus,
+  resolveRemovedOnQobuz,
+  syncQobuzFavorites,
+} from '../services/qobuz-sync.js';
+import {
   albumFacets,
   focusAlbums,
   focusArtists,
@@ -250,7 +257,7 @@ libraryRouter.get('/artists/:id/top-tracks', (req, res) => {
          FROM listening_sessions ls
          JOIN tracks t ON t.id = ls.track_id
         WHERE ls.user_id = ? AND ls.qualified = 1
-          AND t.availability != 'missing'
+          AND t.availability NOT IN ('missing', 'unavailable')
           AND (t.artist_id = ? OR t.id IN (SELECT track_id FROM track_artists WHERE artist_id = ?))
         GROUP BY t.id
         ORDER BY plays DESC, MAX(ls.started_at) DESC
@@ -384,7 +391,7 @@ libraryRouter.get('/composers/:id', (req, res) => {
       title: row.title,
       movement: row.movement,
       duration: row.duration,
-      missing: row.availability === 'missing',
+      missing: row.availability === 'missing' || row.availability === 'unavailable',
     });
   }
   const data = {
@@ -447,7 +454,9 @@ libraryRouter.post(
     const id = qobuzIdParam.safeParse(req.params.id);
     if (!id.success) return res.status(400).json({ error: 'Not a Qobuz album id' });
     try {
-      res.status(201).json({ data: await addQobuzAlbum(id.data) });
+      const added = await addQobuzAlbum(id.data);
+      // R07.2: in the library = a Qobuz favourite.
+      res.status(201).json({ data: { ...added, qobuzFavorite: await afterAdd(added.albumId) } });
     } catch (err) {
       qobuzFailure(res, err);
     }
@@ -481,10 +490,42 @@ libraryRouter.get('/qobuz/in-library', (req, res) => {
 // and the missing-tracks purge decide about those, never this route.
 libraryRouter.delete('/albums/:id', (req, res) => {
   if (!requireOwner(req, res)) return;
-  if (!removeQobuzAlbum(String(req.params.id))) {
+  const albumId = String(req.params.id);
+  if (!removeQobuzAlbum(albumId)) {
     return res.status(404).json({ error: 'No Qobuz album with that id in the library' });
   }
+  // R07.2: out of the library = no longer a Qobuz favourite (you confirmed).
+  void afterRemove(albumId);
   res.json({ data: { ok: true } });
+});
+
+// R07.2: the last sync with the Qobuz favourites, and what waits for you.
+libraryRouter.get('/qobuz/sync', (_req, res) => {
+  res.json({ data: qobuzSyncStatus() });
+});
+
+libraryRouter.post(
+  '/qobuz/sync',
+  asyncHandler(async (req, res) => {
+    if (!requireOwner(req, res)) return;
+    const result = await syncQobuzFavorites();
+    if (!result)
+      return res
+        .status(409)
+        .json({ error: 'qobuz_not_authenticated', message: 'Sign in to Qobuz first' });
+    res.json({ data: { ...qobuzSyncStatus(), last: result } });
+  }),
+);
+
+// Removed from the Qobuz favourites: remove from the library too, or keep it.
+libraryRouter.post('/qobuz/sync/:id', (req, res) => {
+  if (!requireOwner(req, res)) return;
+  const decision = z.enum(['remove', 'keep']).safeParse(req.body?.decision);
+  if (!decision.success) return res.status(400).json({ error: 'decision must be remove or keep' });
+  if (!resolveRemovedOnQobuz(String(req.params.id), decision.data)) {
+    return res.status(404).json({ error: 'Nothing waits for a decision on that album' });
+  }
+  res.json({ data: qobuzSyncStatus() });
 });
 
 // Recently added albums

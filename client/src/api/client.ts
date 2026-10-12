@@ -2,6 +2,7 @@ import type { Album, Artist, RadioStation, Track } from '@audioserver/shared';
 import { API_BASE, STORAGE_KEYS } from '../constants.js';
 import type {
   AlbumFacets,
+  QobuzSyncStatus,
   Tag,
   TagDetail,
   TagItemType,
@@ -942,6 +943,17 @@ export const api = {
     }),
   removeQobuzAlbumFromLibrary: (albumId: string): Promise<OkResponse> =>
     fetchApi(`/library/albums/${encodeURIComponent(albumId)}`, { method: 'DELETE' }),
+  getQobuzSync: (): Promise<ApiResponse<QobuzSyncStatus>> => fetchApi('/library/qobuz/sync'),
+  runQobuzSync: (): Promise<ApiResponse<QobuzSyncStatus>> =>
+    fetchApi('/library/qobuz/sync', { method: 'POST' }),
+  decideQobuzRemoval: (
+    albumId: string,
+    decision: 'remove' | 'keep',
+  ): Promise<ApiResponse<QobuzSyncStatus>> =>
+    fetchApi(`/library/qobuz/sync/${encodeURIComponent(albumId)}`, {
+      method: 'POST',
+      body: JSON.stringify({ decision }),
+    }),
   getQobuzAlbum: (id: string): Promise<ApiResponse<Album | null>> =>
     fetchApi(`/providers/qobuz/albums/${id}`),
   getQobuzAlbumTracks: (id: string): Promise<ApiResponse<Track[]>> =>

@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { isUnplayable } from '../utils/availability.js';
 import RatingStars from '../components/RatingStars.js';
 import FavoriteButton from '../components/FavoriteButton.js';
 import { Link } from 'react-router-dom';
@@ -44,7 +45,7 @@ export default function TracksPage() {
 
   // Rows that can play, as the player wants them; a missing file is listed
   // but skipped when playing from a row.
-  const playable = useMemo(() => items.filter((t) => t.availability !== 'missing'), [items]);
+  const playable = useMemo(() => items.filter((t) => !isUnplayable(t)), [items]);
   const infos = useMemo(() => playable.map((t) => toTrackInfo(t)), [playable]);
 
   return (
@@ -79,7 +80,7 @@ export default function TracksPage() {
           </thead>
           <tbody>
             {items.map((track) => {
-              const missing = track.availability === 'missing';
+              const missing = isUnplayable(track);
               const index = playable.indexOf(track);
               return (
                 <tr

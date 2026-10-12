@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
+import { isUnplayable, unplayableLabel } from '../utils/availability.js';
 import { noteFavorite } from '../hooks/useFavorite.js';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
@@ -25,7 +26,7 @@ interface Track {
   sampleRate?: number;
   bitDepth?: number;
   /** V06: 'missing' when the file is no longer where the library saw it. */
-  availability?: 'available' | 'missing';
+  availability?: 'available' | 'missing' | 'streaming' | 'unavailable';
   /** The composition this track is part of, for classical music (R03.1). */
   work?: string | null;
   movement?: string | null;
@@ -215,7 +216,9 @@ export default function AlbumPage() {
     if (!id) return;
     if (
       inLibrary &&
-      !window.confirm(`Remove “${album?.title ?? 'this album'}” from your library?`)
+      !window.confirm(
+        `Remove “${album?.title ?? 'this album'}” from your library? It is also removed from your Qobuz favourites.`,
+      )
     ) {
       return;
     }
@@ -264,7 +267,7 @@ export default function AlbumPage() {
   // What goes into the queue: the player's fields only, and for "play next" /
   // "add to queue" only files that are actually there (R01.2).
   const trackInfos = tracks.map((t) => toTrackInfo(t));
-  const playable = tracks.filter((t) => t.availability !== 'missing').map((t) => toTrackInfo(t));
+  const playable = tracks.filter((t) => !isUnplayable(t)).map((t) => toTrackInfo(t));
 
   return (
     <div>
@@ -365,7 +368,7 @@ export default function AlbumPage() {
         <tbody>
           {tracks.map((track, trackIndex) => {
             const isCurrent = currentTrack?.id === track.id;
-            const missing = track.availability === 'missing';
+            const missing = isUnplayable(track);
             const disc = track.discNumber ?? 1;
             const previousDisc = trackIndex > 0 ? (tracks[trackIndex - 1].discNumber ?? 1) : null;
             const startsDisc = hasMultipleDiscs && disc !== previousDisc;
@@ -401,7 +404,11 @@ export default function AlbumPage() {
                 <tr
                   onClick={() => playAlbum(tracks, trackIndex)}
                   title={
-                    missing ? 'File not found on disk: rescan or clean up in Settings' : undefined
+                    !missing
+                      ? undefined
+                      : track.availability === 'unavailable'
+                        ? 'Qobuz no longer streams this title'
+                        : 'File not found on disk: rescan or clean up in Settings'
                   }
                   className={`cursor-pointer hover:bg-surface-light transition ${
                     isCurrent ? 'text-accent' : ''
@@ -428,7 +435,7 @@ export default function AlbumPage() {
                         {hasWorks && track.work && track.movement ? track.movement : track.title}
                         {missing && (
                           <span className="ml-2 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-red-300">
-                            missing
+                            {unplayableLabel(track)}
                           </span>
                         )}
                       </span>

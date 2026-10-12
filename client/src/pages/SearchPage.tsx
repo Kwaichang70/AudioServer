@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { isUnplayable, unplayableLabel } from '../utils/availability.js';
 import FavoriteButton from '../components/FavoriteButton.js';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { Playability, ProviderType, SearchSourceStatus, SourceRef } from '@audioserver/shared';
@@ -30,7 +31,7 @@ interface SearchTrack extends TrackInfo {
   availableOn?: ProviderType[];
   /** Edition label (Live, Remastered ...), from the source or the title (V07.1). */
   version?: string;
-  availability?: 'available' | 'missing';
+  availability?: 'available' | 'missing' | 'streaming' | 'unavailable';
   /** One entry per source with that source's own item id (V07.1). */
   alternatives?: SourceRef[];
   /** What can play it right now (V07.2). */
@@ -407,9 +408,9 @@ export default function SearchPage() {
                             {t.version}
                           </span>
                         )}
-                        {t.availability === 'missing' && (
+                        {isUnplayable(t) && (
                           <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 uppercase">
-                            missing
+                            {unplayableLabel(t)}
                           </span>
                         )}
                       </span>

@@ -111,7 +111,7 @@ export function searchLocal(query: string, options: LocalSearchOptions = {}): Lo
                       WHEN title_norm LIKE ? ESCAPE '\\' THEN 2
                       WHEN artist_norm LIKE ? ESCAPE '\\' OR album_norm LIKE ? ESCAPE '\\' THEN 3
                       ELSE 4 END,
-                 CASE WHEN availability = 'missing' THEN 1 ELSE 0 END, title COLLATE NOCASE
+                 CASE WHEN availability IN ('missing', 'unavailable') THEN 1 ELSE 0 END, title COLLATE NOCASE
         LIMIT ?`,
     )
     .all(...params) as Track[];

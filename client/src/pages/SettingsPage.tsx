@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext.js';
 import PlaybackSection from './settings/PlaybackSection.js';
 import LibrarySection from './settings/LibrarySection.js';
 import IdentifySection from './settings/IdentifySection.js';
+import QobuzSyncSection from './settings/QobuzSyncSection.js';
 import ProvidersSection from './settings/ProvidersSection.js';
 import LibrespotSection from './settings/LibrespotSection.js';
 import ScrobblingSection from './settings/ScrobblingSection.js';
@@ -50,6 +51,7 @@ const TABS: Tab[] = [
       <>
         <LibrarySection />
         <IdentifySection />
+        <QobuzSyncSection />
       </>
     ),
   },

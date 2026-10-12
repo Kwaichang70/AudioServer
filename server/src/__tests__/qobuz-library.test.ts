@@ -93,6 +93,8 @@ describe('Qobuz in the library', () => {
       title: 'Kind of Blue',
       artistName: 'Miles Davis',
       trackCount: 3,
+      // Not signed in to Qobuz in this test: the favourite follows at the next sync.
+      qobuzFavorite: 'pending',
     });
     const db = getRawDb();
     expect(

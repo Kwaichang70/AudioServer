@@ -106,11 +106,13 @@ function artistsLike(artist: string): string[] {
 }
 
 function preferAvailable(rows: TrackRow[]): TrackRow | undefined {
-  return rows.find((r) => r.availability !== 'missing') ?? rows[0];
+  return (
+    rows.find((r) => r.availability !== 'missing' && r.availability !== 'unavailable') ?? rows[0]
+  );
 }
 
 function toMatch(row: TrackRow, certainty: MatchCertainty, note: string): LocalMatch {
-  const available = row.availability !== 'missing';
+  const available = row.availability !== 'missing' && row.availability !== 'unavailable';
   return {
     trackId: row.id,
     albumId: row.album_id,
@@ -299,7 +301,7 @@ function availableTracksByArtist(artistName: string, limit: number): TrackRow[] 
   try {
     return getRawDb()
       .prepare(
-        `${SELECT_TRACK} WHERE LOWER(artist_name) = LOWER(?) AND availability != 'missing'
+        `${SELECT_TRACK} WHERE LOWER(artist_name) = LOWER(?) AND availability NOT IN ('missing', 'unavailable')
           ORDER BY RANDOM() LIMIT ?`,
       )
       .all(artistName, limit) as TrackRow[];
@@ -311,7 +313,9 @@ function availableTracksByArtist(artistName: string, limit: number): TrackRow[] 
 function randomAvailableTracks(limit: number): TrackRow[] {
   try {
     return getRawDb()
-      .prepare(`${SELECT_TRACK} WHERE availability != 'missing' ORDER BY RANDOM() LIMIT ?`)
+      .prepare(
+        `${SELECT_TRACK} WHERE availability NOT IN ('missing', 'unavailable') ORDER BY RANDOM() LIMIT ?`,
+      )
       .all(limit) as TrackRow[];
   } catch {
     return [];

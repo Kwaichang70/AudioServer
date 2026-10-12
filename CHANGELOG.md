@@ -12,6 +12,12 @@ the kind of change, not semver — there are no releases yet.
   staan tussen je albums, spelen op elke kamer en een herscan laat ze staan.
 - Hersteld: tags en sterren in de kop van een lokaal album (sinds R06 onzichtbaar).
 
+**Sync met Qobuz-favorieten**
+
+- Toevoegen in de app = favoriet op Qobuz, en andersom; verwijderen op Qobuz
+  wacht op jouw "Keep" of "Remove" in Instellingen.
+- Ingetrokken titels worden "not on Qobuz", gedimd zoals een ontbrekend bestand.
+
 ## R06 — Tags, favorieten overal, waarderingen (verbeterplan 2, sprint R06)
 
 **Tags** (`server/src/services/tags.ts`, schemaversie 17)

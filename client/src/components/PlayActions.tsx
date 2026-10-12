@@ -1,4 +1,5 @@
 import { useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { isUnplayable } from '../utils/availability.js';
 import { api } from '../api/client.js';
 import type { LibraryTrack, StoredPlaylist, Tag, TagItemType } from '../api/types.js';
 import { notifyTagsChanged } from '../hooks/useTags.js';
@@ -175,9 +176,7 @@ export default function PlayActions({ target, triggerTabIndex, className }: Prop
       target.kind === 'album'
         ? await api.getAlbumTracks(target.albumId)
         : await api.getArtistTracks(target.artistId);
-    const list = (res.data ?? [])
-      .filter((t) => t.availability !== 'missing')
-      .map((t) => toTrackInfo(t));
+    const list = (res.data ?? []).filter((t) => !isUnplayable(t)).map((t) => toTrackInfo(t));
     if (list.length === 0) toast(`Nothing playable in ${menuLabel(target)}`, 'info');
     return list;
   };

@@ -1382,6 +1382,30 @@ export const openApiSpec = {
         responses: { 201: ok('{ albumId, title, artistName, trackCount }'), 409: ok('withdrawn') },
       },
     },
+    '/library/qobuz/sync': {
+      get: {
+        tags: ['Library'],
+        summary: 'Library ⇄ Qobuz favourites (R07.2): last sync and albums waiting for a decision',
+        responses: { 200: ok('{ last, waiting }') },
+      },
+      post: {
+        tags: ['Library'],
+        summary: 'Sync with the Qobuz favourites now',
+        responses: { 200: ok('{ last, waiting }'), 409: ok('not signed in to Qobuz') },
+      },
+    },
+    '/library/qobuz/sync/{id}': {
+      post: {
+        tags: ['Library'],
+        summary: 'Removed from the Qobuz favourites: remove from the library too, or keep it',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: {
+          200: ok('{ last, waiting }'),
+          400: ok('decision must be remove or keep'),
+          404: ok('nothing waits'),
+        },
+      },
+    },
     '/library/qobuz/in-library': {
       get: {
         tags: ['Library'],

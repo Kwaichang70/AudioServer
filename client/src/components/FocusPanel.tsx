@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { isUnplayable } from '../utils/availability.js';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
 import { api } from '../api/client.js';
@@ -79,7 +80,7 @@ export function FocusBar({ focus, sorts, playSort, countNote }: BarProps) {
       }
       const list = tracks
         .slice(0, PLAY_ALL_LIMIT)
-        .filter((t) => t.availability !== 'missing')
+        .filter((t) => !isUnplayable(t))
         .map((t) => toTrackInfo(t));
       if (list.length > 0) playAlbum(shuffle ? shuffledCopy(list) : list, 0);
       if (total > PLAY_ALL_LIMIT) {

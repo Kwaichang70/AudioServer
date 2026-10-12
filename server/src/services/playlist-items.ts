@@ -314,11 +314,18 @@ function toItem(row: ItemRow): PlaylistItem {
     replayGainTrack: live.replay_gain_track,
     replayGainTrackPeak: live.replay_gain_track_peak,
     fromSnapshot: false,
-    availability: live.availability === 'missing' ? 'missing' : 'available',
+    availability:
+      live.availability === 'missing'
+        ? 'missing'
+        : live.availability === 'unavailable'
+          ? 'unavailable'
+          : 'available',
     unavailableReason:
       live.availability === 'missing'
         ? 'The file is not where the library expects it; a scan or a relink brings it back.'
-        : undefined,
+        : live.availability === 'unavailable'
+          ? 'Qobuz no longer streams this title (R07.2).'
+          : undefined,
   };
 }
 

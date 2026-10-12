@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { isUnplayable } from '../utils/availability.js';
 import FavoriteButton from '../components/FavoriteButton.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
@@ -221,7 +222,7 @@ function TagDetailView({ id }: { id: string }) {
         ×
       </button>
     );
-  const tracks = tag.items.tracks.filter((t) => t.availability !== 'missing');
+  const tracks = tag.items.tracks.filter((t) => !isUnplayable(t));
   const trackInfos = tracks.map((t) => toTrackInfo(t));
 
   return (

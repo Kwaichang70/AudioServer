@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { isUnplayable } from '../utils/availability.js';
 import { noteFavorite } from '../hooks/useFavorite.js';
 import { useParams, Link } from 'react-router-dom';
 import ItemTags from '../components/ItemTags.js';
@@ -171,9 +172,7 @@ export default function ArtistPage() {
     setStarting(true);
     try {
       const res = await api.getArtistTracks(id);
-      const list = (res.data ?? [])
-        .filter((t) => t.availability !== 'missing')
-        .map((t) => toTrackInfo(t));
+      const list = (res.data ?? []).filter((t) => !isUnplayable(t)).map((t) => toTrackInfo(t));
       if (list.length > 0) playAlbum(shuffle ? shuffledCopy(list) : list, 0);
     } catch {
       // The buttons stay usable; the toast layer reports API errors globally.

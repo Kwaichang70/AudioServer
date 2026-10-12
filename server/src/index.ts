@@ -35,6 +35,7 @@ import { closeInterruptedScanRuns } from './services/scanner.js';
 import { deviceMonitor } from './services/device-monitor.js';
 import { initServerPlayer, reconcileAllZones } from './services/server-player.js';
 import { configureSleepTimers, initializeSleepTimers } from './services/sleep-timer.js';
+import { startQobuzSync, stopQobuzSync } from './services/qobuz-sync.js';
 import { closeOrphanedSessions, playbackListeningObserver } from './services/listening.js';
 import { globalLimiter } from './middleware/rateLimiter.js';
 import { requestLogger } from './middleware/requestLogger.js';
@@ -244,6 +245,8 @@ async function main() {
     },
   });
   initializeSleepTimers();
+  // Library ⇄ Qobuz favourites (R07.2): at start and every six hours.
+  startQobuzSync();
   // A queue survives a restart; whether the speaker is still playing it is
   // checked, not assumed (V04.3). Runs after listen() so readiness is not
   // delayed by a slow renderer.
@@ -277,6 +280,7 @@ function shutdown(signal: string): Promise<void> {
 
     try {
       scrobbler.stop();
+      stopQobuzSync();
       deviceMonitor.stopAll();
       stopWatcher();
       stopLibrespot();

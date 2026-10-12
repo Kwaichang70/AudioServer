@@ -113,7 +113,10 @@ export const tracks = sqliteTable('tracks', {
   fingerprint: text('fingerprint'),
   /** Scanner rule version that last processed this file; a bump reprocesses everything once. */
   scanVersion: integer('scan_version'),
-  /** 'available' | 'missing': a missing file keeps its row until an explicit purge. */
+  /**
+   * 'available' | 'missing' (a local file, kept until an explicit purge) |
+   * 'streaming' (a Qobuz title in the library, R07.1) | 'unavailable' (Qobuz withdrew it, R07.2).
+   */
   availability: text('availability').notNull().default('available'),
   missingSince: integer('missing_since'),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
