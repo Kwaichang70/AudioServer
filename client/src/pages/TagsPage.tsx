@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import FavoriteButton from '../components/FavoriteButton.js';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import type { Tag, TagDetail, TagItemType } from '../api/types.js';
@@ -400,6 +401,7 @@ function TagDetailView({ id }: { id: string }) {
                     </span>
                   </button>
                   <span className="text-xs text-gray-500">{formatDuration(track.duration)}</span>
+                  {index >= 0 && <FavoriteButton kind="track" id={track.id} title={track.title} />}
                   {index >= 0 && (
                     <PlayActions
                       target={{ kind: 'track', track: trackInfos[index], list: trackInfos, index }}

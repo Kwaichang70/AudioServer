@@ -69,6 +69,12 @@ describe('personal data stays personal', () => {
     expect(
       (await as(ben).get('/api/history/favorites/check?type=album&id=album-1')).body.data,
     ).toEqual({ favorited: false });
+    // R06.3: the ids that fill a list's hearts are personal too.
+    expect((await as(anna).get('/api/history/favorites/ids?type=album')).body.data).toEqual([
+      'album-1',
+    ]);
+    expect((await as(ben).get('/api/history/favorites/ids?type=album')).body.data).toEqual([]);
+    expect((await as(anna).get('/api/history/favorites/ids?type=bogus')).status).toBe(400);
 
     // Both may like the same album; the unique index is per user now.
     const bensToo = await as(ben).post('/api/history/favorites').send({

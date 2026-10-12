@@ -648,6 +648,9 @@ export const api = {
   getFavorites: <T extends Exclude<FavoriteType, 'track'>>(
     type: T,
   ): Promise<ApiResponse<FavoriteResponseMap[T][]>> => fetchApi(`/history/favorites?type=${type}`),
+  /** Every favourite id of one type: fills the hearts of a whole list (R06.3). */
+  getFavoriteIds: (type: 'track' | 'album' | 'artist'): Promise<ApiResponse<string[]>> =>
+    fetchApi(`/history/favorites/ids?type=${type}`),
   checkFavorite: (type: FavoriteType, id: string): Promise<ApiResponse<{ favorited: boolean }>> =>
     fetchApi(`/history/favorites/check?type=${type}&id=${id}`),
 

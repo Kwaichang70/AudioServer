@@ -2,6 +2,8 @@ import { useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { api } from '../api/client.js';
 import type { LibraryTrack, StoredPlaylist, Tag, TagItemType } from '../api/types.js';
 import { notifyTagsChanged } from '../hooks/useTags.js';
+import { noteFavorite, useFavorite } from '../hooks/useFavorite.js';
+import FavoriteButton from './FavoriteButton.js';
 import { useAudioContext, type TrackInfo } from '../context/AudioContext.js';
 import { Menu, MenuItem, MenuSeparator } from './ui/Menu.js';
 import { useToast } from './Toast.js';
@@ -200,6 +202,7 @@ export default function PlayActions({ target, triggerTabIndex, className }: Prop
     try {
       const res = await api.toggleFavorite(type, id);
       setFavorited(res.data.favorited);
+      noteFavorite(type, id, res.data.favorited);
       toast(res.data.favorited ? 'Added to favorites' : 'Removed from favorites', 'success');
     } catch (err) {
       if (!isApiError(err)) toast(`Favorite failed: ${(err as Error).message ?? err}`, 'error');
@@ -443,6 +446,44 @@ export default function PlayActions({ target, triggerTabIndex, className }: Prop
  * stop, so the trigger is not; the card opens it with the context-menu key.
  */
 export function CardActions({ target }: { target: PlayActionTarget }) {
+  return (
+    <>
+      {target.kind !== 'track' && <CardHeart target={target} />}
+      <CardMenu target={target} />
+    </>
+  );
+}
+
+/**
+ * The heart on a card (R06.3): always visible once the album or artist is a
+ * favourite, otherwise on hover and focus like the menu. Not a tab stop in a
+ * keyboard grid — the menu has "Add to favorites" for that.
+ */
+function CardHeart({ target }: { target: Exclude<PlayActionTarget, { kind: 'track' }> }) {
+  const kind = target.kind;
+  const id = target.kind === 'album' ? target.albumId : target.artistId;
+  const title = target.kind === 'album' ? target.title : target.name;
+  const [favorited] = useFavorite(kind, id);
+  return (
+    <div
+      className={`absolute top-2 left-2 transition ${
+        favorited
+          ? 'opacity-100'
+          : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 touch-visible'
+      }`}
+    >
+      <FavoriteButton
+        kind={kind}
+        id={id}
+        title={title}
+        tabIndex={-1}
+        className="flex h-8 w-8 items-center justify-center rounded-full bg-black/60 shadow hover:bg-black/80"
+      />
+    </div>
+  );
+}
+
+function CardMenu({ target }: { target: PlayActionTarget }) {
   return (
     <div className="absolute top-2 right-2 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100 touch-visible">
       <PlayActions

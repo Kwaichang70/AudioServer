@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { resetFavorites } from '../hooks/useFavorite.js';
 import type { ReactNode } from 'react';
 import { api, clearStreamToken, ensureStreamToken, onApiError } from '../api/client.js';
 import type { UserAccount } from '../api/types.js';
@@ -108,6 +109,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const forceSignOut = useCallback(() => {
     clearLocalSession();
+    // Favourites are personal (V09): the next person starts from their own.
+    resetFavorites();
     setUser(null);
     setStatus('anonymous');
   }, []);
@@ -129,6 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(
     async (token: string) => {
+      resetFavorites();
       localStorage.setItem(STORAGE_KEYS.authToken, token);
       clearStreamToken();
       await refresh();

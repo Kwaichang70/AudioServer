@@ -1235,6 +1235,21 @@ export const openApiSpec = {
         responses: { 200: ok('{ ok }'), 404: ok('not yours') },
       },
     },
+    '/history/favorites/ids': {
+      get: {
+        tags: ['Favorites'],
+        summary: 'Every favourite id of one type — fills the hearts of a whole list (R06.3)',
+        parameters: [
+          {
+            name: 'type',
+            in: 'query',
+            required: true,
+            schema: { type: 'string', enum: ['track', 'album', 'artist', 'station'] },
+          },
+        ],
+        responses: { 200: ok('string[]'), 400: ok('unknown type') },
+      },
+    },
     '/tags': {
       get: {
         tags: ['Tags'],

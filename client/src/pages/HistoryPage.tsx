@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import FavoriteButton from '../components/FavoriteButton.js';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAudioContext, type TrackInfo } from '../context/AudioContext.js';
@@ -237,6 +238,7 @@ export default function HistoryPage() {
                         </span>
                       </div>
                     </button>
+                    {track && <FavoriteButton kind="track" id={track.id} title={track.title} />}
                     {track && (
                       <PlayActions triggerTabIndex={-1} target={{ kind: 'track', track }} />
                     )}

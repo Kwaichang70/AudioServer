@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import FavoriteButton from '../components/FavoriteButton.js';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { Playability, ProviderType, SearchSourceStatus, SourceRef } from '@audioserver/shared';
 import { api, type SearchFilters } from '../api/client.js';
@@ -436,6 +437,7 @@ export default function SearchPage() {
                       </span>
                     )}
                     {/* R01.2: play next / add to queue without losing the queue */}
+                    <FavoriteButton kind="track" id={t.id} title={t.title} />
                     {isPlayableTrack(t) && (
                       <PlayActions target={{ kind: 'track', track: toTrackInfo(t) }} />
                     )}

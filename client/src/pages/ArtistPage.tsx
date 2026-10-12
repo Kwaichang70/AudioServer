@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { noteFavorite } from '../hooks/useFavorite.js';
 import { useParams, Link } from 'react-router-dom';
 import ItemTags from '../components/ItemTags.js';
 import { api } from '../api/client.js';
@@ -243,6 +244,7 @@ export default function ArtistPage() {
     const artistId = id;
     try {
       const res = await api.toggleFavorite('artist', id);
+      noteFavorite('artist', artistId, res.data.favorited);
       if (activeArtistIdRef.current === artistId) setFavorited(res.data.favorited);
     } catch {
       // ignore — UI state stays as-is

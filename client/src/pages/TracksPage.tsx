@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import FavoriteButton from '../components/FavoriteButton.js';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import type { LibraryTrack } from '../api/types.js';
@@ -114,6 +115,7 @@ export default function TracksPage() {
                     {formatDuration(track.duration)}
                   </td>
                   <td className="py-2.5">
+                    {!missing && <FavoriteButton kind="track" id={track.id} title={track.title} />}
                     {!missing && index >= 0 && (
                       <PlayActions
                         target={{ kind: 'track', track: infos[index], list: infos, index }}

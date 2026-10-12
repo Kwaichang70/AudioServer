@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import FavoriteButton from '../components/FavoriteButton.js';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAudioContext, type TrackInfo } from '../context/AudioContext.js';
@@ -184,6 +185,7 @@ export default function QueuePage() {
                   {item.albumTitle ? ` — ${item.albumTitle}` : ''}
                 </p>
               </div>
+              <FavoriteButton kind="track" id={queue[idx]?.id ?? ''} title={item.title} />
               <span className="text-xs text-gray-500 shrink-0">
                 {formatDuration(item.duration)}
               </span>

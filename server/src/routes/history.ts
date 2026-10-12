@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getDb } from '../db/index.js';
+import { getDb, getRawDb } from '../db/index.js';
 import { favorites, tracks, albums, artists, radioStations } from '../db/schema.js';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -210,6 +210,19 @@ historyRouter.get('/favorites', (req, res) => {
   } else {
     res.json({ data: favs });
   }
+});
+
+// Every favourite id of one type (R06.3): one request fills the hearts of a
+// whole list, instead of one check per row.
+historyRouter.get('/favorites/ids', (req, res) => {
+  const owner = requireOwner(req, res);
+  if (!owner) return;
+  const type = favoriteSchema.shape.itemType.safeParse(req.query.type);
+  if (!type.success) return res.status(400).json({ error: 'Unknown favorite type' });
+  const rows = getRawDb()
+    .prepare('SELECT item_id FROM favorites WHERE user_id = ? AND item_type = ?')
+    .all(owner, type.data) as Array<{ item_id: string }>;
+  res.json({ data: rows.map((r) => r.item_id) });
 });
 
 // Favorites for tracks (enriched with track + album + artist data)

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import FavoriteButton from '../components/FavoriteButton.js';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import PlayActions, {
@@ -242,6 +243,7 @@ export default function FavoritesPage() {
                     {track.duration ? formatDuration(track.duration) : ''}
                   </span>
                 </button>
+                <FavoriteButton kind="track" id={track.id} title={track.title} />
                 <PlayActions
                   triggerTabIndex={-1}
                   target={{

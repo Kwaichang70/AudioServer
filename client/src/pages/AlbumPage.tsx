@@ -1,10 +1,12 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
+import { noteFavorite } from '../hooks/useFavorite.js';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
 import PlayActions, { toTrackInfo } from '../components/PlayActions.js';
 import Button from '../components/ui/Button.js';
 import ItemTags from '../components/ItemTags.js';
+import FavoriteButton from '../components/FavoriteButton.js';
 import AlbumCover from '../components/AlbumCover.js';
 import { formatDuration, formatQuality } from '../utils/format.js';
 import type { AlbumCredit, AlbumVersions } from '../api/types.js';
@@ -177,6 +179,7 @@ export default function AlbumPage() {
     if (!id) return;
     const albumId = id;
     const res = await api.toggleFavorite('album', id);
+    noteFavorite('album', albumId, res.data.favorited);
     if (activeAlbumIdRef.current === albumId) setFavorited(res.data.favorited);
   };
 
@@ -378,14 +381,17 @@ export default function AlbumPage() {
                   </td>
                   <td className="py-2.5">
                     {!missing && (
-                      <PlayActions
-                        target={{
-                          kind: 'track',
-                          track: trackInfos[trackIndex],
-                          list: trackInfos,
-                          index: trackIndex,
-                        }}
-                      />
+                      <div className="flex items-center justify-end gap-1">
+                        <FavoriteButton kind="track" id={track.id} title={track.title} />
+                        <PlayActions
+                          target={{
+                            kind: 'track',
+                            track: trackInfos[trackIndex],
+                            list: trackInfos,
+                            index: trackIndex,
+                          }}
+                        />
+                      </div>
                     )}
                   </td>
                 </tr>

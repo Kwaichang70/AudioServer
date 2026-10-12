@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import FavoriteButton from '../components/FavoriteButton.js';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
@@ -727,6 +728,7 @@ function SmartPlaylistDetail({ id }: { id: string }) {
                     {formatDuration(track.duration)}
                   </span>
                 </button>
+                <FavoriteButton kind="track" id={track.id} title={track.title} />
                 <PlayActions
                   target={{
                     kind: 'track',

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import FavoriteButton from '../components/FavoriteButton.js';
 import { useParams } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
@@ -242,6 +243,9 @@ export default function PlaylistPage() {
                       play next and add to queue without replacing the queue. It
                       works on the same list the row does — only what can play
                       now (V12.1) — so an unavailable item never enters the queue. */}
+                  {playableHere && (
+                    <FavoriteButton kind="track" id={track.id} title={track.title} />
+                  )}
                   {playableHere && (
                     <PlayActions
                       target={{
