@@ -23,7 +23,7 @@ const focusParams = [
     in: 'query',
     schema: {
       type: 'string',
-      enum: ['title', 'artist', 'year', 'added', 'lastPlayed', 'plays', 'duration'],
+      enum: ['title', 'artist', 'year', 'added', 'lastPlayed', 'plays', 'duration', 'rating'],
     },
   },
   { name: 'order', in: 'query', schema: { type: 'string', enum: ['asc', 'desc'] } },
@@ -64,6 +64,12 @@ const focusParams = [
     schema: { type: 'integer', minimum: 1 },
   },
   { name: 'unplayed', in: 'query', description: 'Never played by me', schema: { type: 'boolean' } },
+  {
+    name: 'ratingMin',
+    in: 'query',
+    description: 'At least this many of my stars',
+    schema: { type: 'integer', minimum: 1, maximum: 5 },
+  },
   {
     name: 'rule',
     in: 'query',
@@ -1248,6 +1254,30 @@ export const openApiSpec = {
           },
         ],
         responses: { 200: ok('string[]'), 400: ok('unknown type') },
+      },
+    },
+    '/ratings': {
+      get: {
+        tags: ['Ratings'],
+        summary: 'Your ratings of one type, as { itemId: stars } (R06.4)',
+        parameters: [
+          {
+            name: 'type',
+            in: 'query',
+            required: true,
+            schema: { type: 'string', enum: ['track', 'album'] },
+          },
+        ],
+        responses: { 200: ok('{ [id]: 1–5 }'), 400: ok('unknown type') },
+      },
+      put: {
+        tags: ['Ratings'],
+        summary: 'Rate a track or album 1–5; rating null clears it',
+        responses: {
+          200: ok('{ itemType, itemId, rating }'),
+          400: ok('invalid'),
+          404: ok('unknown item'),
+        },
       },
     },
     '/tags': {

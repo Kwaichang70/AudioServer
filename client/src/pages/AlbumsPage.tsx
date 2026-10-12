@@ -22,6 +22,7 @@ const ALBUM_SORTS: SortKey[] = [
   'lastPlayed',
   'plays',
   'duration',
+  'rating',
 ];
 
 /**

@@ -543,6 +543,24 @@ export function FocusPanel({ open, onClose, focus, sorts, countNote }: PanelProp
           </Section>
         )}
 
+        <Section title="Your stars">
+          {[1, 2, 3, 4, 5].map((n) => {
+            const value = String(n);
+            const count = facets?.rating?.find((r) => r.value === value)?.count;
+            const on = params.get('ratingMin') === value;
+            if (count === 0 && !on) return null;
+            return (
+              <Chip
+                key={n}
+                pressed={on}
+                onClick={() => update((p) => setValue(p, 'ratingMin', on ? undefined : value))}
+              >
+                {n === 5 ? '★ 5' : `★ ${n}+`} <Count n={count} />
+              </Chip>
+            );
+          })}
+        </Section>
+
         <Section title="Yours">
           {flag('favorite', 'Favourites', facets?.favorite)}
           {flag('unplayed', 'Never played', facets?.unplayed)}

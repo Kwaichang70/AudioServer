@@ -81,6 +81,8 @@ export interface AlbumFacets {
   label: FacetValue[];
   composer: Array<FacetValue & { name: string }>;
   tag: Array<FacetValue & { name: string; mine: boolean }>;
+  /** Albums with at least 1…5 of your stars (R06.4). */
+  rating?: FacetValue[];
   favorite: number;
   unplayed: number;
 }

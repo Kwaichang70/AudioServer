@@ -78,9 +78,21 @@ describe('migrating an early-release database', () => {
       'listening_sessions',
       'scan_runs',
       'scrobble_queue',
+      // R05.3 and R06: personal order of the library.
+      'bookmarks',
+      'tags',
+      'tag_items',
+      'ratings',
     ]) {
       expect(tables).toContain(t);
     }
+    expect(columns('smart_playlists')).toContain('definition');
+  });
+
+  it('makes the old library searchable without accents (R05.4)', () => {
+    expect(
+      getRawDb().prepare("SELECT title_norm, artist_norm FROM tracks WHERE id = 't'").get(),
+    ).toEqual({ title_norm: 'old track', artist_norm: 'old artist' });
   });
 
   it('keeps the library, account and user data', () => {

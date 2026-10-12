@@ -7,6 +7,7 @@ import PlayActions, { toTrackInfo } from '../components/PlayActions.js';
 import Button from '../components/ui/Button.js';
 import ItemTags from '../components/ItemTags.js';
 import FavoriteButton from '../components/FavoriteButton.js';
+import RatingStars from '../components/RatingStars.js';
 import AlbumCover from '../components/AlbumCover.js';
 import { formatDuration, formatQuality } from '../utils/format.js';
 import type { AlbumCredit, AlbumVersions } from '../api/types.js';
@@ -281,6 +282,9 @@ export default function AlbumPage() {
             >
               {favorited ? '\u2665' : '\u2661'}
             </button>
+            {id && !providerType && (
+              <RatingStars kind="album" id={id} title={album.title} size="lg" />
+            )}
           </div>
         </div>
       </div>
@@ -382,6 +386,12 @@ export default function AlbumPage() {
                   <td className="py-2.5">
                     {!missing && (
                       <div className="flex items-center justify-end gap-1">
+                        <RatingStars
+                          kind="track"
+                          id={track.id}
+                          title={track.title}
+                          className="hidden lg:inline-flex mr-1"
+                        />
                         <FavoriteButton kind="track" id={track.id} title={track.title} />
                         <PlayActions
                           target={{

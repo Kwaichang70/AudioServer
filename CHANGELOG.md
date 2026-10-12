@@ -19,6 +19,14 @@ the kind of change, not semver — there are no releases yet.
 - Op elke trackrij en op album- en artiestkaarten, uit één gedeelde store:
   één verzoek per lijst, en aan op één plek is aan op alle plekken.
 
+**Waarderingen**
+
+- 1–5 sterren per track en album, persoonlijk; Focus-facet "Your stars" en
+  sorteersleutel "My rating".
+
+**Deploy:** schemaversie 17 (tags, tag_items, ratings) — eerst een back-up van
+het volume.
+
 ## R05 — Focus: sorteren, filteren, bookmarks (verbeterplan 2, sprint R05)
 
 **Eén filtertaal voor elke lijst** (`server/src/services/focus.ts`)

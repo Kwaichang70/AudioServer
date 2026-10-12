@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { resetFavorites } from '../hooks/useFavorite.js';
+import { resetRatings } from '../hooks/useRating.js';
 import type { ReactNode } from 'react';
 import { api, clearStreamToken, ensureStreamToken, onApiError } from '../api/client.js';
 import type { UserAccount } from '../api/types.js';
@@ -111,6 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearLocalSession();
     // Favourites are personal (V09): the next person starts from their own.
     resetFavorites();
+    resetRatings();
     setUser(null);
     setStatus('anonymous');
   }, []);
@@ -133,6 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(
     async (token: string) => {
       resetFavorites();
+      resetRatings();
       localStorage.setItem(STORAGE_KEYS.authToken, token);
       clearStreamToken();
       await refresh();

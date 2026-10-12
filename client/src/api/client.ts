@@ -843,6 +843,16 @@ export const api = {
   removeTagItem: (id: string, itemType: TagItemType, itemId: string): Promise<ApiResponse<Tag>> =>
     fetchApi(`/tags/${id}/items/${itemType}/${encodeURIComponent(itemId)}`, { method: 'DELETE' }),
 
+  // ─── Ratings (R06.4) ────────────────────────────────────────
+  getRatings: (type: 'track' | 'album'): Promise<ApiResponse<Record<string, number>>> =>
+    fetchApi(`/ratings?type=${type}`),
+  setRating: (
+    itemType: 'track' | 'album',
+    itemId: string,
+    rating: number | null,
+  ): Promise<ApiResponse<{ itemType: string; itemId: string; rating: number | null }>> =>
+    fetchApi('/ratings', { method: 'PUT', body: JSON.stringify({ itemType, itemId, rating }) }),
+
   // ─── Bookmarks (R05.3) ──────────────────────────────────────
   getBookmarks: (): Promise<ApiResponse<Bookmark[]>> => fetchApi('/bookmarks'),
   createBookmark: (name: string, path: string, query: string): Promise<ApiResponse<Bookmark>> =>

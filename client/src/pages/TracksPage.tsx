@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import RatingStars from '../components/RatingStars.js';
 import FavoriteButton from '../components/FavoriteButton.js';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
@@ -25,6 +26,7 @@ const TRACK_SORTS: SortKey[] = [
   'lastPlayed',
   'plays',
   'duration',
+  'rating',
 ];
 const PAGE_SIZE = 100;
 
@@ -115,12 +117,24 @@ export default function TracksPage() {
                     {formatDuration(track.duration)}
                   </td>
                   <td className="py-2.5">
-                    {!missing && <FavoriteButton kind="track" id={track.id} title={track.title} />}
-                    {!missing && index >= 0 && (
-                      <PlayActions
-                        target={{ kind: 'track', track: infos[index], list: infos, index }}
-                      />
-                    )}
+                    <div className="flex items-center justify-end gap-1">
+                      {!missing && (
+                        <RatingStars
+                          kind="track"
+                          id={track.id}
+                          title={track.title}
+                          className="hidden lg:inline-flex mr-1"
+                        />
+                      )}
+                      {!missing && (
+                        <FavoriteButton kind="track" id={track.id} title={track.title} />
+                      )}
+                      {!missing && index >= 0 && (
+                        <PlayActions
+                          target={{ kind: 'track', track: infos[index], list: infos, index }}
+                        />
+                      )}
+                    </div>
                   </td>
                 </tr>
               );

@@ -26,6 +26,7 @@ export const SORT_KEYS = [
   'lastPlayed',
   'plays',
   'duration',
+  'rating',
 ] as const;
 export type SortKey = (typeof SORT_KEYS)[number];
 
@@ -50,6 +51,8 @@ export interface FocusQuery {
   addedWithin?: number;
   /** Never played by this listener. */
   unplayed?: boolean;
+  /** At least this many stars from this listener (R06.4). */
+  ratingMin?: number;
   /** Show one edition per album, the best quality (R05.4). */
   dedupeEditions?: boolean;
   /** Field conditions, as the pre-Focus smart playlists had them (R05.3). */
@@ -68,7 +71,8 @@ export type FacetKey =
   | 'tag'
   | 'playedWithin'
   | 'addedWithin'
-  | 'unplayed';
+  | 'unplayed'
+  | 'rating';
 
 export const LOSSLESS_FORMATS = ['flac', 'wav', 'aiff', 'aif', 'alac', 'ape'];
 /** A fixed whitelist, so it can be inlined as literals. */
@@ -128,6 +132,7 @@ export function parseFocusQuery(input: Record<string, unknown>): FocusQuery {
     playedWithin: int(one('playedWithin'), 1, 36500),
     addedWithin: int(one('addedWithin'), 1, 36500),
     unplayed: flag(one('unplayed')),
+    ratingMin: int(one('ratingMin'), 1, 5),
     dedupeEditions: flag(one('dedupeEditions')),
     // JSON objects contain commas: never split these like the other lists.
     rules: parseRuleParams(
@@ -289,6 +294,13 @@ export function albumClauses(
         now() - q.playedWithin * DAY,
       );
     }
+    if (q.ratingMin && except !== 'rating') {
+      add(
+        `a.id IN (SELECT item_id FROM ratings WHERE user_id = ? AND item_type = 'album' AND rating >= ?)`,
+        userId,
+        q.ratingMin,
+      );
+    }
     if (q.unplayed && except !== 'unplayed') {
       if (played) add('a.id NOT IN (SELECT value FROM json_each(?))', played.json);
       else add(`a.id NOT IN (${PLAYED_ALBUMS_SQL})`, userId);
@@ -395,6 +407,13 @@ export function trackClauses(q: FocusQuery, userId: string | null, except?: Face
         now() - q.playedWithin * DAY,
       );
     }
+    if (q.ratingMin && except !== 'rating') {
+      add(
+        `t.id IN (SELECT item_id FROM ratings WHERE user_id = ? AND item_type = 'track' AND rating >= ?)`,
+        userId,
+        q.ratingMin,
+      );
+    }
     if (q.unplayed && except !== 'unplayed') {
       add(
         `t.id NOT IN (SELECT track_id FROM listening_sessions
@@ -423,6 +442,7 @@ const ALBUM_ORDER: Record<SortKey, { expr: string; defaultOrder: 'asc' | 'desc' 
   lastPlayed: { expr: 'stats.last_played', defaultOrder: 'desc' },
   plays: { expr: 'stats.plays', defaultOrder: 'desc' },
   duration: { expr: 'dur.duration', defaultOrder: 'desc' },
+  rating: { expr: 'rt.rating', defaultOrder: 'desc' },
 };
 
 /**
@@ -471,13 +491,14 @@ export function focusAlbums(
               a.bit_depth as bitDepth, a.label, a.replay_gain_album as replayGainAlbum,
               a.replay_gain_album_peak as replayGainAlbumPeak,
               a.created_at as createdAt, a.updated_at as updatedAt,
-              stats.plays as plays, stats.last_played as lastPlayed
+              stats.plays as plays, stats.last_played as lastPlayed, rt.rating as rating
          FROM albums a ${stats} ${duration}
+         LEFT JOIN ratings rt ON rt.item_type = 'album' AND rt.item_id = a.id AND rt.user_id = ?
          ${filter}
         ORDER BY ${orderBy}
         LIMIT ? OFFSET ?`,
     )
-    .all(...statsParams, ...clause.params, options.limit, options.offset) as Array<
+    .all(...statsParams, userId, ...clause.params, options.limit, options.offset) as Array<
     Record<string, unknown>
   >;
   return { rows, total };
@@ -497,6 +518,7 @@ const TRACK_ORDER: Record<SortKey, { expr: string; defaultOrder: 'asc' | 'desc' 
   lastPlayed: { expr: 'stats.last_played', defaultOrder: 'desc' },
   plays: { expr: 'stats.plays', defaultOrder: 'desc' },
   duration: { expr: 't.duration', defaultOrder: 'desc' },
+  rating: { expr: 'rt.rating', defaultOrder: 'desc' },
 };
 
 export function focusTracks(
@@ -561,15 +583,16 @@ export function focusTrackGroups(
               t.replay_gain_track as replayGainTrack, t.replay_gain_track_peak as replayGainTrackPeak,
               a.replay_gain_album as replayGainAlbum, a.replay_gain_album_peak as replayGainAlbumPeak,
               t.source, t.availability, t.created_at as createdAt, t.updated_at as updatedAt,
-              stats.plays as plays, stats.last_played as lastPlayed
+              stats.plays as plays, stats.last_played as lastPlayed, rt.rating as rating
          FROM tracks t
          LEFT JOIN albums a ON a.id = t.album_id
          ${stats}
+         LEFT JOIN ratings rt ON rt.item_type = 'track' AND rt.item_id = t.id AND rt.user_id = ?
          ${filter}
         ORDER BY ${orderBy}
         LIMIT ? OFFSET ?`,
     )
-    .all(...statsParams, ...filterParams, options.limit, options.offset) as Array<
+    .all(...statsParams, userId, ...filterParams, options.limit, options.offset) as Array<
     Record<string, unknown>
   >;
   return { rows, total };
@@ -648,6 +671,8 @@ export interface AlbumFacets {
   label: FacetValue[];
   composer: Array<FacetValue & { name: string }>;
   tag: Array<FacetValue & { name: string; mine: boolean }>;
+  /** Albums with at least 1…5 of your stars. */
+  rating: FacetValue[];
   favorite: number;
   unplayed: number;
 }
@@ -728,7 +753,17 @@ export function albumFacets(q: FocusQuery, userId: string | null): AlbumFacets {
   let favorite = 0;
   let unplayed = 0;
   let tag: AlbumFacets['tag'] = [];
+  let rating: FacetValue[] = [];
   if (userId) {
+    const stars = run<Record<string, number | null>>(
+      `SELECT ${[1, 2, 3, 4, 5].map((n) => `SUM(CASE WHEN rt.rating >= ${n} THEN 1 ELSE 0 END) as r${n}`).join(', ')}
+         FROM albums a
+         JOIN ratings rt ON rt.item_type = 'album' AND rt.item_id = a.id AND rt.user_id = ?
+        WHERE 1 /*FILTER*/`,
+      'rating',
+      [userId],
+    )[0];
+    rating = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), count: stars?.[`r${n}`] ?? 0 }));
     tag = run<{ value: string; name: string; mine: number; count: number }>(
       `SELECT tg.id as value, tg.name as name, (tg.user_id = ?) as mine, COUNT(DISTINCT a.id) as count
          FROM tags tg
@@ -767,6 +802,7 @@ export function albumFacets(q: FocusQuery, userId: string | null): AlbumFacets {
     label,
     composer,
     tag,
+    rating,
     favorite,
     unplayed,
   };

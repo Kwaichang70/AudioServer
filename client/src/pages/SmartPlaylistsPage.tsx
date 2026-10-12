@@ -245,6 +245,7 @@ const PLAYLIST_SORTS: SortKey[] = [
   'lastPlayed',
   'plays',
   'duration',
+  'rating',
 ];
 
 function DefinitionSummary({ definition }: { definition: SmartDefinition }) {

@@ -254,6 +254,16 @@ export const tagItems = sqliteTable('tag_items', {
   addedAt: integer('added_at'),
 });
 
+/** A personal rating, 1–5, of a track or album (R06.4). */
+export const ratings = sqliteTable('ratings', {
+  userId: text('user_id').notNull(),
+  /** 'track' | 'album' */
+  itemType: text('item_type').notNull(),
+  itemId: text('item_id').notNull(),
+  rating: integer('rating').notNull(),
+  updatedAt: integer('updated_at'),
+});
+
 /** One row per library scan (V06.3): what was scanned, what happened, when. */
 export const scanRuns = sqliteTable('scan_runs', {
   id: text('id').primaryKey(),

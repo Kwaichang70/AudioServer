@@ -24,6 +24,7 @@ export const FOCUS_SCALAR_KEYS = [
   'quality',
   'favorite',
   'unplayed',
+  'ratingMin',
   'playedWithin',
   'addedWithin',
   'dedupeEditions',
@@ -32,7 +33,15 @@ export type FocusListKey = (typeof FOCUS_LIST_KEYS)[number];
 export type FocusScalarKey = (typeof FOCUS_SCALAR_KEYS)[number];
 export type FocusKey = FocusListKey | FocusScalarKey;
 
-export type SortKey = 'title' | 'artist' | 'year' | 'added' | 'lastPlayed' | 'plays' | 'duration';
+export type SortKey =
+  | 'title'
+  | 'artist'
+  | 'year'
+  | 'added'
+  | 'lastPlayed'
+  | 'plays'
+  | 'duration'
+  | 'rating';
 
 export const SORT_LABELS: Record<SortKey, string> = {
   title: 'Title',
@@ -42,6 +51,7 @@ export const SORT_LABELS: Record<SortKey, string> = {
   lastPlayed: 'Last played',
   plays: 'Most played',
   duration: 'Duration',
+  rating: 'My rating',
 };
 
 /** "Recently" for the played/added toggles, in days. */
@@ -217,6 +227,14 @@ export function activeFilters(
   ];
   for (const [key, label] of flags) {
     if (params.has(key)) chips.push({ id: key, label, remove: (p) => setValue(p, key, undefined) });
+  }
+  if (params.has('ratingMin')) {
+    const n = params.get('ratingMin');
+    chips.push({
+      id: 'ratingMin',
+      label: n === '5' ? '★ 5' : `★ ${n}+`,
+      remove: (p) => setValue(p, 'ratingMin', undefined),
+    });
   }
   if (params.has('playedWithin')) {
     chips.push({

@@ -320,6 +320,17 @@ export async function initDatabase(overridePath?: string) {
     );
     CREATE INDEX IF NOT EXISTS idx_tag_items_item ON tag_items (item_type, item_id);
   `);
+  // R06.4: a rating of 1–5 per person, for a track or an album.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS ratings (
+      user_id TEXT NOT NULL,
+      item_type TEXT NOT NULL,
+      item_id TEXT NOT NULL,
+      rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+      updated_at INTEGER,
+      PRIMARY KEY (user_id, item_type, item_id)
+    );
+  `);
   // V05.3: one submission per listening session and service.
   runMigration(sqlite, 'scrobble_queue', 'session_id', 'TEXT');
   sqlite.exec(
