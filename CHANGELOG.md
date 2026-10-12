@@ -4,6 +4,14 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## R06 — Tags, favorieten overal, waarderingen (verbeterplan 2, sprint R06)
+
+**Tags** (`server/src/services/tags.ts`, schemaversie 17)
+
+- Eigen labels op albums, artiesten, tracks en playlists. Van jou om te
+  bewerken; gedeeld = leesbaar voor het huishouden, niet bewerkbaar; anders 404.
+- "Speel" op een tag speelt de tracks, albums en artiesten die hij bevat.
+
 ## R05 — Focus: sorteren, filteren, bookmarks (verbeterplan 2, sprint R05)
 
 **Eén filtertaal voor elke lijst** (`server/src/services/focus.ts`)

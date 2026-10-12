@@ -234,6 +234,26 @@ export const bookmarks = sqliteTable('bookmarks', {
   createdAt: integer('created_at'),
 });
 
+/** A listener's own label (R06.1); `shared` = readable by the household. */
+export const tags = sqliteTable('tags', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  name: text('name').notNull(),
+  shared: integer('shared', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at'),
+});
+
+/** What carries a tag: an album, artist, track or playlist. */
+export const tagItems = sqliteTable('tag_items', {
+  tagId: text('tag_id')
+    .notNull()
+    .references(() => tags.id, { onDelete: 'cascade' }),
+  /** 'album' | 'artist' | 'track' | 'playlist' */
+  itemType: text('item_type').notNull(),
+  itemId: text('item_id').notNull(),
+  addedAt: integer('added_at'),
+});
+
 /** One row per library scan (V06.3): what was scanned, what happened, when. */
 export const scanRuns = sqliteTable('scan_runs', {
   id: text('id').primaryKey(),

@@ -1227,6 +1227,82 @@ export const openApiSpec = {
         responses: { 200: ok('{ ok }'), 404: ok('not yours') },
       },
     },
+    '/tags': {
+      get: {
+        tags: ['Tags'],
+        summary: "Your tags, then the household's shared ones (R06.1)",
+        responses: { 200: ok('{ id, name, shared, mine, ownerName, itemCount, counts }[]') },
+      },
+      post: {
+        tags: ['Tags'],
+        summary: 'Create a tag (name unique per person, case-insensitive)',
+        responses: { 201: ok('tag'), 409: ok('you already have a tag with that name') },
+      },
+    },
+    '/tags/on/{itemType}/{itemId}': {
+      get: {
+        tags: ['Tags'],
+        summary: 'The tags you can see on one album, artist, track or playlist',
+        parameters: [
+          {
+            name: 'itemType',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', enum: ['album', 'artist', 'track', 'playlist'] },
+          },
+          { name: 'itemId', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        responses: { 200: ok('tags') },
+      },
+    },
+    '/tags/{id}': {
+      get: {
+        tags: ['Tags'],
+        summary: 'A tag with its albums, artists, tracks and (visible) playlists',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('tag with items'), 404: ok('not yours and not shared') },
+      },
+      patch: {
+        tags: ['Tags'],
+        summary: 'Rename or share (owner only)',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('tag'), 404: ok('not yours'), 409: ok('name taken') },
+      },
+      delete: {
+        tags: ['Tags'],
+        summary: 'Delete with its items (owner only)',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('{ ok }'), 404: ok('not yours') },
+      },
+    },
+    '/tags/{id}/tracks': {
+      get: {
+        tags: ['Tags'],
+        summary: 'Every playable track the tag stands for: its tracks, albums and artists',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('Track[]'), 404: ok('not visible') },
+      },
+    },
+    '/tags/{id}/items': {
+      post: {
+        tags: ['Tags'],
+        summary: 'Tag an item (idempotent; owner only)',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 201: ok('tag'), 404: ok('tag not yours, or unknown item') },
+      },
+    },
+    '/tags/{id}/items/{itemType}/{itemId}': {
+      delete: {
+        tags: ['Tags'],
+        summary: 'Untag an item (owner only)',
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'itemType', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'itemId', in: 'path', required: true, schema: { type: 'string' } },
+        ],
+        responses: { 200: ok('tag'), 404: ok('not yours') },
+      },
+    },
     '/library/composers': {
       get: {
         tags: ['Library'],

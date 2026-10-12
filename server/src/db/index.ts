@@ -21,7 +21,7 @@ import { fileURLToPath } from 'url';
  * it does not understand. Databases from before this check carry version 0,
  * which every build accepts and upgrades.
  */
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 export class DatabaseVersionError extends Error {
   constructor(
@@ -300,6 +300,26 @@ export async function initDatabase(overridePath?: string) {
   runMigration(sqlite, 'smart_playlists', 'definition', 'TEXT');
   migrateSmartPlaylistDefinitions(sqlite);
   addSearchColumns(sqlite);
+  // R06.1: the listener's own order, apart from metadata. A tag belongs to one
+  // person; `shared` makes it readable (never editable) for the household.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS tags (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      shared INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_owner_name ON tags (user_id, name COLLATE NOCASE);
+    CREATE TABLE IF NOT EXISTS tag_items (
+      tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+      item_type TEXT NOT NULL,
+      item_id TEXT NOT NULL,
+      added_at INTEGER,
+      PRIMARY KEY (tag_id, item_type, item_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_tag_items_item ON tag_items (item_type, item_id);
+  `);
   // V05.3: one submission per listening session and service.
   runMigration(sqlite, 'scrobble_queue', 'session_id', 'TEXT');
   sqlite.exec(

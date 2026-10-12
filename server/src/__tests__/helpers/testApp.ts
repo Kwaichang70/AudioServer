@@ -15,6 +15,7 @@ import { providersRouter } from '../../routes/providers.js';
 import { historyRouter } from '../../routes/history.js';
 import { smartPlaylistsRouter } from '../../routes/smart-playlists.js';
 import { bookmarksRouter } from '../../routes/bookmarks.js';
+import { tagsRouter } from '../../routes/tags.js';
 import { zones } from '../../services/zones.js';
 import { listenbrainzRouter } from '../../routes/listenbrainz.js';
 import { recommendationsRouter } from '../../routes/recommendations.js';
@@ -93,6 +94,7 @@ export async function createTestApp(options: TestAppOptions = {}) {
   app.use('/api/history', historyRouter);
   app.use('/api/smart-playlists', smartPlaylistsRouter);
   app.use('/api/bookmarks', bookmarksRouter);
+  app.use('/api/tags', tagsRouter);
   app.use('/api/listenbrainz', listenbrainzRouter);
   app.use('/api/recommendations', recommendationsRouter);
   app.use('/api/scrobble', scrobbleRouter);
