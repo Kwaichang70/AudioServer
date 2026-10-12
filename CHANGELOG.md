@@ -21,6 +21,15 @@ the kind of change, not semver — there are no releases yet.
   de hele dag dezelfde), For you (ListenBrainz, alleen speelbaar), nieuw in je
   bibliotheek, genres voor jou met genre-radio.
 
+**Discover en tests**
+
+- Hoezen, "speel wat in je bibliotheek staat" per lijst, uitleg verbergbaar.
+- Tests voor radio (nooit onspeelbaar, niets binnen 50, netjes stoppen) en
+  profielscheiding.
+
+**Deploy:** schemaversie 19 (`zone_radio`, `radio_picks`) — eerst een back-up
+van het volume.
+
 ## R07 — Eén bibliotheek: Qobuz in de collectie (verbeterplan 2, sprint R07)
 
 **Toevoegen aan de bibliotheek** (`server/src/services/qobuz-library.ts`, schemaversie 18)
