@@ -30,6 +30,8 @@ export interface LocalVersion {
   releaseDate: string | null;
   /** Why it counts as the same album: 'release-group' or 'title'. */
   matchedBy: 'release-group' | 'title';
+  /** 'local' for a file, 'qobuz' for a Qobuz edition you added (R07.4). */
+  source: string;
 }
 
 export interface StreamingVersion {
@@ -81,12 +83,12 @@ export function localVersions(albumId: string): LocalVersion[] {
   const rows = db
     .prepare(
       `SELECT id, title, format, sample_rate as sampleRate, bit_depth as bitDepth,
-              track_count as trackCount, label, release_date as releaseDate,
+              track_count as trackCount, label, release_date as releaseDate, source,
               CASE WHEN ? IS NOT NULL AND release_group_mbid = ? THEN 'release-group'
                    ELSE 'title' END as matchedBy
          FROM albums
         WHERE id != ?
-          AND source = 'local'
+          -- Added Qobuz editions count as library versions too (R07.4).
           AND (
             (? IS NOT NULL AND release_group_mbid = ?)
             OR (artist_id = ? AND title = ? COLLATE NOCASE
@@ -203,7 +205,10 @@ export async function albumVersions(
       .filter(
         (candidate) =>
           compareForm(candidate.title) === wantedTitle &&
-          compareForm(candidate.artistName) === wantedArtist,
+          compareForm(candidate.artistName) === wantedArtist &&
+          // Already in the library: listed under the library versions instead.
+          candidate.id !== album.id &&
+          !local.some((v) => v.id === candidate.id),
       )
       .map((candidate) => ({
         id: candidate.id,

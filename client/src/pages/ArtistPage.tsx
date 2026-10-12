@@ -94,6 +94,11 @@ function ReleaseGrid({
                 {album.title}
               </p>
               <p className="text-xs text-gray-500 truncate">
+                {album.source === 'qobuz' && (
+                  <span className="mr-1 rounded bg-sky-500/20 px-1 py-0.5 text-[10px] uppercase text-sky-300">
+                    Qobuz
+                  </span>
+                )}
                 {album.year ?? '—'}
                 {album.roles && album.roles.length > 0
                   ? ` · ${album.artistName} · ${album.roles.map((r) => ROLE_LABEL[r] ?? r).join(', ')}`

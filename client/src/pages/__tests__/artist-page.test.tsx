@@ -105,6 +105,29 @@ describe('ArtistPage', () => {
     mocks.api.checkFavorite.mockResolvedValue({ data: { favorited: false } });
   });
 
+  it('shows Qobuz albums in the library among the others, with a badge (R07.4)', async () => {
+    mocks.api.getArtistDiscography.mockResolvedValue({
+      data: {
+        albums: [
+          release('al-1', 'Apple', 2010),
+          release('qobuz:9', 'Streamed', 2012, { source: 'qobuz' }),
+        ],
+        singles: [],
+        compilations: [],
+        appearsOn: [],
+      },
+    });
+    renderPage();
+    const card = (await screen.findAllByText('Streamed'))
+      .find((el) => el.closest('a'))!
+      .closest('a')!;
+    expect(within(card).getByText('Qobuz')).toBeInTheDocument();
+    const local = (await screen.findAllByText('Apple'))
+      .find((el) => el.closest('a'))!
+      .closest('a')!;
+    expect(within(local).queryByText('Qobuz')).not.toBeInTheDocument();
+  });
+
   it('shows the biography with its source and licence', async () => {
     renderPage();
     expect(await screen.findByText('A band from Utrecht.')).toBeTruthy();

@@ -5,7 +5,8 @@ import { mkdirSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import type { Album, Track } from '@audioserver/shared';
-import { createTestApp } from './helpers/testApp.js';
+import { createTestApp, type TestUser } from './helpers/testApp.js';
+import { configureAlbumVersions } from '../services/album-versions.js';
 import { getRawDb } from '../db/index.js';
 import { configureQobuzLibrary, resetQobuzLibrary } from '../services/qobuz-library.js';
 import { scanLibrary } from '../services/scanner.js';
@@ -53,11 +54,13 @@ describe('Qobuz in the library', () => {
   let app: Express;
   let teardown: () => void;
   let tmp: string;
+  let member: TestUser;
 
   beforeAll(async () => {
     const ctx = await createTestApp();
     app = ctx.app;
     teardown = ctx.teardown;
+    member = ctx.member!;
     tmp = mkdtempSync(join(tmpdir(), 'qobuz-lib-'));
     // A local artist of the same name: a Qobuz album must join them, not split them.
     getRawDb().exec(`INSERT INTO artists (id, name) VALUES ('ar-local', 'Miles Davis')`);
@@ -188,5 +191,94 @@ describe('Qobuz in the library', () => {
     ).toEqual({ n: 0 });
     // The local artist stays even though a Qobuz album of theirs went.
     expect(db.prepare("SELECT id FROM artists WHERE id = 'ar-local'").get()).toBeTruthy();
+  });
+
+  describe('one library (R07.4)', () => {
+    beforeAll(async () => {
+      await request(app).post('/api/library/qobuz/albums/42');
+      getRawDb().exec(`
+        INSERT INTO albums (id, title, artist_id, artist_name, format, bit_depth, sample_rate, edition_key)
+        VALUES ('al-cd', 'Kind of Blue', 'ar-local', 'Miles Davis', 'flac', 16, 44100, 'cd');
+        INSERT INTO tracks (id, title, album_id, album_title, artist_id, artist_name, file_path)
+        VALUES ('t-cd', 'So What', 'al-cd', 'Kind of Blue', 'ar-local', 'Miles Davis', '/m/so-what.flac');
+      `);
+    });
+
+    it('filters every list by source: local, Qobuz, or both', async () => {
+      const ids = async (q: string) =>
+        (await request(app).get(`/api/library/albums?${q}`)).body.data.map(
+          (a: { id: string }) => a.id,
+        );
+      expect(await ids('source=local')).not.toContain('qobuz:42');
+      expect(await ids('source=qobuz')).toEqual(['qobuz:42']);
+      expect(await ids('source=local&source=qobuz')).toEqual(
+        expect.arrayContaining(['qobuz:42', 'al-cd']),
+      );
+      const facets = await request(app).get('/api/library/albums/facets');
+      const sources = Object.fromEntries(
+        facets.body.data.source.map((f: { value: string; count: number }) => [f.value, f.count]),
+      );
+      expect(sources.qobuz).toBe(1);
+      const tracks = await request(app).get('/api/library/tracks?source=qobuz');
+      expect(tracks.body.data.every((t: { source: string }) => t.source === 'qobuz')).toBe(true);
+    });
+
+    it('shows local and Qobuz albums together on the artist page, each with its source', async () => {
+      const res = await request(app).get('/api/library/artists/ar-local/discography');
+      const all = [
+        ...res.body.data.albums,
+        ...res.body.data.singles,
+        ...res.body.data.compilations,
+      ];
+      expect(all.map((a: { id: string; source: string }) => [a.id, a.source])).toEqual(
+        expect.arrayContaining([
+          ['al-cd', 'local'],
+          ['qobuz:42', 'qobuz'],
+        ]),
+      );
+    });
+
+    it('lists an added Qobuz edition under Versions, and not again as a Qobuz suggestion', async () => {
+      configureAlbumVersions({
+        qobuzReady: async () => true,
+        searchQobuz: async () => [
+          {
+            id: 'qobuz:42',
+            title: 'Kind of Blue',
+            artistName: 'Miles Davis',
+            bitDepth: 24,
+            sampleRate: 96000,
+          },
+          {
+            id: 'qobuz:43',
+            title: 'Kind of Blue',
+            artistName: 'Miles Davis',
+            bitDepth: 24,
+            sampleRate: 192000,
+          },
+        ],
+      });
+      const res = await request(app).get('/api/library/albums/al-cd/versions');
+      expect(
+        res.body.data.local.map((v: { id: string; source: string }) => [v.id, v.source]),
+      ).toEqual([['qobuz:42', 'qobuz']]);
+      expect(res.body.data.streaming.map((v: { id: string }) => v.id)).toEqual(['qobuz:43']);
+    });
+
+    it('is one library for the household, with personal marks per person', async () => {
+      const asMember = (r: request.Test) => r.set('Authorization', `Bearer ${member.token}`);
+      const theirs = await asMember(request(app).get('/api/library/albums?source=qobuz'));
+      expect(theirs.body.data.map((a: { id: string }) => a.id)).toEqual(['qobuz:42']);
+      await request(app)
+        .put('/api/ratings')
+        .send({ itemType: 'album', itemId: 'qobuz:42', rating: 5 });
+      await request(app)
+        .post('/api/history/favorites')
+        .send({ itemType: 'album', itemId: 'qobuz:42' });
+      expect((await asMember(request(app).get('/api/ratings?type=album'))).body.data).toEqual({});
+      expect(
+        (await asMember(request(app).get('/api/history/favorites/ids?type=album'))).body.data,
+      ).toEqual([]);
+    });
   });
 });

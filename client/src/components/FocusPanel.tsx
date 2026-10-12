@@ -34,6 +34,8 @@ import { shuffledCopy, toTrackInfo } from './PlayActions.js';
  */
 
 const SHEET_BREAKPOINT = 640;
+/** Local and Qobuz in one library (R07.4): both ticked, or none, is "both". */
+const SOURCE_NAMES: Record<string, string> = { local: 'Local', qobuz: 'Qobuz', tidal: 'Tidal' };
 /** "Play all" starts at most this many tracks; the queue is not a library. */
 export const PLAY_ALL_LIMIT = 1000;
 const PLAY_PAGE = 200;
@@ -573,7 +575,7 @@ export function FocusPanel({ open, onClose, focus, sorts, countNote }: PanelProp
           <Section title="Format">{list('format', facets.format, (v) => v.toUpperCase())}</Section>
         )}
         {(sources.length > 1 || params.has('source')) && (
-          <Section title="Source">{list('source', sources)}</Section>
+          <Section title="Source">{list('source', sources, (v) => SOURCE_NAMES[v] ?? v)}</Section>
         )}
         {facets && (facets.tag?.length ?? 0) > 0 && (
           <Section title="Tags">

@@ -23,6 +23,15 @@ the kind of change, not semver — there are no releases yet.
 - Elk item noemt zijn bron (`qobuz:track:123`); een gemengde playlist is na
   een herstart identiek.
 
+**Eén bibliotheek**
+
+- Focus filtert op bron (Local / Qobuz); de artiestpagina toont beide met
+  badge; Versies toont toegevoegde Qobuz-edities.
+
+**Deploy:** schemaversie 18 (`source_ref`, `qobuz_album_sync`) — eerst een
+back-up van het volume. De eerste sync met de Qobuz-favorieten draait 30 s na
+de start en voegt al je Qobuz-favorieten aan de bibliotheek toe.
+
 ## R06 — Tags, favorieten overal, waarderingen (verbeterplan 2, sprint R06)
 
 **Tags** (`server/src/services/tags.ts`, schemaversie 17)

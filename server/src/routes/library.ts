@@ -183,6 +183,8 @@ interface DiscographyEntry {
   sampleRate: number | null;
   bitDepth: number | null;
   isCompilation: boolean;
+  /** 'local' or 'qobuz' (an added Qobuz album, R07.4) — shown as a badge. */
+  source: string;
   roles?: string[];
 }
 
@@ -197,7 +199,7 @@ libraryRouter.get('/artists/:id/discography', (req, res) => {
     SELECT a.id, a.title, a.artist_name as artistName,
            COALESCE(a.original_year, a.year) as year, a.release_date as releaseDate,
            a.format, a.sample_rate as sampleRate, a.bit_depth as bitDepth,
-           a.is_compilation as isCompilation,
+           a.is_compilation as isCompilation, a.source,
            COUNT(t.id) as trackCount, COALESCE(SUM(t.duration), 0) as duration
       FROM albums a LEFT JOIN tracks t ON t.album_id = a.id`;
   type Row = Omit<DiscographyEntry, 'isCompilation'> & { isCompilation: number | null };

@@ -522,7 +522,7 @@ export default function AlbumPage() {
             {versions.local.map((version) => (
               <li key={version.id} className="flex items-center gap-3 text-sm">
                 <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-white/5 text-gray-400 shrink-0">
-                  library
+                  {version.source === 'qobuz' ? 'library · Qobuz' : 'library'}
                 </span>
                 <Link
                   to={`/albums/${version.id}`}

@@ -601,6 +601,8 @@ export interface DiscographyEntry {
   sampleRate: number | null;
   bitDepth: number | null;
   isCompilation: boolean;
+  /** 'local' or 'qobuz' — an added Qobuz album (R07.4). */
+  source?: string;
   /** On someone else's album: the roles this artist holds there. */
   roles?: string[];
 }
@@ -642,6 +644,8 @@ export interface AlbumVersions {
     label: string | null;
     releaseDate: string | null;
     matchedBy: 'release-group' | 'title';
+    /** 'qobuz' for a Qobuz edition in the library (R07.4). */
+    source?: string;
   }>;
   streaming: Array<{
     id: string;
