@@ -253,6 +253,17 @@ export default function PlayActions({ target, triggerTabIndex, className }: Prop
     }
   };
 
+  /** R07.1: a Qobuz track into the library, with its album row. */
+  const addToLibrary = async () => {
+    if (target.kind !== 'track') return;
+    try {
+      const res = await api.addQobuzTrackToLibrary(target.track.id);
+      toast(`Added to your library (${res.data.title})`, 'success');
+    } catch (err) {
+      if (!isApiError(err)) toast(`Could not add: ${(err as Error).message ?? err}`, 'error');
+    }
+  };
+
   const showPlaylists = () => {
     setView('playlists');
     if (playlists === null) {
@@ -347,6 +358,11 @@ export default function PlayActions({ target, triggerTabIndex, className }: Prop
             {target.kind === 'track' && target.list && target.index !== undefined && (
               <MenuItem onSelect={() => playAlbum(target.list!, target.index!)} onClose={close}>
                 Play from here
+              </MenuItem>
+            )}
+            {target.kind === 'track' && target.track.id.startsWith('qobuz:') && (
+              <MenuItem onSelect={() => void addToLibrary()} onClose={close}>
+                Add to library
               </MenuItem>
             )}
             {(canAddToPlaylist || canFavorite) && <MenuSeparator />}

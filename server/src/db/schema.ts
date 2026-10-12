@@ -15,6 +15,8 @@ export const artists = sqliteTable('artists', {
   mbid: text('mbid'),
   imageUrl: text('image_url'),
   source: text('source').notNull().default('local'),
+  /** R07.1: provider reference of a non-local row, e.g. 'qobuz:album:123'. */
+  sourceRef: text('source_ref'),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(now),
 });
@@ -58,6 +60,8 @@ export const albums = sqliteTable('albums', {
   sampleRate: integer('sample_rate'),
   bitDepth: integer('bit_depth'),
   source: text('source').notNull().default('local'),
+  /** R07.1: provider reference of a non-local row, e.g. 'qobuz:album:123'. */
+  sourceRef: text('source_ref'),
   createdAt: integer('created_at', { mode: 'timestamp' }).$defaultFn(now),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).$defaultFn(now),
 });
@@ -97,6 +101,8 @@ export const tracks = sqliteTable('tracks', {
   work: text('work'),
   movement: text('movement'),
   source: text('source').notNull().default('local'),
+  /** R07.1: provider reference of a non-local row, e.g. 'qobuz:album:123'. */
+  sourceRef: text('source_ref'),
   // ── Source location vs identity (V06.1) ──
   // The row id is the track's identity (playlists, favorites, history point
   // at it); file_path is only where it currently lives. Size + mtime say

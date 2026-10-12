@@ -828,6 +828,12 @@ export const openApiSpec = {
         parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
         responses: { 200: ok('album with tracks'), 404: ok('not found') },
       },
+      delete: {
+        tags: ['Library'],
+        summary: 'Remove a Qobuz album from the library (never a local one)',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 200: ok('{ ok }'), 404: ok('no Qobuz album with that id') },
+      },
     },
     '/library/artists': {
       get: {
@@ -1354,6 +1360,34 @@ export const openApiSpec = {
           { name: 'itemId', in: 'path', required: true, schema: { type: 'string' } },
         ],
         responses: { 200: ok('tag'), 404: ok('not yours') },
+      },
+    },
+    '/library/qobuz/albums/{id}': {
+      post: {
+        tags: ['Library'],
+        summary: 'Add a Qobuz album to the library (R07.1); adding again refreshes its snapshot',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: {
+          201: ok('{ albumId, title, artistName, trackCount }'),
+          404: ok('unknown on Qobuz'),
+          409: ok('Qobuz does not stream it'),
+        },
+      },
+    },
+    '/library/qobuz/tracks/{id}': {
+      post: {
+        tags: ['Library'],
+        summary: 'Add one Qobuz track, with an album row holding the tracks you added',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { 201: ok('{ albumId, title, artistName, trackCount }'), 409: ok('withdrawn') },
+      },
+    },
+    '/library/qobuz/in-library': {
+      get: {
+        tags: ['Library'],
+        summary: 'Which of these Qobuz album ids are in the library',
+        parameters: [{ name: 'ids', in: 'query', schema: { type: 'string' } }],
+        responses: { 200: ok('string[] (qobuz:…)') },
       },
     },
     '/library/composers': {

@@ -43,6 +43,14 @@ import {
 import { parsePagination, buildMeta } from '../utils/pagination.js';
 import { ownerOf } from '../utils/ownership.js';
 import {
+  QobuzLibraryError,
+  addQobuzAlbum,
+  addQobuzTrack,
+  qobuzAlbumsInLibrary,
+  removeQobuzAlbum,
+} from '../services/qobuz-library.js';
+import { QobuzProviderError } from '../providers/qobuz.js';
+import {
   albumFacets,
   focusAlbums,
   focusArtists,
@@ -411,6 +419,74 @@ libraryRouter.get('/albums/facets', (req, res) => {
   res.json({ data: albumFacets(query, ownerOf(req)) });
 });
 
+// ─── Qobuz in the library (R07.1) ────────────────────────────────
+
+const qobuzIdParam = z.string().regex(/^(qobuz:)?\d+$/);
+
+function qobuzFailure(res: Response, err: unknown): void {
+  if (err instanceof QobuzLibraryError) {
+    res
+      .status(err.code === 'withdrawn' ? 409 : 404)
+      .json({ error: err.code, message: err.message });
+    return;
+  }
+  if (err instanceof QobuzProviderError) {
+    res.status(err.statusCode >= 400 && err.statusCode < 600 ? err.statusCode : 502).json({
+      error: err.code,
+      message: err.message,
+    });
+    return;
+  }
+  throw err;
+}
+
+libraryRouter.post(
+  '/qobuz/albums/:id',
+  asyncHandler(async (req, res) => {
+    if (!requireOwner(req, res)) return;
+    const id = qobuzIdParam.safeParse(req.params.id);
+    if (!id.success) return res.status(400).json({ error: 'Not a Qobuz album id' });
+    try {
+      res.status(201).json({ data: await addQobuzAlbum(id.data) });
+    } catch (err) {
+      qobuzFailure(res, err);
+    }
+  }),
+);
+
+libraryRouter.post(
+  '/qobuz/tracks/:id',
+  asyncHandler(async (req, res) => {
+    if (!requireOwner(req, res)) return;
+    const id = qobuzIdParam.safeParse(req.params.id);
+    if (!id.success) return res.status(400).json({ error: 'Not a Qobuz track id' });
+    try {
+      res.status(201).json({ data: await addQobuzTrack(id.data) });
+    } catch (err) {
+      qobuzFailure(res, err);
+    }
+  }),
+);
+
+// Which Qobuz albums are already in the library, for "Added ✓" on Qobuz pages.
+libraryRouter.get('/qobuz/in-library', (req, res) => {
+  const ids = String(req.query.ids ?? '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+  res.json({ data: qobuzAlbumsInLibrary(ids) });
+});
+
+// Remove a Qobuz album from the library. Local albums are files: the scanner
+// and the missing-tracks purge decide about those, never this route.
+libraryRouter.delete('/albums/:id', (req, res) => {
+  if (!requireOwner(req, res)) return;
+  if (!removeQobuzAlbum(String(req.params.id))) {
+    return res.status(404).json({ error: 'No Qobuz album with that id in the library' });
+  }
+  res.json({ data: { ok: true } });
+});
+
 // Recently added albums
 libraryRouter.get('/albums/recent', (req, res) => {
   const limit = Math.min(50, parseInt(req.query.limit as string) || 20);
@@ -529,6 +605,11 @@ libraryRouter.get('/artists/:id/image', (req, res) => {
 libraryRouter.get(
   '/albums/:id/cover',
   asyncHandler(async (req, res) => {
+    // A Qobuz album in the library (R07.1) has its cover on Qobuz's CDN.
+    const remote = getRawDb()
+      .prepare("SELECT cover_url FROM albums WHERE id = ? AND source != 'local'")
+      .get(req.params.id) as { cover_url: string | null } | undefined;
+    if (remote?.cover_url?.startsWith('https://')) return res.redirect(302, remote.cover_url);
     const cover = await getCoverForAlbum(req.params.id);
     if (!cover) return res.status(404).json({ error: 'No cover art found' });
     res.setHeader('Content-Type', cover.mime);

@@ -12,6 +12,8 @@ interface Props {
   title: string;
   size?: 'sm' | 'lg';
   className?: string;
+  /** A provider id that is in the library (an added Qobuz album, R07.1). */
+  library?: boolean;
   /** -1 inside a roving-tabindex grid, where the card is the tab stop. */
   tabIndex?: number;
 }
@@ -23,8 +25,9 @@ export default function FavoriteButton({
   size = 'sm',
   className = '',
   tabIndex,
+  library = false,
 }: Props) {
-  if (!id || PROVIDER_PREFIX.test(id)) return null;
+  if (!id || (!library && PROVIDER_PREFIX.test(id))) return null;
   return (
     <Heart
       kind={kind}

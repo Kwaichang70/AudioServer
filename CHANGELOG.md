@@ -4,6 +4,14 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## R07 — Eén bibliotheek: Qobuz in de collectie (verbeterplan 2, sprint R07)
+
+**Toevoegen aan de bibliotheek** (`server/src/services/qobuz-library.ts`, schemaversie 18)
+
+- Qobuz-albums en -tracks als gewone bibliotheekrijen met bronverwijzing; ze
+  staan tussen je albums, spelen op elke kamer en een herscan laat ze staan.
+- Hersteld: tags en sterren in de kop van een lokaal album (sinds R06 onzichtbaar).
+
 ## R06 — Tags, favorieten overal, waarderingen (verbeterplan 2, sprint R06)
 
 **Tags** (`server/src/services/tags.ts`, schemaversie 17)

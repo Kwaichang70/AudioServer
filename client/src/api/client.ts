@@ -921,6 +921,27 @@ export const api = {
     fetchApi(`/providers/spotify/albums/${id}`),
   getSpotifyAlbumTracks: (id: string): Promise<ApiResponse<Track[]>> =>
     fetchApi(`/providers/spotify/albums/${id}/tracks`),
+  /** R07.1: which of these Qobuz albums are in the library (ids as `qobuz:…`). */
+  getQobuzLibraryState: (ids: string[]): Promise<ApiResponse<string[]>> =>
+    fetchApi(`/library/qobuz/in-library?ids=${ids.map(encodeURIComponent).join(',')}`),
+  addQobuzAlbumToLibrary: (
+    id: string,
+  ): Promise<
+    ApiResponse<{ albumId: string; title: string; artistName: string; trackCount: number }>
+  > =>
+    fetchApi(`/library/qobuz/albums/${encodeURIComponent(id.replace(/^qobuz:/, ''))}`, {
+      method: 'POST',
+    }),
+  addQobuzTrackToLibrary: (
+    id: string,
+  ): Promise<
+    ApiResponse<{ albumId: string; title: string; artistName: string; trackCount: number }>
+  > =>
+    fetchApi(`/library/qobuz/tracks/${encodeURIComponent(id.replace(/^qobuz:/, ''))}`, {
+      method: 'POST',
+    }),
+  removeQobuzAlbumFromLibrary: (albumId: string): Promise<OkResponse> =>
+    fetchApi(`/library/albums/${encodeURIComponent(albumId)}`, { method: 'DELETE' }),
   getQobuzAlbum: (id: string): Promise<ApiResponse<Album | null>> =>
     fetchApi(`/providers/qobuz/albums/${id}`),
   getQobuzAlbumTracks: (id: string): Promise<ApiResponse<Track[]>> =>

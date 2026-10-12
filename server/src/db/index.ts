@@ -21,7 +21,7 @@ import { fileURLToPath } from 'url';
  * it does not understand. Databases from before this check carry version 0,
  * which every build accepts and upgrades.
  */
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 18;
 
 export class DatabaseVersionError extends Error {
   constructor(
@@ -300,6 +300,12 @@ export async function initDatabase(overridePath?: string) {
   runMigration(sqlite, 'smart_playlists', 'definition', 'TEXT');
   migrateSmartPlaylistDefinitions(sqlite);
   addSearchColumns(sqlite);
+  // R07.1: where a non-local row comes from — "qobuz:album:123" — so the
+  // library knows what to ask the provider, and the scanner knows to keep out.
+  runMigration(sqlite, 'artists', 'source_ref', 'TEXT');
+  runMigration(sqlite, 'albums', 'source_ref', 'TEXT');
+  runMigration(sqlite, 'tracks', 'source_ref', 'TEXT');
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_albums_source ON albums (source)');
   // R06.1: the listener's own order, apart from metadata. A tag belongs to one
   // person; `shared` makes it readable (never editable) for the household.
   sqlite.exec(`

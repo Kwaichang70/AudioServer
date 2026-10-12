@@ -104,7 +104,8 @@ export async function fetchMissingCovers(): Promise<FetchStatus> {
   const allAlbums = db.select().from(albums).all();
 
   // Filter albums that don't have a local cover yet
-  const missing = allAlbums.filter((a) => !getLocalCoverPath(a.id));
+  // Qobuz albums in the library (R07.1) bring their own cover.
+  const missing = allAlbums.filter((a) => a.source === 'local' && !getLocalCoverPath(a.id));
 
   fetchStatus = {
     isRunning: true,

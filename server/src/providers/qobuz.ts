@@ -75,12 +75,20 @@ interface QobuzAlbumResponse {
   /** Best quality Qobuz offers for this album, in kHz and bits (R04.3). */
   maximum_sampling_rate?: number;
   maximum_bit_depth?: number;
+  label?: { name?: string };
+  upc?: string;
+  /** False when Qobuz withdrew the release (R07.2). */
+  streamable?: boolean;
 }
 
 interface QobuzTrackResponse {
   id: string | number;
   title: string;
-  album?: Pick<QobuzAlbumResponse, 'id' | 'title'>;
+  album?: QobuzAlbumResponse;
+  /** Disc number on a multi-disc release. */
+  media_number?: number;
+  /** False when Qobuz withdrew the title (R07.2). */
+  streamable?: boolean;
   performer?: QobuzArtistSummaryResponse;
   artist?: QobuzArtistSummaryResponse;
   track_number?: number;
@@ -662,6 +670,69 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
 
   // ─── Mappers ─────────────────────────────────────────────────
 
+  // ─── Library (R07) ───────────────────────────────────────────
+  //
+  // These throw instead of returning empty: adding to the library must tell
+  // "not signed in" apart from "Qobuz no longer offers this".
+
+  /** An album with all its tracks, as snapshots for the library. */
+  async fetchAlbumForLibrary(albumId: string): Promise<{
+    album: Album & { label?: string; streamable: boolean };
+    tracks: Array<Track & { streamable: boolean }>;
+  }> {
+    const data = await this.apiRequest<QobuzAlbumResponse>('album/get', {
+      album_id: albumId.replace(/^qobuz:/, ''),
+    });
+    return {
+      album: {
+        ...this.mapAlbum(data),
+        label: data.label?.name,
+        streamable: data.streamable !== false,
+      },
+      tracks: (data.tracks?.items || []).map((t) => ({
+        ...this.mapTrack(t, data),
+        streamable: t.streamable !== false,
+      })),
+    };
+  }
+
+  /** One track, with the album it belongs to. */
+  async fetchTrackForLibrary(
+    trackId: string,
+  ): Promise<Track & { streamable: boolean; album: Album | null }> {
+    const data = await this.apiRequest<QobuzTrackResponse>('track/get', {
+      track_id: trackId.replace(/^qobuz:/, ''),
+    });
+    return {
+      ...this.mapTrack(data),
+      streamable: data.streamable !== false,
+      album: data.album ? this.mapAlbum(data.album) : null,
+    };
+  }
+
+  /** Every favourite album id of the signed-in Qobuz account (R07.2). */
+  async fetchFavoriteAlbumIds(): Promise<string[]> {
+    const ids: string[] = [];
+    for (let offset = 0; offset < 5000; offset += 500) {
+      const data = await this.apiRequest<QobuzFavoritesResponse>('favorite/getUserFavorites', {
+        type: 'albums',
+        limit: '500',
+        offset: String(offset),
+      });
+      const items = data.albums?.items || [];
+      ids.push(...items.map((a) => `qobuz:${a.id}`));
+      if (items.length < 500) break;
+    }
+    return ids;
+  }
+
+  /** Add or remove an album from the Qobuz favourites (R07.2). */
+  async setFavoriteAlbum(albumId: string, favorite: boolean): Promise<void> {
+    await this.apiRequest(favorite ? 'favorite/create' : 'favorite/delete', {
+      album_ids: albumId.replace(/^qobuz:/, ''),
+    });
+  }
+
   private mapArtist(data: QobuzArtistResponse): Artist {
     return {
       id: `qobuz:${data.id}`,
@@ -701,6 +772,7 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
       artistId: `qobuz:${data.performer?.id || data.artist?.id || ''}`,
       artistName: data.performer?.name || data.artist?.name || 'Unknown',
       trackNumber: data.track_number,
+      discNumber: data.media_number,
       duration: data.duration,
       version: data.version || undefined,
       sampleRate: data.maximum_sampling_rate ? data.maximum_sampling_rate * 1000 : undefined,

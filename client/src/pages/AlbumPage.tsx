@@ -67,6 +67,10 @@ export default function AlbumPage() {
   const [favorited, setFavorited] = useState(false);
   const [credits, setCredits] = useState<AlbumCredit[]>([]);
   const [versions, setVersions] = useState<AlbumVersions | null>(null);
+  /** For a qobuz: id, whether it is in the library (R07.1); null while asking. */
+  const [inLibrary, setInLibrary] = useState<boolean | null>(null);
+  const [libraryBusy, setLibraryBusy] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const { playAlbum, playNextTracks, queueTracks, currentTrack, isPlaying } = useAudioContext();
   const activeAlbumIdRef = useRef(id);
   activeAlbumIdRef.current = id;
@@ -91,50 +95,10 @@ export default function AlbumPage() {
     setFavorited(false);
     setCredits([]);
     setVersions(null);
+    setInLibrary(null);
 
-    if (providerType === 'spotify') {
-      const spotifyId = id.replace('spotify:', '');
-      api
-        .getSpotifyAlbum(spotifyId)
-        .then((res) => {
-          if (!cancelled) setAlbum(res.data);
-        })
-        .catch(() => {});
-      api
-        .getSpotifyAlbumTracks(spotifyId)
-        .then((res) => {
-          if (!cancelled) setTracks(res.data);
-        })
-        .catch(() => {});
-    } else if (providerType === 'qobuz') {
-      const qobuzId = id.replace('qobuz:', '');
-      api
-        .getQobuzAlbum(qobuzId)
-        .then((res) => {
-          if (!cancelled) setAlbum(res.data);
-        })
-        .catch(() => {});
-      api
-        .getQobuzAlbumTracks(qobuzId)
-        .then((res) => {
-          if (!cancelled) setTracks(res.data);
-        })
-        .catch(() => {});
-    } else if (providerType === 'tidal') {
-      const tidalId = id.replace('tidal:', '');
-      api
-        .getTidalAlbum(tidalId)
-        .then((res) => {
-          if (!cancelled) setAlbum(res.data);
-        })
-        .catch(() => {});
-      api
-        .getTidalAlbumTracks(tidalId)
-        .then((res) => {
-          if (!cancelled) setTracks(res.data);
-        })
-        .catch(() => {});
-    } else {
+    // A library album: its rows, tracks, favourite, credits and versions.
+    const loadFromLibrary = () => {
       // .catch: an album pruned by a re-scan 404s here — swallow it (the page
       // keeps its Loading state) instead of surfacing an unhandled rejection.
       api
@@ -169,12 +133,74 @@ export default function AlbumPage() {
           if (!cancelled) setVersions(res.data);
         })
         .catch(() => {});
+    };
+
+    if (providerType === 'spotify') {
+      const spotifyId = id.replace('spotify:', '');
+      api
+        .getSpotifyAlbum(spotifyId)
+        .then((res) => {
+          if (!cancelled) setAlbum(res.data);
+        })
+        .catch(() => {});
+      api
+        .getSpotifyAlbumTracks(spotifyId)
+        .then((res) => {
+          if (!cancelled) setTracks(res.data);
+        })
+        .catch(() => {});
+    } else if (providerType === 'qobuz') {
+      // R07.1: a Qobuz album you added is a library album — same page, same
+      // hearts, tags and stars. Otherwise it is Qobuz's page, with "Add".
+      const qobuzId = id.replace('qobuz:', '');
+      api
+        .getQobuzLibraryState([qobuzId])
+        .then((res) => {
+          if (cancelled) return;
+          const added = (res.data ?? []).includes(id);
+          setInLibrary(added);
+          if (added) {
+            loadFromLibrary();
+            return;
+          }
+          api
+            .getQobuzAlbum(qobuzId)
+            .then((r) => {
+              if (!cancelled) setAlbum(r.data);
+            })
+            .catch(() => {});
+          api
+            .getQobuzAlbumTracks(qobuzId)
+            .then((r) => {
+              if (!cancelled) setTracks(r.data);
+            })
+            .catch(() => {});
+        })
+        .catch(() => {
+          if (!cancelled) setInLibrary(false);
+        });
+    } else if (providerType === 'tidal') {
+      const tidalId = id.replace('tidal:', '');
+      api
+        .getTidalAlbum(tidalId)
+        .then((res) => {
+          if (!cancelled) setAlbum(res.data);
+        })
+        .catch(() => {});
+      api
+        .getTidalAlbumTracks(tidalId)
+        .then((res) => {
+          if (!cancelled) setTracks(res.data);
+        })
+        .catch(() => {});
+    } else {
+      loadFromLibrary();
     }
 
     return () => {
       cancelled = true;
     };
-  }, [id, providerType]);
+  }, [id, providerType, reloadKey]);
 
   const toggleFavorite = async () => {
     if (!id) return;
@@ -182,6 +208,27 @@ export default function AlbumPage() {
     const res = await api.toggleFavorite('album', id);
     noteFavorite('album', albumId, res.data.favorited);
     if (activeAlbumIdRef.current === albumId) setFavorited(res.data.favorited);
+  };
+
+  /** R07.1: put a Qobuz album in the library, or take it out again. */
+  const toggleLibrary = async () => {
+    if (!id) return;
+    if (
+      inLibrary &&
+      !window.confirm(`Remove “${album?.title ?? 'this album'}” from your library?`)
+    ) {
+      return;
+    }
+    setLibraryBusy(true);
+    try {
+      if (inLibrary) await api.removeQobuzAlbumFromLibrary(id);
+      else await api.addQobuzAlbumToLibrary(id);
+      setReloadKey((k) => k + 1);
+    } catch {
+      // The toast layer shows the server's reason (withdrawn, not signed in).
+    } finally {
+      setLibraryBusy(false);
+    }
   };
 
   /** Start another version of this album: a local edition or a Qobuz release. */
@@ -198,6 +245,9 @@ export default function AlbumPage() {
   };
 
   if (!album) return <p className="text-gray-400">Loading...</p>;
+
+  // Library rows (local files and added Qobuz albums) carry personal marks.
+  const isLibrary = providerType === 'local' || inLibrary === true;
 
   const releaseLine = [
     album.releaseDate ?? (album.originalYear ? String(album.originalYear) : null),
@@ -232,7 +282,7 @@ export default function AlbumPage() {
         <div className="flex flex-col justify-end">
           <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Album</p>
           <h2 className="text-3xl font-bold mb-2">{album.title}</h2>
-          {id && !providerType && <ItemTags type="album" id={id} />}
+          {id && isLibrary && <ItemTags type="album" id={id} />}
           <p className="text-gray-400">
             {album.artistName}
             {album.year && <span> &middot; {album.year}</span>}
@@ -282,8 +332,18 @@ export default function AlbumPage() {
             >
               {favorited ? '\u2665' : '\u2661'}
             </button>
-            {id && !providerType && (
-              <RatingStars kind="album" id={id} title={album.title} size="lg" />
+            {id && isLibrary && (
+              <RatingStars kind="album" id={id} title={album.title} size="lg" library={isLibrary} />
+            )}
+            {id && providerType === 'qobuz' && inLibrary !== null && (
+              <Button
+                size="sm"
+                variant={inLibrary ? 'ghost' : 'accent'}
+                disabled={libraryBusy}
+                onClick={() => void toggleLibrary()}
+              >
+                {inLibrary ? 'In library ✓ · Remove' : '+ Add to library'}
+              </Button>
             )}
           </div>
         </div>
@@ -388,11 +448,17 @@ export default function AlbumPage() {
                       <div className="flex items-center justify-end gap-1">
                         <RatingStars
                           kind="track"
+                          library={isLibrary}
                           id={track.id}
                           title={track.title}
                           className="hidden lg:inline-flex mr-1"
                         />
-                        <FavoriteButton kind="track" id={track.id} title={track.title} />
+                        <FavoriteButton
+                          kind="track"
+                          id={track.id}
+                          title={track.title}
+                          library={isLibrary}
+                        />
                         <PlayActions
                           target={{
                             kind: 'track',

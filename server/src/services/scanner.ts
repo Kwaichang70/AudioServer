@@ -507,7 +507,11 @@ async function countSupportedFiles(dir: string): Promise<number> {
 // empty albums are removed.
 function pruneEmptyAlbums(): void {
   const db = getRawDb();
-  const albumsList = db.prepare('SELECT id FROM albums').all() as { id: string }[];
+  // Only local albums: a Qobuz album in the library (R07.1) is not the
+  // scanner's to remove.
+  const albumsList = db.prepare("SELECT id FROM albums WHERE source = 'local'").all() as {
+    id: string;
+  }[];
   let removed = 0;
   for (const a of albumsList) {
     const count =

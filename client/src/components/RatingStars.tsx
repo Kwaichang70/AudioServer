@@ -12,14 +12,23 @@ interface Props {
   title: string;
   size?: 'sm' | 'lg';
   className?: string;
+  /** A provider id that is in the library (an added Qobuz album, R07.1). */
+  library?: boolean;
 }
 
-export default function RatingStars({ kind, id, title, size = 'sm', className = '' }: Props) {
-  if (!id || PROVIDER_PREFIX.test(id)) return null;
+export default function RatingStars({
+  kind,
+  id,
+  title,
+  size = 'sm',
+  className = '',
+  library = false,
+}: Props) {
+  if (!id || (!library && PROVIDER_PREFIX.test(id))) return null;
   return <Stars kind={kind} id={id} title={title} size={size} className={className} />;
 }
 
-function Stars({ kind, id, title, size, className }: Required<Props>) {
+function Stars({ kind, id, title, size, className }: Required<Omit<Props, 'library'>>) {
   const [rating, setRating] = useRating(kind, id);
   return (
     <div

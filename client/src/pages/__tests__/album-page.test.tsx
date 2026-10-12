@@ -134,6 +134,13 @@ describe('AlbumPage (R04.3)', () => {
     });
   });
 
+  it('shows your stars on a local album (R06.4; regression: they were never rendered)', async () => {
+    renderPage();
+    expect(
+      await screen.findByRole('radiogroup', { name: 'Your rating for Symphony No. 5' }),
+    ).toBeInTheDocument();
+  });
+
   it('shows the release date, label and catalogue number', async () => {
     renderPage();
     expect((await screen.findByTestId('release-line')).textContent).toBe(
