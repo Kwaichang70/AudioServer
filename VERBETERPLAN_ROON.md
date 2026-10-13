@@ -314,6 +314,8 @@ _Status: gehaald op Windows (473 tests, 1 overgeslagen met reden); Linux via CI.
 
 **Doel:** wat binnen één ecosysteem echt kan, aanbieden; niets beloven over protocollen heen.
 
+_Vrijgegeven op 13 oktober 2026: NAS-test "twintig overgangen zonder dubbele dispatch" geslaagd._
+
 - [ ] **R09.1 · 2,5 dag:** Sonos-groepen aansturen: "Groepeer met…" op een Sonos-zone stuurt `SetAVTransportURI x-rincon:<coordinator>` naar het lid; "Verlaat groep" stuurt `BecomeCoordinatorOfStandaloneGroup`. Een groep is één zone (de coördinator); leden zijn niet apart kiesbaar zolang ze gegroepeerd zijn (`zones.device_id` UNIQUE blijft de waarheid). Groepsvolume via `GroupRenderingControl`.
 - [x] **R09.2 · 1,5 dag:** zone-overdracht: "Verplaats naar…" neemt wachtrij, huidig item en positie mee naar een andere zone (`queue/set` + seek uit R01), stopt de oude. Werkt over protocollen heen omdat het geen synchronisatie is.
       _Gedaan (13 oktober 2026, op verzoek vóór de NAS-test gestart):_ `POST /api/playback/transfer` (`server/src/services/zone-transfer.ts`) neemt wachtrij, huidig nummer, positie, shuffle, herhalen en radio mee; de nieuwe kamer start eerst, daarna stopt de oude en laat zijn speaker los. Na de start wacht de server (max. 10 s) tot de speaker speelt en springt dan naar de positie; kan de speaker niet springen, start hij niet op tijd of weigert hij, dan speelt het nummer vanaf het begin en zegt de app dat. In de speler (balk en volledig scherm) staat "Move to…" met alleen kamers die de server zelf kan bespelen. **Grenzen:** een browserkamer of Spotify Connect is geen doel (de server kan geen tabblad starten), wel een bron; de slaaptimer blijft bij de oude kamer; het verzoek duurt tot ~10 s bij een trage speaker. Tests: verplaatsen met positie, radio gaat mee, geen-seek- en niet-gestart-melding, weigeringen. **Niet getest op echte Sonos/DLNA — NAS-acceptatie: Sonos → DLNA en terug, met positie.**
@@ -334,7 +336,7 @@ _Status: gehaald op Windows (473 tests, 1 overgeslagen met reden); Linux via CI.
 
 ## 7. Volgorde, beslismomenten en meetpunten
 
-**Voorwaarde vooraf.** De open NAS-acceptatie uit V03–V11 (§2) wordt afgerond tijdens R00–R01; de NAS is alleen overdag beschikbaar, dus plan die tests aan het begin van een werkdag. Zolang "twintig overgangen zonder dubbele dispatch" niet is gezien, start R09 niet.
+**Voorwaarde vooraf.** De open NAS-acceptatie uit V03–V11 (§2) wordt afgerond tijdens R00–R01; de NAS is alleen overdag beschikbaar, dus plan die tests aan het begin van een werkdag. Zolang "twintig overgangen zonder dubbele dispatch" niet is gezien, start R09 niet. **Gezien op 13 oktober 2026:** Danny voerde de test op de NAS uit, twintig overgangen zonder dubbele dispatch. R09 is daarmee vrijgegeven.
 
 **Beslismomenten**
 
