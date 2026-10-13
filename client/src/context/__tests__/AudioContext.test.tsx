@@ -139,6 +139,7 @@ function Harness() {
       <output data-testid="volume">{ctx.volume}</output>
       <output data-testid="seek-support">{ctx.seekSupport}</output>
       <output data-testid="position">{progress.currentTime}</output>
+      <output data-testid="duration">{progress.duration}</output>
       <button onClick={() => ctx.playTrack(tracks[0])}>Play Track</button>
       <button onClick={() => ctx.playAlbum(tracks)}>Play Album</button>
       <button onClick={() => ctx.playAlbum(spotifyTracks)}>Play Spotify Album</button>
@@ -159,6 +160,9 @@ function Harness() {
       <button onClick={() => void ctx.queueTracks([ninth, tenth])}>Queue Ninth Tenth</button>
       <button onClick={() => void ctx.playNow([ninth])}>Play Ninth Now</button>
       <button onClick={() => ctx.seek(42)}>Seek 42</button>
+      <button onClick={() => ctx.playAlbum([{ ...tracks[0], duration: 245 }])}>
+        Play Long Track
+      </button>
     </div>
   );
 }
@@ -828,5 +832,39 @@ describe('AudioProvider play actions and seek (R01)', () => {
     );
     expect(screen.getByTestId('position')).not.toHaveTextContent('42');
     expect(mocks.audio.seek).not.toHaveBeenCalled();
+  });
+});
+
+describe('AudioProvider on an external speaker', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fakeServer = createFakePlaybackServer();
+    mocks.socket.snapshot = null;
+    mocks.socket.queueEvent = null;
+    mocks.socket.trackChanged = null;
+    mocks.socket.deviceUpdate = null;
+    localStorage.clear();
+    mocks.api.getDeviceStatus.mockResolvedValue({ data: {} });
+  });
+
+  it('shows the length the library knows when the speaker reports 0:00', async () => {
+    const view = renderHarness();
+    fireEvent.click(screen.getByText('External Device'));
+    fireEvent.click(screen.getByText('Play Long Track'));
+    await waitFor(() => expect(screen.getByTestId('current')).toHaveTextContent('First'));
+    mocks.socket.deviceUpdate = {
+      deviceId: 'device-1',
+      state: 'playing',
+      position: 41,
+      duration: 0,
+      volume: 50,
+    } as unknown as null;
+    view.rerender(
+      <AudioProvider>
+        <Harness />
+      </AudioProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('duration')).toHaveTextContent('245'));
+    expect(screen.getByTestId('position')).toHaveTextContent('41');
   });
 });

@@ -275,6 +275,11 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   selectedDeviceRef.current = selectedDeviceId;
   const currentTrackRef = useRef(currentTrack);
   currentTrackRef.current = currentTrack;
+  // Many renderers answer "0:00:00" for the length of a stream they cannot
+  // measure (the server judges the end itself, see device-monitor); the bar
+  // then shows the length the library knows instead of 0:00.
+  const deviceDuration = (reported: number) =>
+    reported > 0 ? reported : (currentTrackRef.current?.duration ?? 0);
   const queueRef = useRef(queue);
   queueRef.current = queue;
   const queueIndexRef = useRef(queueIndex);
@@ -346,7 +351,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     if (selectedDeviceRef.current !== 'browser') {
       // Mirror device position into ProgressStore so useProgress() works
       // regardless of whether the user picked the browser or a remote device.
-      setProgress(u.position, u.duration);
+      setProgress(u.position, deviceDuration(u.duration));
     }
   }, [socket.deviceUpdate]);
 
@@ -364,7 +369,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
           const pos = res.data.position || 0;
           const dur = res.data.duration || 0;
           setDeviceIsPlaying(res.data.state === 'playing');
-          setProgress(pos, dur);
+          setProgress(pos, deviceDuration(dur));
         })
         .catch(() => {});
     }, DEVICE_POLL_INTERVAL);

@@ -4,6 +4,13 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fix — lengte 0:00 op een externe speaker
+
+- Veel renderers melden "0:00:00" als lengte van een stream die ze niet
+  kunnen meten; de speler toonde dan 0:00. Nu toont hij de lengte uit de
+  bibliotheek. Het einde van een nummer bepaalde de server al zelf, dus
+  doorspelen werkte al goed.
+
 ## R09.2 — Zone-overdracht (verbeterplan 2)
 
 - "Move to…" in de speler verplaatst de muziek naar een andere kamer:
