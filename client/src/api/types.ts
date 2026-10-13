@@ -318,6 +318,18 @@ export interface ZoneOverview extends ZoneSummary {
   queueLength: number;
   queueIndex: number;
   volume: number;
+  /** A Sonos room: it can lead a group or join one (R09.1). */
+  groupable?: boolean;
+  /** The room this one plays along with, when it is a group member. */
+  groupedWith?: string | null;
+  /** The rooms playing along with this one. */
+  groupMembers?: string[];
+}
+
+export interface ZoneGroupInfo {
+  groupable: boolean;
+  groupedWith: string | null;
+  groupMembers: string[];
 }
 
 /** Moving the music to another room (R09.2). */

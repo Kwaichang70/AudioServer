@@ -9,6 +9,7 @@ import SeekBar, { seekDisabledReason } from './player/SeekBar.js';
 import FavoriteTrackButton from './player/FavoriteTrackButton.js';
 import RadioToggle, { useRadioReason } from './player/RadioToggle.js';
 import MoveToMenu from './player/MoveToMenu.js';
+import GroupMenu from './player/GroupMenu.js';
 import {
   PlayIcon,
   PauseIcon,
@@ -98,7 +99,11 @@ export default function NowPlayingBar({ onExpandClick, onLyricsClick }: NowPlayi
     return (
       <div className="h-20 bg-surface border-t border-white/10 flex items-center justify-between px-4 text-gray-500">
         <span>No track playing</span>
-        <DeviceSelector selectedDeviceId={selectedDeviceId} onSelect={setSelectedDeviceId} />
+        <span className="flex items-center gap-2">
+          {/* A room in a Sonos group has no music of its own: say with whom it plays. */}
+          <GroupMenu />
+          <DeviceSelector selectedDeviceId={selectedDeviceId} onSelect={setSelectedDeviceId} />
+        </span>
       </div>
     );
   }
@@ -186,6 +191,7 @@ export default function NowPlayingBar({ onExpandClick, onLyricsClick }: NowPlayi
           <FavoriteTrackButton trackId={currentTrack.id} title={currentTrack.title} />
           <RadioToggle />
           <MoveToMenu />
+          <GroupMenu />
         </span>
       </div>
 

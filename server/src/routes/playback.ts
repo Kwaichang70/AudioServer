@@ -24,6 +24,13 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { ownerOf } from '../utils/ownership.js';
 import { TransferError, transferZone } from '../services/zone-transfer.js';
 import {
+  GroupError,
+  groupInfo,
+  groupZones,
+  leaderOf,
+  ungroupZone,
+} from '../services/sonos-groups.js';
+import {
   forgetCapabilities,
   getAllOutputCapabilities,
   getOutputCapabilities,
@@ -113,6 +120,19 @@ function sessionOf(req: Request, res: Response): PlaybackService | null {
   if (!zone) {
     res.status(404).json({ error: 'NotFound', message: 'That zone does not exist' });
     return null;
+  }
+  // A room in a Sonos group plays what its leader plays (R09.1): steering it
+  // on its own would fight the group, so only reads are answered.
+  if (req.method !== 'GET') {
+    const leader = leaderOf(zone.id);
+    if (leader) {
+      res.status(409).json({
+        error: 'GroupedZone',
+        message: `“${zone.name}” plays along with “${leader.name}”; steer “${leader.name}” or take “${zone.name}” out of the group.`,
+        data: { leaderZoneId: leader.id },
+      });
+      return null;
+    }
   }
   return zones.sessionFor(zone.id);
 }
@@ -212,6 +232,7 @@ playbackRouter.get('/zones', (_req, res) => {
         queueLength: snapshot.queue.length,
         queueIndex: snapshot.queueIndex,
         volume: snapshot.state.volume,
+        ...groupInfo(zone),
       };
     }),
   });
@@ -813,6 +834,47 @@ playbackRouter.post(
         return res.status(status).json({ error: err.code, message: err.message });
       }
       throw err;
+    }
+  }),
+);
+
+// ─── Sonos groups (R09.1) ────────────────────────────────────────
+
+function sendGroupError(res: Response, err: unknown): boolean {
+  if (!(err instanceof GroupError)) return false;
+  const status = err.code === 'unknown_zone' ? 404 : err.code === 'speaker_refused' ? 502 : 409;
+  res.status(status).json({ error: err.code, message: err.message });
+  return true;
+}
+
+// Another Sonos room plays along with this one (X-Zone-Id leads).
+playbackRouter.post(
+  '/group',
+  validate({ body: z.object({ memberZoneId: z.string().min(1).max(128) }) }),
+  asyncHandler(async (req, res) => {
+    const session = sessionOf(req, res);
+    if (!session) return;
+    try {
+      const data = await groupZones(session.getZoneId(), req.body.memberZoneId, originOf(req));
+      res.json({ data });
+      broadcastZones();
+    } catch (err) {
+      if (!sendGroupError(res, err)) throw err;
+    }
+  }),
+);
+
+// A room leaves its group. Not through sessionOf: the member itself asks.
+playbackRouter.post(
+  '/ungroup',
+  validate({ body: z.object({ memberZoneId: z.string().min(1).max(128) }) }),
+  asyncHandler(async (req, res) => {
+    try {
+      const data = await ungroupZone(req.body.memberZoneId);
+      res.json({ data });
+      broadcastZones();
+    } catch (err) {
+      if (!sendGroupError(res, err)) throw err;
     }
   }),
 );

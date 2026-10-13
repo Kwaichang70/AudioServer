@@ -6,6 +6,7 @@ import { getRadioState, setRadio } from './library-radio.js';
 import { deviceManager } from '../devices/manager.js';
 import { supportsSeek } from './output-capabilities.js';
 import { logger } from '../logger.js';
+import { leaderOf } from './sonos-groups.js';
 
 /**
  * Move the music to another room (R09.2): the queue, the item playing and
@@ -22,7 +23,12 @@ import { logger } from '../logger.js';
 
 export class TransferError extends Error {
   constructor(
-    public code: 'same_zone' | 'unknown_zone' | 'nothing_playing' | 'target_not_server_playable',
+    public code:
+      | 'same_zone'
+      | 'unknown_zone'
+      | 'nothing_playing'
+      | 'target_not_server_playable'
+      | 'target_grouped',
     message: string,
   ) {
     super(message);
@@ -107,6 +113,14 @@ export async function transferZone(
     throw new TransferError(
       'target_not_server_playable',
       `“${to.name}” plays in a browser tab; open the app there and play from that tab instead.`,
+    );
+  }
+
+  const leader = leaderOf(to.id);
+  if (leader) {
+    throw new TransferError(
+      'target_grouped',
+      `“${to.name}” plays along with “${leader.name}”; take it out of the group first.`,
     );
   }
 

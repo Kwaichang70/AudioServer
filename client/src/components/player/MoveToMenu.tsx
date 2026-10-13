@@ -11,11 +11,14 @@ import type { ZoneOverview } from '../../api/types.js';
  *
  * Only rooms the server can play on by itself are offered: a browser room
  * plays only while a tab is open there, and Spotify Connect is steered by
- * Spotify itself.
+ * Spotify itself. A room that plays along in a Sonos group is not offered.
  */
 
 const serverPlayable = (zone: ZoneOverview) =>
   zone.deviceId !== 'browser' && !zone.deviceId.startsWith('spotify-connect:');
+
+// A room in a Sonos group plays what its leader plays; it is not a target.
+const standsAlone = (zone: ZoneOverview) => !zone.groupedWith;
 
 export default function MoveToMenu({ size = 'sm' }: { size?: 'sm' | 'lg' }) {
   const { zones, zoneId, moveToZone, currentTrack } = useAudioContext();
@@ -25,7 +28,7 @@ export default function MoveToMenu({ size = 'sm' }: { size?: 'sm' | 'lg' }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const close = useCallback(() => setOpen(false), []);
 
-  const targets = zones.filter((z) => z.id !== zoneId && serverPlayable(z));
+  const targets = zones.filter((z) => z.id !== zoneId && serverPlayable(z) && standsAlone(z));
   if (!currentTrack || targets.length === 0) return null;
 
   const move = async (zone: ZoneOverview) => {

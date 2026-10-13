@@ -1321,6 +1321,30 @@ export const openApiSpec = {
         },
       },
     },
+    '/playback/group': {
+      post: {
+        tags: ['Playback'],
+        summary:
+          'Let another Sonos room (memberZoneId) play along with this one (X-Zone-Id), in sync (R09.1); the member’s own music stops',
+        responses: {
+          200: ok('{ groupable, groupedWith, groupMembers } of the leading room'),
+          404: ok('unknown room'),
+          409: ok('not a Sonos room, the same room, or the member leads its own group'),
+          502: ok('the speaker did not join'),
+        },
+      },
+    },
+    '/playback/ungroup': {
+      post: {
+        tags: ['Playback'],
+        summary: 'Take a room (memberZoneId) out of its Sonos group; it stands alone, silent',
+        responses: {
+          200: ok('{ groupable, groupedWith, groupMembers }'),
+          409: ok('not in a group'),
+          502: ok('the speaker did not leave'),
+        },
+      },
+    },
     '/home': {
       get: {
         tags: ['Home'],

@@ -18,6 +18,7 @@ import type {
   TransitionRecord,
   ZoneOverview,
   ZoneTransferResult,
+  ZoneGroupInfo,
   ZoneSummary,
   AuthResult,
   DeviceStatusResponse,
@@ -575,6 +576,12 @@ export const api = {
   /** Move the music of this tab's room to another room (R09.2). */
   transferZone: (toZoneId: string): Promise<ApiResponse<ZoneTransferResult>> =>
     fetchApi('/playback/transfer', { method: 'POST', body: JSON.stringify({ toZoneId }) }),
+
+  /** Let another Sonos room play along with this one, in sync (R09.1). */
+  groupZone: (memberZoneId: string): Promise<ApiResponse<ZoneGroupInfo>> =>
+    fetchApi('/playback/group', { method: 'POST', body: JSON.stringify({ memberZoneId }) }),
+  ungroupZone: (memberZoneId: string): Promise<ApiResponse<ZoneGroupInfo>> =>
+    fetchApi('/playback/ungroup', { method: 'POST', body: JSON.stringify({ memberZoneId }) }),
 
   // ─── Sleep timer (E01) ──────────────────────────────────────
   // Per room, and run by the server: it fires with this tab closed.

@@ -38,6 +38,7 @@ import { initServerPlayer, reconcileAllZones } from './services/server-player.js
 import { configureSleepTimers, initializeSleepTimers } from './services/sleep-timer.js';
 import { startQobuzSync, stopQobuzSync } from './services/qobuz-sync.js';
 import { initLibraryRadio } from './services/radio-wiring.js';
+import { startSonosGroupWatch, stopSonosGroupWatch } from './services/sonos-groups.js';
 import { closeOrphanedSessions, playbackListeningObserver } from './services/listening.js';
 import { globalLimiter } from './middleware/rateLimiter.js';
 import { requestLogger } from './middleware/requestLogger.js';
@@ -258,6 +259,8 @@ async function main() {
   });
   // Library ⇄ Qobuz favourites (R07.2): at start and every six hours.
   startQobuzSync();
+  // Sonos groups (R09.1): grouping in the Sonos app shows up here within a minute.
+  startSonosGroupWatch(() => getIO().emit('zones:changed', zones.list()));
   // A queue survives a restart; whether the speaker is still playing it is
   // checked, not assumed (V04.3). Runs after listen() so readiness is not
   // delayed by a slow renderer.
@@ -292,6 +295,7 @@ function shutdown(signal: string): Promise<void> {
     try {
       scrobbler.stop();
       stopQobuzSync();
+      stopSonosGroupWatch();
       deviceMonitor.stopAll();
       stopWatcher();
       stopLibrespot();

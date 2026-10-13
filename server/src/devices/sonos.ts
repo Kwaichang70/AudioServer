@@ -134,6 +134,62 @@ export class SonosController implements DeviceController {
     }
   }
 
+  /** Read who plays with whom again, e.g. after grouping or a change in the Sonos app. */
+  async refreshTopology(): Promise<void> {
+    await this.enrichZoneGroups();
+  }
+
+  /**
+   * The coordinator this player follows, or null when it plays on its own or
+   * leads its group (R09.1).
+   */
+  coordinatorOf(deviceId: string): string | null {
+    const device = this.devices.get(deviceId);
+    if (!device?.groupId || device.isGroupCoordinator) return null;
+    const leader = [...this.devices.values()].find(
+      (d) => d.groupId === device.groupId && d.isGroupCoordinator,
+    );
+    return leader?.id ?? null;
+  }
+
+  /** The other players following this one, when it leads a group. */
+  membersOf(deviceId: string): string[] {
+    const device = this.devices.get(deviceId);
+    if (!device?.groupId || !device.isGroupCoordinator) return [];
+    return [...this.devices.values()]
+      .filter((d) => d.groupId === device.groupId && d.id !== deviceId)
+      .map((d) => d.id);
+  }
+
+  /**
+   * Let a player join another's group (R09.1): it plays the coordinator's
+   * stream (x-rincon) in sync, which only Sonos itself can do.
+   */
+  async joinGroup(memberId: string, coordinatorId: string): Promise<void> {
+    const member = this.getDevice(memberId);
+    this.getDevice(coordinatorId);
+    await this.soapAction(this.baseUrl(member), 'AVTransport', 'SetAVTransportURI', {
+      InstanceID: '0',
+      CurrentURI: `x-rincon:${coordinatorId}`,
+      CurrentURIMetaData: '',
+    });
+    logger.info(`Sonos: ${member.name} joined the group of ${coordinatorId}`);
+    await this.refreshTopology();
+  }
+
+  /** Take a player out of its group; it stops and stands alone again. */
+  async leaveGroup(memberId: string): Promise<void> {
+    const member = this.getDevice(memberId);
+    await this.soapAction(
+      this.baseUrl(member),
+      'AVTransport',
+      'BecomeCoordinatorOfStandaloneGroup',
+      { InstanceID: '0' },
+    );
+    logger.info(`Sonos: ${member.name} left its group`);
+    await this.refreshTopology();
+  }
+
   private getDevice(deviceId: string): SonosDevice {
     const device = this.devices.get(deviceId);
     if (!device) throw new Error(`Sonos device not found: ${deviceId}`);
@@ -230,6 +286,19 @@ export class SonosController implements DeviceController {
 
   async setVolume(deviceId: string, volume: number): Promise<void> {
     const device = this.getDevice(deviceId);
+    if (this.membersOf(deviceId).length > 0) {
+      // A group's volume (R09.1): every player moves, keeping the balance
+      // between them as it is now (the snapshot records those ratios).
+      const base = this.baseUrl(device);
+      await this.soapAction(base, 'GroupRenderingControl', 'SnapshotGroupVolume', {
+        InstanceID: '0',
+      });
+      await this.soapAction(base, 'GroupRenderingControl', 'SetGroupVolume', {
+        InstanceID: '0',
+        DesiredVolume: String(Math.round(volume)),
+      });
+      return;
+    }
     await this.soapAction(this.baseUrl(device), 'RenderingControl', 'SetVolume', {
       InstanceID: '0',
       Channel: 'Master',
@@ -239,6 +308,20 @@ export class SonosController implements DeviceController {
 
   async getVolume(deviceId: string): Promise<number> {
     const device = this.getDevice(deviceId);
+    if (this.membersOf(deviceId).length > 0) {
+      try {
+        const result = await this.soapAction(
+          this.baseUrl(device),
+          'GroupRenderingControl',
+          'GetGroupVolume',
+          { InstanceID: '0' },
+        );
+        const match = result.match(/<CurrentVolume>(\d+)<\/CurrentVolume>/);
+        if (match) return parseInt(match[1], 10);
+      } catch {
+        // Fall back to this player's own volume below.
+      }
+    }
     try {
       const result = await this.soapAction(this.baseUrl(device), 'RenderingControl', 'GetVolume', {
         InstanceID: '0',
@@ -307,7 +390,9 @@ export class SonosController implements DeviceController {
         ? '/MediaRenderer/AVTransport/Control'
         : service === 'ConnectionManager'
           ? '/MediaRenderer/ConnectionManager/Control'
-          : '/MediaRenderer/RenderingControl/Control';
+          : service === 'GroupRenderingControl'
+            ? '/MediaRenderer/GroupRenderingControl/Control'
+            : '/MediaRenderer/RenderingControl/Control';
 
     const res = await fetch(`${baseUrl}${controlPath}`, {
       method: 'POST',

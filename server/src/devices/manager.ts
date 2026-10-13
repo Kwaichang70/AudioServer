@@ -80,6 +80,11 @@ export class DeviceManager {
     return this.getController(deviceType);
   }
 
+  /** The kind of output a device is ('sonos', 'dlna', …), from the last discovery. */
+  deviceType(deviceId: string): OutputDevice['type'] | null {
+    return this.findCachedDevice(deviceId)?.type ?? null;
+  }
+
   /** Find device in cache without triggering discovery */
   private findCachedDevice(deviceId: string): OutputDevice | undefined {
     return this.cachedDevices.find((d) => d.id === deviceId);

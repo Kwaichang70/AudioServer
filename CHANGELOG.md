@@ -4,6 +4,16 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## R09.1 — Sonos-groepen (verbeterplan 2)
+
+- "Group…" in de speler laat andere Sonos-kamers in sync meespelen of haalt
+  ze eruit. Het volume op de leider is het groepsvolume.
+- Een kamer in een groep is niet apart bestuurbaar (409 met uitleg); de speler
+  zegt "With Kitchen" en biedt "Steer Kitchen" en "Leave the group".
+- Groeperen in de Sonos-app verschijnt binnen een minuut.
+- Fix R09.2: de oude speaker krijgt nu echt een Stop na "Move to…" (hij
+  speelde door).
+
 ## Fix — lengte 0:00 op een externe speaker
 
 - Veel renderers melden "0:00:00" als lengte van een stream die ze niet
