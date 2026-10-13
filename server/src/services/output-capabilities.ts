@@ -45,6 +45,8 @@ export interface OutputCapabilities {
 interface Probe {
   getSupportedActions?(deviceId: string): Promise<string[]>;
   getSupportedFormats?(deviceId: string): Promise<string[]>;
+  /** Present when the output can take the next track in advance (V11.3). */
+  setNextUri?: unknown;
 }
 
 export interface CapabilityDeps {

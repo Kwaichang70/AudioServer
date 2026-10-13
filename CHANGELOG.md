@@ -4,6 +4,13 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fix — Volumio stopte na één nummer
+
+- De server dacht dat Volumio het volgende nummer vooraf had gekregen (het
+  verzoek keerde stil terug zonder iets te doen), wachtte tot Volumio het
+  zelf startte, en dat gebeurde nooit. Nu zegt de driver dat hij het niet
+  kan, en start de server elk nummer zelf aan het eind van het vorige.
+
 ## R09.1 — Sonos-groepen (verbeterplan 2)
 
 - "Group…" in de speler laat andere Sonos-kamers in sync meespelen of haalt
