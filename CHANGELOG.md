@@ -4,6 +4,15 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## R09.4 — Volumio vindt zichzelf (verbeterplan 2)
+
+- Volumio-spelers die zich op het netwerk aankondigen (mDNS, `_Volumio._tcp`)
+  worden gevonden zonder `VOLUMIO_DEVICES`, met hun eigen naam.
+  `VOLUMIO_MDNS=false` zet dat uit.
+- Volumio krijgt geen nummer vooraf: de REST-API heeft daar geen betrouwbare
+  actie voor. De server start elk nummer zelf.
+- Fix: de slaaptimer stopt nu ook de speaker, niet alleen de sessie.
+
 ## Fix — Volumio stopte na één nummer
 
 - De server dacht dat Volumio het volgende nummer vooraf had gekregen (het

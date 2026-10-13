@@ -185,6 +185,9 @@ VOLUMIO_DEVICES=192.168.2.50:3000
 WATCH_LIBRARY=true
 ```
 
+Volumio players that announce themselves on the network (mDNS, `_Volumio._tcp`)
+are found without `VOLUMIO_DEVICES`; set `VOLUMIO_MDNS=false` to stop asking.
+
 ## Docker
 
 Build and run locally:

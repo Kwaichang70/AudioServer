@@ -55,6 +55,8 @@ export interface ServerPlayerDeps {
   resolve: (track: TrackInfo) => Promise<ResolvedStream>;
   isClientConnected: (clientId: string | null) => boolean;
   getDeviceState: (deviceId: string) => Promise<{ state: string }>;
+  /** Tell a speaker to stop: the session going idle never reaches it. */
+  stopDevice: (deviceId: string) => Promise<void>;
   discover: () => Promise<unknown>;
   timeoutMs: number;
   maxAttempts: number;
@@ -74,6 +76,7 @@ let deps: ServerPlayerDeps = {
   resolve: resolveForDevice,
   isClientConnected,
   getDeviceState: (deviceId) => deviceManager.getPlaybackState(deviceId),
+  stopDevice: (deviceId) => deviceManager.stop(deviceId),
   discover: () => deviceManager.getDevices(true),
   timeoutMs: 20_000,
   maxAttempts: 2,
@@ -176,6 +179,26 @@ export function stopServerPlayback(zoneId: string = DEFAULT_ZONE_ID): void {
   state.playingTrackId = null;
   state.dispatchSeq++; // any in-flight dispatch becomes stale
   sessionOf(zoneId).setServerManaged(false);
+}
+
+/**
+ * Stop a room for real (R09.4): the session goes idle, the server lets go of
+ * the speaker, and the speaker itself is told to stop — stopping the session
+ * alone leaves a Sonos or DLNA amplifier playing. A browser room stops when
+ * its tab hears the session stopped.
+ */
+export async function stopRoom(zoneId: string): Promise<void> {
+  const session = sessionOf(zoneId);
+  const deviceId = session.getState().deviceId;
+  session.stop();
+  stopServerPlayback(zoneId);
+  if (deviceId && isServerManagedDevice(deviceId)) {
+    try {
+      await deps.stopDevice(deviceId);
+    } catch (err) {
+      logger.warn(`ServerPlayer[${zoneId}]: ${deviceId} did not stop: ${err}`);
+    }
+  }
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {

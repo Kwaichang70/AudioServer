@@ -34,7 +34,7 @@ import { zones } from './services/zones.js';
 import { startWatcher, stopWatcher } from './services/watcher.js';
 import { closeInterruptedScanRuns } from './services/scanner.js';
 import { deviceMonitor } from './services/device-monitor.js';
-import { initServerPlayer, reconcileAllZones } from './services/server-player.js';
+import { initServerPlayer, reconcileAllZones, stopRoom } from './services/server-player.js';
 import { configureSleepTimers, initializeSleepTimers } from './services/sleep-timer.js';
 import { startQobuzSync, stopQobuzSync } from './services/qobuz-sync.js';
 import { initLibraryRadio } from './services/radio-wiring.js';
@@ -228,7 +228,9 @@ async function main() {
   // one is usually asleep before it fires. Stopping a zone goes through its
   // own session, which also tells the speaker to stop.
   configureSleepTimers({
-    stopZone: (zoneId) => zones.sessionFor(zoneId).stop(),
+    // The speaker too, not only the session (R09.4): a timer that ran out
+    // used to leave a Sonos playing.
+    stopZone: (zoneId) => void stopRoom(zoneId),
     announce: (zoneId, sleep) => {
       try {
         getIO().emit('playback:sleep', {
