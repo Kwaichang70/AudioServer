@@ -28,6 +28,7 @@ describe('Zone transfer', () => {
   let kitchen: string;
   let living: string;
   const seeks: Array<{ deviceId: string; position: number }> = [];
+  const stopped: string[] = [];
   let canSeek = true;
   let starts = true;
 
@@ -58,11 +59,15 @@ describe('Zone transfer', () => {
         seeks.push({ deviceId, position });
         return true;
       },
+      stopDevice: async (deviceId) => {
+        stopped.push(deviceId);
+      },
     });
   });
 
   beforeEach(async () => {
     seeks.length = 0;
+    stopped.length = 0;
     canSeek = true;
     starts = true;
     // The kitchen plays track 3 of the album, two minutes in, shuffle off, repeat all.
@@ -102,8 +107,9 @@ describe('Zone transfer', () => {
     expect(target.getSnapshot().repeat).toBe('all');
     expect(target.getState().position).toBe(120);
     expect(seeks).toEqual([{ deviceId: 'dlna:living', position: 120 }]);
-    // The kitchen stopped.
+    // The kitchen stopped: its session, and the speaker itself.
     expect(zones.sessionFor(kitchen).getState().state).toBe('stopped');
+    expect(stopped).toEqual(['sonos:kitchen']);
   });
 
   it('takes radio along to the new room', async () => {

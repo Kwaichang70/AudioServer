@@ -45,6 +45,8 @@ interface TransferDeps {
   waitUntilPlaying: (zoneId: string, itemId: string, timeoutMs: number) => Promise<boolean>;
   canSeek: (deviceId: string) => Promise<boolean>;
   seek: (deviceId: string, position: number) => Promise<boolean>;
+  /** Silence the old room's speaker; stopping the session alone does not. */
+  stopDevice: (deviceId: string) => Promise<void>;
   timeoutMs: number;
 }
 
@@ -68,6 +70,7 @@ const defaults = (): TransferDeps => ({
     }),
   canSeek: (deviceId) => supportsSeek(deviceId),
   seek: (deviceId, position) => deviceManager.seek(deviceId, position),
+  stopDevice: (deviceId) => deviceManager.stop(deviceId),
   timeoutMs: 10_000,
 });
 
@@ -79,6 +82,10 @@ export function configureZoneTransfer(overrides: Partial<TransferDeps>): void {
 
 export function resetZoneTransfer(): void {
   deps = defaults();
+}
+
+function addNote(result: TransferResult, note: string): void {
+  result.note = result.note ? `${result.note} ${note}` : note;
 }
 
 /** Below this many seconds in, starting the track over is as good as resuming. */
@@ -133,10 +140,21 @@ export async function transferZone(
   const itemId = target.getCurrentItemId();
   if (itemId) target.playItem(itemId, origin, to.deviceId);
 
-  // Then the old room stops and lets go of its speaker.
+  // Then the old room stops and lets go of its speaker. The session going
+  // idle does not reach the device, so the speaker is told to stop too; a
+  // browser room is silenced by its own tab.
   source.stop(origin);
   stopServerPlayback(from.id);
   if (radio.enabled) setRadio(from.id, false, null, userId);
+  let stopFailed = false;
+  if (isServerManagedDevice(from.deviceId)) {
+    try {
+      await deps.stopDevice(from.deviceId);
+    } catch (err) {
+      stopFailed = true;
+      logger.warn(`Transfer: stopping ${from.deviceId} failed: ${err}`);
+    }
+  }
 
   const result: TransferResult = {
     from,
@@ -145,15 +163,24 @@ export async function transferZone(
     position,
     resumedAtPosition: false,
   };
+  if (stopFailed) {
+    result.note = `“${from.name}” did not respond to stop; it may still be playing.`;
+  }
   if (position < RESUME_MIN_SECONDS || !itemId) return result;
 
   // Resume where it was: once the speaker plays the item, jump into it.
   if (!(await deps.waitUntilPlaying(to.id, itemId, deps.timeoutMs))) {
-    result.note = `“${to.name}” did not start in time; it plays from the beginning of the track.`;
+    addNote(
+      result,
+      `“${to.name}” did not start in time; it plays from the beginning of the track.`,
+    );
     return result;
   }
   if (!(await deps.canSeek(to.deviceId))) {
-    result.note = `“${to.name}” cannot jump inside a track; it plays from the beginning of the track.`;
+    addNote(
+      result,
+      `“${to.name}” cannot jump inside a track; it plays from the beginning of the track.`,
+    );
     return result;
   }
   try {
@@ -161,11 +188,11 @@ export async function transferZone(
       target.seekTo(position, origin);
       result.resumedAtPosition = true;
     } else {
-      result.note = `“${to.name}” refused the jump; it plays from the beginning of the track.`;
+      addNote(result, `“${to.name}” refused the jump; it plays from the beginning of the track.`);
     }
   } catch (err) {
     logger.warn(`Transfer: seek on ${to.deviceId} failed: ${err}`);
-    result.note = `“${to.name}” refused the jump; it plays from the beginning of the track.`;
+    addNote(result, `“${to.name}” refused the jump; it plays from the beginning of the track.`);
   }
   return result;
 }
