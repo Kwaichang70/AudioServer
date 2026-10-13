@@ -120,9 +120,13 @@ export class DeviceManager {
     const device = this.findCachedDevice(deviceId);
     if (!device || device.type === 'browser') return;
     const controller = this.getController(device.type);
-    if (controller?.setNextUri) {
-      await controller.setNextUri(deviceId, streamUrl, metadata);
+    // A controller without the action must say so: returning quietly would
+    // make the server believe the next track was handed over, and then wait
+    // for a device that never starts it (Volumio stopped after one track).
+    if (!controller?.setNextUri) {
+      throw new Error(`${device.name} does not take the next track in advance`);
     }
+    await controller.setNextUri(deviceId, streamUrl, metadata);
   }
 
   /**

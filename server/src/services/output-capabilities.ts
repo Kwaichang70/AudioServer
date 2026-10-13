@@ -156,6 +156,10 @@ export async function probeDevice(device: {
     } catch (err) {
       logger.debug(`Capabilities: ${device.name} did not list its actions: ${err}`);
     }
+  } else if (controller && !controller.setNextUri) {
+    // Nothing to hand the next track to (Volumio's REST API, R09.4): the
+    // server starts each track itself when the previous one ends.
+    caps.nextUri = 'unsupported';
   } else if (controller && device.type === 'sonos') {
     // Sonos does not publish an SCPD we fetch, but it does implement the
     // action; the handover itself reports failure if that ever changes.

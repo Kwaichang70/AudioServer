@@ -129,6 +129,19 @@ describe('output capabilities', () => {
     expect(audible.limits.some((l) => l.includes('audible, so not gapless'))).toBe(true);
   });
 
+  it('calls Volumio unable to take the next track in advance, so the server starts each one', async () => {
+    configureOutputCapabilities({
+      listDevices: async () => [speaker],
+      // Volumio's REST controller: no action list, no setNextUri (R09.4).
+      controllerFor: () => ({}),
+      measuredGapFor: () => undefined,
+      measurementsFor: () => 0,
+    });
+    const caps = await probeDevice({ id: 'volumio-10.0.0.9', name: 'Volumio', type: 'volumio' });
+    expect(caps.nextUri).toBe('unsupported');
+    expect(caps.seek).toBe('supported');
+  });
+
   it('knows the browser without asking anything', async () => {
     configureOutputCapabilities({
       listDevices: async () => [{ id: 'browser', name: 'Browser', type: 'browser' }],
