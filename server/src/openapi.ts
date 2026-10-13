@@ -1309,6 +1309,18 @@ export const openApiSpec = {
         },
       },
     },
+    '/playback/transfer': {
+      post: {
+        tags: ['Playback'],
+        summary:
+          'Move the music of this room (X-Zone-Id) to another room (R09.2): queue, track, position, shuffle, repeat and radio go along; this room stops',
+        responses: {
+          200: ok('{ from, to, trackId, position, resumedAtPosition, note? }'),
+          404: ok('unknown room'),
+          409: ok('same room, nothing queued, or the target is a browser / Spotify Connect room'),
+        },
+      },
+    },
     '/home': {
       get: {
         tags: ['Home'],

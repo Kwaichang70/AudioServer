@@ -22,6 +22,7 @@ import { requireAdmin } from '../middleware/auth.js';
 import { getIO } from '../socketio.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { ownerOf } from '../utils/ownership.js';
+import { TransferError, transferZone } from '../services/zone-transfer.js';
 import {
   forgetCapabilities,
   getAllOutputCapabilities,
@@ -785,6 +786,34 @@ playbackRouter.post(
     // Switched on near the end of the queue: fill it now, not at the next track.
     if (req.body.enabled) await topUp(zoneId, session.remainingAfterCurrent());
     res.json({ data: getRadioState(zoneId) ?? state });
+  }),
+);
+
+// ─── Move to another room (R09.2) ────────────────────────────────
+
+playbackRouter.post(
+  '/transfer',
+  validate({ body: z.object({ toZoneId: z.string().min(1).max(128) }) }),
+  asyncHandler(async (req, res) => {
+    const session = sessionOf(req, res);
+    if (!session) return;
+    const userId = ownerOf(req);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const result = await transferZone(
+        session.getZoneId(),
+        req.body.toZoneId,
+        userId,
+        originOf(req),
+      );
+      res.json({ data: result });
+    } catch (err) {
+      if (err instanceof TransferError) {
+        const status = err.code === 'unknown_zone' ? 404 : 409;
+        return res.status(status).json({ error: err.code, message: err.message });
+      }
+      throw err;
+    }
   }),
 );
 

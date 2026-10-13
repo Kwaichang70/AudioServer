@@ -17,6 +17,7 @@ import type {
   OutputCapabilities,
   TransitionRecord,
   ZoneOverview,
+  ZoneTransferResult,
   ZoneSummary,
   AuthResult,
   DeviceStatusResponse,
@@ -570,6 +571,10 @@ export const api = {
     id: string;
   }): Promise<ApiResponse<{ radio: RadioState; tracks: Array<LibraryTrack & { why: string }> }>> =>
     fetchApi('/playback/radio/start', { method: 'POST', body: JSON.stringify({ seed }) }),
+
+  /** Move the music of this tab's room to another room (R09.2). */
+  transferZone: (toZoneId: string): Promise<ApiResponse<ZoneTransferResult>> =>
+    fetchApi('/playback/transfer', { method: 'POST', body: JSON.stringify({ toZoneId }) }),
 
   // ─── Sleep timer (E01) ──────────────────────────────────────
   // Per room, and run by the server: it fires with this tab closed.

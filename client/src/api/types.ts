@@ -320,6 +320,17 @@ export interface ZoneOverview extends ZoneSummary {
   volume: number;
 }
 
+/** Moving the music to another room (R09.2). */
+export interface ZoneTransferResult {
+  from: ZoneSummary;
+  to: ZoneSummary;
+  trackId: string;
+  position: number;
+  /** False when the target cannot jump inside a track or did not start in time. */
+  resumedAtPosition: boolean;
+  note?: string;
+}
+
 /** A room's sleep timer (E01); the server runs it, so it fires with the app closed. */
 /** A zone's radio (R08.1). */
 export type RadioSeedType = 'artist' | 'album' | 'track' | 'genre' | 'tag';

@@ -47,6 +47,8 @@ const mocks = vi.hoisted(() => {
     selectedDeviceId: 'browser',
     shuffle: false,
     repeat: 'off',
+    zones: [],
+    zoneId: null,
     ...actions,
     ...overrides,
   });

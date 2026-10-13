@@ -6,6 +6,7 @@ import DeviceSelector from './DeviceSelector.js';
 import SeekBar, { seekDisabledReason } from './player/SeekBar.js';
 import FavoriteTrackButton from './player/FavoriteTrackButton.js';
 import RadioToggle, { useRadioReason } from './player/RadioToggle.js';
+import MoveToMenu from './player/MoveToMenu.js';
 import AudioPathBadge from './player/AudioPathBadge.js';
 import SleepTimerMenu from './SleepTimerMenu.js';
 import {
@@ -95,6 +96,7 @@ export default function NowPlayingFull({ onClose, initialView = 'upnext' }: Prop
         <div className="flex items-center gap-3">
           <FavoriteTrackButton trackId={currentTrack.id} title={currentTrack.title} size="lg" />
           <RadioToggle size="lg" />
+          <MoveToMenu size="lg" />
           <button
             onClick={() => setShowLyrics(!showLyrics)}
             className={`text-sm px-3 py-1 rounded transition ${showLyrics ? 'bg-accent text-on-accent' : 'text-gray-500 hover:text-white'}`}

@@ -8,6 +8,7 @@ import SortableList from './SortableList.js';
 import SeekBar, { seekDisabledReason } from './player/SeekBar.js';
 import FavoriteTrackButton from './player/FavoriteTrackButton.js';
 import RadioToggle, { useRadioReason } from './player/RadioToggle.js';
+import MoveToMenu from './player/MoveToMenu.js';
 import {
   PlayIcon,
   PauseIcon,
@@ -184,6 +185,7 @@ export default function NowPlayingBar({ onExpandClick, onLyricsClick }: NowPlayi
         <span className="hidden md:inline-flex items-center gap-2">
           <FavoriteTrackButton trackId={currentTrack.id} title={currentTrack.title} />
           <RadioToggle />
+          <MoveToMenu />
         </span>
       </div>
 

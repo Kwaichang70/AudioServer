@@ -4,6 +4,17 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## R09.2 — Zone-overdracht (verbeterplan 2)
+
+- "Move to…" in de speler verplaatst de muziek naar een andere kamer:
+  wachtrij, huidig nummer, positie, shuffle, herhalen en radio gaan mee, de
+  oude kamer stopt. Werkt over protocollen heen (Sonos → DLNA), want het is
+  een overdracht, geen synchronisatie (`POST /api/playback/transfer`).
+- Kan de nieuwe speaker niet binnen een nummer springen, dan speelt hij het
+  nummer vanaf het begin en zegt de app dat.
+- Een browserkamer of Spotify Connect kan geen doel zijn; de slaaptimer
+  blijft bij de oude kamer.
+
 ## R08 — Radio en ontdekken (verbeterplan 2, sprint R08)
 
 **Radio per zone** (`server/src/services/library-radio.ts`, schemaversie 19)

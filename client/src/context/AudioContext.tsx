@@ -21,6 +21,7 @@ import type {
   RadioSeedType,
   RadioState,
   ZoneOverview,
+  ZoneTransferResult,
 } from '../api/types.js';
 import { useToast } from '../components/Toast.js';
 import { getProgressSnapshot, setProgress } from './ProgressStore.js';
@@ -111,6 +112,11 @@ interface AudioContextValue {
   zones: ZoneOverview[];
   zoneId: string | null;
   refreshZones: () => void;
+  /**
+   * Move the music to another room (R09.2): queue, track and position go
+   * along, this room stops, and this tab then steers the new room.
+   */
+  moveToZone: (zone: ZoneOverview) => Promise<ZoneTransferResult>;
 }
 
 const AudioCtx = createContext<AudioContextValue | null>(null);
@@ -569,6 +575,19 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     const res = await api.setRadioEnabled(enabled);
     setRadio(res.data);
   }, []);
+
+  const moveToZone = useCallback(
+    async (zone: ZoneOverview) => {
+      const res = await api.transferZone(zone.id);
+      // The server stops the old room; a browser room is this tab's own
+      // audio element, which only this tab can silence.
+      if (selectedDeviceRef.current === 'browser') audio.pause();
+      setSelectedDeviceId(zone.deviceId);
+      refreshZones();
+      return res.data;
+    },
+    [audio, setSelectedDeviceId, refreshZones],
+  );
 
   // Play a specific position in the EXISTING queue (QueuePage taps). playTrack
   // would replace the whole queue with just that track.
@@ -1352,6 +1371,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       zones: zoneList,
       zoneId,
       refreshZones,
+      moveToZone,
     }),
     [
       currentTrack,
@@ -1397,6 +1417,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       zoneList,
       zoneId,
       refreshZones,
+      moveToZone,
     ],
   );
 
