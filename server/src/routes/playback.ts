@@ -40,6 +40,7 @@ import {
 import { deviceManager } from '../devices/manager.js';
 import { addMeasurement, listTransitions, recordTransition } from '../services/transitions.js';
 import { describeAudioPath } from '../services/audio-path.js';
+import { transcodeStats } from '../services/transcode.js';
 import { getAllCapabilities } from '../services/playback-resolver.js';
 import {
   cancelSleepTimer,
@@ -360,6 +361,12 @@ playbackRouter.get(
     res.json({ data: await describeAudioPath(session) });
   }),
 );
+
+// Conversions for speakers (R10.1, a trial): what runs now and what ran,
+// with the CPU time and peak memory each ffmpeg used on the NAS.
+playbackRouter.get('/transcodes', requireAdmin, (_req: Request, res: Response) => {
+  res.json({ data: transcodeStats() });
+});
 
 // The transition log: how each boundary was made and what was measured.
 playbackRouter.get('/transitions', (req: Request, res: Response) => {

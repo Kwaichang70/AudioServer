@@ -2,6 +2,7 @@ import { getRawDb } from '../db/index.js';
 import { getOutputCapabilities } from './output-capabilities.js';
 import { sourceOf } from './playback-resolver.js';
 import type { PlaybackService } from './playback.js';
+import { planTranscode, type TranscodeDecision } from './transcode.js';
 
 /**
  * The audio path (V11.4): where the music comes from, what happens to it on
@@ -41,6 +42,16 @@ interface TrackRow {
   bit_depth: number | null;
   file_path: string | null;
 }
+
+const MIME_BY_EXTENSION: Record<string, string> = {
+  flac: 'audio/flac',
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  ogg: 'audio/ogg',
+  wav: 'audio/wav',
+  opus: 'audio/opus',
+};
 
 function localTrack(trackId: string): TrackRow | undefined {
   try {
@@ -106,6 +117,7 @@ export async function describeAudioPath(session: PlaybackService): Promise<Audio
 
   const steps: AudioPathStep[] = [describeSource(trackId)];
   const caveats: string[] = [];
+  let converted: TranscodeDecision | null = null;
 
   if (deviceId === 'browser') {
     steps.push({
@@ -131,13 +143,33 @@ export async function describeAudioPath(session: PlaybackService): Promise<Audio
       'Volume and ReplayGain are applied in the browser, so this path is not bit-perfect.',
     );
   } else {
-    steps.push({
-      stage: 'transfer',
-      title: 'To the speaker',
-      detail:
-        'The server hands the speaker a URL on the local network and the speaker fetches the file itself; nothing is transcoded on the NAS.',
-      certainty: 'known',
-    });
+    // The same decision the resolver takes when it hands this track over (R10.1).
+    const row = trackId && sourceOf(trackId) === 'local' ? localTrack(trackId) : undefined;
+    const sourceMime = row?.format ? MIME_BY_EXTENSION[row.format.toLowerCase()] : undefined;
+    converted = sourceMime ? await planTranscode(sourceMime, deviceId) : null;
+    steps.push(
+      converted
+        ? {
+            stage: 'transfer',
+            title: `Converted on the NAS to ${converted.target === 'mp3' ? 'MP3 320' : 'WAV'}`,
+            detail: `${converted.reason} The speaker fetches the converted stream over the local network.`,
+            certainty: 'known',
+          }
+        : {
+            stage: 'transfer',
+            title: 'To the speaker',
+            detail:
+              'The server hands the speaker a URL on the local network and the speaker fetches the file itself; nothing is transcoded on the NAS.',
+            certainty: 'known',
+          },
+    );
+    if (converted?.target === 'mp3') {
+      caveats.push('The speaker gets MP3 made from the file, not the original: this is lossy.');
+    } else if (converted) {
+      caveats.push(
+        'The speaker gets WAV made from the file: the same samples, in another container.',
+      );
+    }
     steps.push({
       stage: 'renderer',
       title: caps?.deviceName ?? deviceId,
@@ -173,8 +205,9 @@ export async function describeAudioPath(session: PlaybackService): Promise<Audio
     deviceId,
     trackId,
     steps,
-    summary:
-      steps[0].certainty === 'known' && deviceId !== 'browser'
+    summary: converted
+      ? 'The NAS converts the file for this speaker; what happens inside the speaker is not visible from here.'
+      : steps[0].certainty === 'known' && deviceId !== 'browser'
         ? 'The speaker plays the original file; what happens inside it is not visible from here.'
         : 'The path below is what the server can establish; the rest is marked unknown.',
     caveats,

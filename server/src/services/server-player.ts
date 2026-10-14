@@ -7,6 +7,7 @@ import {
   PlaybackResolveError,
   resolveForDevice,
   sourceOf,
+  type OutputTarget,
   type ResolvedStream,
 } from './playback-resolver.js';
 import { isClientConnected } from '../socketio.js';
@@ -52,7 +53,7 @@ export interface ServerPlayerDeps {
     handover: 'next-uri' | 'dispatch' | 'client';
     armedAt?: number | null;
   }) => void;
-  resolve: (track: TrackInfo) => Promise<ResolvedStream>;
+  resolve: (track: TrackInfo, output?: OutputTarget) => Promise<ResolvedStream>;
   isClientConnected: (clientId: string | null) => boolean;
   getDeviceState: (deviceId: string) => Promise<{ state: string }>;
   /** Tell a speaker to stop: the session going idle never reaches it. */
@@ -242,7 +243,7 @@ export async function dispatch(
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= deps.maxAttempts; attempt++) {
     try {
-      const resolved = await deps.resolve(track);
+      const resolved = await deps.resolve(track, { deviceId, zoneId });
       if (stale()) return;
       await withTimeout(
         deps.play(deviceId, resolved.url, resolved.metadata),
@@ -299,7 +300,7 @@ async function armNext(deviceId: string, zoneId: string): Promise<void> {
 
   try {
     if (!(await deps.supportsNextUri(deviceId))) return;
-    const resolved = await deps.resolve(next.track);
+    const resolved = await deps.resolve(next.track, { deviceId, zoneId });
     if (zone.activeDeviceId !== deviceId) return;
     await withTimeout(
       deps.setNextUri(deviceId, resolved.url, resolved.metadata),

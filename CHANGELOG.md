@@ -4,6 +4,16 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## R10.1 — Formaatadaptatie voor speakers (proef, verbeterplan 2)
+
+- Een speaker die zelf zegt dat hij het bronformaat niet speelt (bijvoorbeeld
+  alleen MP3), krijgt een conversie van de NAS: MP3 320 (standaard) of WAV
+  (`TRANSCODE_TARGET=wav`). Andere speakers krijgen het originele bestand.
+- Het audiopad noemt de conversie en waarom.
+- Elke conversie wordt gemeten (CPU en geheugen):
+  `GET /api/playback/transcodes`.
+- Uitzetten: `TRANSCODE_FOR_SPEAKERS=false`.
+
 ## R09.4 — Volumio vindt zichzelf (verbeterplan 2)
 
 - Volumio-spelers die zich op het netwerk aankondigen (mDNS, `_Volumio._tcp`)

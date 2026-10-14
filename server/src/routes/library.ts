@@ -67,6 +67,7 @@ import {
 import { getSimilarArtists, similarArtistsAvailable } from '../services/similar-artists.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { requireOwner } from '../utils/ownership.js';
+import { startTranscode, TARGET_MIME } from '../services/transcode.js';
 
 export const libraryRouter = Router();
 
@@ -718,6 +719,38 @@ libraryRouter.get('/tracks/:id/stream', (req, res) => {
   }
   const mime = mimeTypes[ext] || 'application/octet-stream';
   const totalSize = fileStat.size;
+
+  // A speaker that does not take this format gets a conversion (R10.1). The
+  // resolver only asks for one when the speaker said so; anything else is
+  // the original file, byte for byte.
+  const format = req.query.format;
+  if ((format === 'mp3' || format === 'wav') && mime !== TARGET_MIME[format]) {
+    res.status(200);
+    res.setHeader('Content-Type', TARGET_MIME[format]);
+    // Converted on the fly: no length, and no byte ranges to jump to.
+    res.setHeader('Accept-Ranges', 'none');
+    res.setHeader('transferMode.dlna.org', 'Streaming');
+    if (req.method === 'HEAD') {
+      res.end();
+      return;
+    }
+    const zone = typeof req.query.zone === 'string' ? req.query.zone.slice(0, 128) : 'unknown';
+    const job = startTranscode({
+      file: track.filePath,
+      target: format,
+      zoneId: zone,
+      trackId: track.id,
+      sampleRate: track.sampleRate,
+      bitDepth: track.bitDepth,
+    });
+    // The speaker hung up before the end (skip, stop): no reason to keep converting.
+    res.on('close', () => {
+      if (!res.writableFinished) job.stop();
+    });
+    job.stream.on('error', () => res.destroy());
+    job.stream.pipe(res);
+    return;
+  }
 
   // Handle Range requests (required by DLNA renderers)
   const range = req.headers.range;

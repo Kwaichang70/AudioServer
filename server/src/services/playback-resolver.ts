@@ -5,6 +5,7 @@ import { getRawDb } from '../db/index.js';
 import { signSystemStreamToken } from '../middleware/auth.js';
 import { getLanAddress } from '../utils/network.js';
 import { config } from '../config.js';
+import { planTranscode, type TranscodeDecision } from './transcode.js';
 
 /**
  * Playback resolver (V04.1): ONE place that knows, per source, what the
@@ -45,6 +46,8 @@ export interface ResolvedStream {
   mimeType?: string;
   /** Epoch ms after which `url` must not be reused. */
   expiresAt?: number;
+  /** Set when the NAS converts the file for this speaker (R10.1). */
+  transcode?: TranscodeDecision;
   /** Metadata the renderer shows (and needs for DIDL-Lite). */
   metadata: {
     title: string;
@@ -176,7 +179,16 @@ interface LocalTrackRow {
  * Resolve a track to a URL the SERVER hands to a renderer. Always fresh:
  * Qobuz URLs are signed per call, local URLs get a new system token.
  */
-export async function resolveForDevice(track: TrackLike): Promise<ResolvedStream> {
+/** The speaker (and its room) a stream is resolved for. */
+export interface OutputTarget {
+  deviceId: string;
+  zoneId: string;
+}
+
+export async function resolveForDevice(
+  track: TrackLike,
+  output?: OutputTarget,
+): Promise<ResolvedStream> {
   const source = sourceOf(track.id);
   const caps = getCapabilities(source);
   if (!caps.serverDispatch) {
@@ -198,7 +210,7 @@ export async function resolveForDevice(track: TrackLike): Promise<ResolvedStream
 
   switch (source) {
     case 'local':
-      return resolveLocal(track);
+      return resolveLocal(track, output);
     case 'qobuz':
       return resolveQobuz(track);
     case 'radio':
@@ -220,7 +232,7 @@ function lanBase(): string {
   return `http://${lanAddress}:${config.port}`;
 }
 
-function resolveLocal(track: TrackLike): ResolvedStream {
+async function resolveLocal(track: TrackLike, output?: OutputTarget): Promise<ResolvedStream> {
   const row = getRawDb()
     .prepare(
       'SELECT id, title, artist_name, album_title, album_id, duration, format FROM tracks WHERE id = ?',
@@ -231,12 +243,19 @@ function resolveLocal(track: TrackLike): ResolvedStream {
   }
   const base = lanBase();
   const token = encodeURIComponent(signSystemStreamToken());
-  const mimeType = MIME_BY_FORMAT[row.format ?? ''] ?? 'audio/mpeg';
+  const original = MIME_BY_FORMAT[row.format ?? ''] ?? 'audio/mpeg';
+  // A speaker that said it does not take this format gets a conversion (R10.1).
+  const transcode = output ? await planTranscode(original, output.deviceId) : null;
+  const mimeType = transcode?.to ?? original;
+  const conversion = transcode
+    ? `&format=${transcode.target}&zone=${encodeURIComponent(output!.zoneId)}`
+    : '';
   return {
     source: 'local',
     trackId: row.id,
-    url: `${base}/api/library/tracks/${row.id}/stream?t=${token}`,
+    url: `${base}/api/library/tracks/${row.id}/stream?t=${token}${conversion}`,
     mimeType,
+    ...(transcode ? { transcode } : {}),
     metadata: {
       title: row.title,
       artist: row.artist_name,

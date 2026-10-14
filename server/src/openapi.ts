@@ -1321,6 +1321,14 @@ export const openApiSpec = {
         },
       },
     },
+    '/playback/transcodes': {
+      get: {
+        tags: ['Playback'],
+        summary:
+          'Conversions for speakers (R10.1, admin): running and recent, with CPU time and peak memory per ffmpeg',
+        responses: { 200: ok('{ active: TranscodeRun[], recent: TranscodeRun[] }') },
+      },
+    },
     '/playback/group': {
       post: {
         tags: ['Playback'],
