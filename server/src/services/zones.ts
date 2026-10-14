@@ -181,6 +181,7 @@ class ZoneRegistry {
     db.transaction(() => {
       db.prepare('DELETE FROM queue_items WHERE zone_id = ?').run(zoneId);
       db.prepare('DELETE FROM playback_state WHERE zone_id = ?').run(zoneId);
+      db.prepare('DELETE FROM zone_audio WHERE zone_id = ?').run(zoneId);
       db.prepare('DELETE FROM zones WHERE id = ?').run(zoneId);
     })();
     this.sessions.delete(zoneId);

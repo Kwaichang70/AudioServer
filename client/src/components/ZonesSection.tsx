@@ -3,6 +3,19 @@ import type { OutputDevice } from '@audioserver/shared';
 import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
 import { useToast } from './Toast.js';
+import type { ZoneLeveling } from '../api/types.js';
+
+const LEVELING: Array<{ value: ZoneLeveling; label: string }> = [
+  { value: 'auto', label: 'Level only when converting' },
+  { value: 'off', label: 'Never level' },
+  { value: 'album', label: 'Always level (album)' },
+  { value: 'track', label: 'Always level (track)' },
+];
+
+// Leveling happens on the NAS on the way to a speaker (R10.2); the browser
+// levels itself, and Spotify Connect is not streamed by the NAS.
+const isSpeaker = (deviceId: string) =>
+  deviceId !== 'browser' && !deviceId.startsWith('spotify-connect:');
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
@@ -74,6 +87,18 @@ export default function ZonesSection() {
       toast(errorMessage(err, 'Could not rename the room'), 'error');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleLeveling = async (id: string, leveling: ZoneLeveling) => {
+    try {
+      await api.setZoneLeveling(id, leveling);
+      if (leveling === 'track' || leveling === 'album') {
+        toast('Leveling on: this room no longer gets the original file (not bit-perfect)', 'info');
+      }
+      refreshZones();
+    } catch (err) {
+      toast(errorMessage(err, 'Could not change leveling'), 'error');
     }
   };
 
@@ -185,6 +210,23 @@ export default function ZonesSection() {
                       {` · ${zone.state}`}
                       {zone.track ? ` · ${zone.track.title}` : ''}
                     </p>
+                    {isSpeaker(zone.deviceId) && (
+                      <select
+                        value={zone.leveling ?? 'auto'}
+                        onChange={(e) =>
+                          void handleLeveling(zone.id, e.target.value as ZoneLeveling)
+                        }
+                        aria-label={`Volume leveling for ${zone.name}`}
+                        title="ReplayGain applied on the NAS. 'Always' converts every track, so the speaker no longer gets the original file."
+                        className="mt-1 px-2 py-0.5 text-xs bg-surface-dark border border-white/10 rounded text-gray-300"
+                      >
+                        {LEVELING.map((l) => (
+                          <option key={l.value} value={l.value}>
+                            {l.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   <div className="flex gap-3 shrink-0">
                     <button

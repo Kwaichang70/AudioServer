@@ -21,7 +21,7 @@ import { fileURLToPath } from 'url';
  * it does not understand. Databases from before this check carry version 0,
  * which every build accepts and upgrades.
  */
-export const SCHEMA_VERSION = 19;
+export const SCHEMA_VERSION = 20;
 
 export class DatabaseVersionError extends Error {
   constructor(
@@ -324,6 +324,15 @@ export async function initDatabase(overridePath?: string) {
       picked_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_radio_picks_zone ON radio_picks (zone_id, id);
+  `);
+  // R10.2: volume leveling per zone on the speaker path. 'auto' (the default)
+  // levels only what is converted anyway; 'track'/'album' always level.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS zone_audio (
+      zone_id TEXT PRIMARY KEY,
+      leveling TEXT NOT NULL DEFAULT 'auto',
+      updated_at INTEGER
+    );
   `);
   // R07.3: a playlist item names its source explicitly — 'qobuz:track:123' —
   // beside the snapshot that makes it readable when the source is away.

@@ -324,7 +324,12 @@ export interface ZoneOverview extends ZoneSummary {
   groupedWith?: string | null;
   /** The rooms playing along with this one. */
   groupMembers?: string[];
+  /** Volume leveling on the speaker path (R10.2). */
+  leveling?: ZoneLeveling;
 }
+
+/** auto = only what the NAS converts anyway; track/album = always (not bit-perfect). */
+export type ZoneLeveling = 'auto' | 'off' | 'track' | 'album';
 
 export interface ZoneGroupInfo {
   groupable: boolean;

@@ -245,10 +245,14 @@ async function resolveLocal(track: TrackLike, output?: OutputTarget): Promise<Re
   const token = encodeURIComponent(signSystemStreamToken());
   const original = MIME_BY_FORMAT[row.format ?? ''] ?? 'audio/mpeg';
   // A speaker that said it does not take this format gets a conversion (R10.1).
-  const transcode = output ? await planTranscode(original, output.deviceId) : null;
+  const transcode = output
+    ? await planTranscode(original, output.deviceId, { zoneId: output.zoneId, trackId: row.id })
+    : null;
   const mimeType = transcode?.to ?? original;
   const conversion = transcode
-    ? `&format=${transcode.target}&zone=${encodeURIComponent(output!.zoneId)}`
+    ? `&format=${transcode.target}&zone=${encodeURIComponent(output!.zoneId)}${
+        transcode.gain ? `&gain=${transcode.gain.gainDb}` : ''
+      }`
     : '';
   return {
     source: 'local',

@@ -3,6 +3,7 @@ import { readFileSync } from 'fs';
 import type { Readable } from 'stream';
 import { getOutputCapabilities } from './output-capabilities.js';
 import { logger } from '../logger.js';
+import { getLeveling, replayGainFor, type LevelGain } from './zone-audio.js';
 
 /**
  * Format adaptation for speakers (R10.1, a trial).
@@ -19,11 +20,12 @@ import { logger } from '../logger.js';
  * to the speaker in advance; a third replaces the oldest.
  */
 
-export type TranscodeTarget = 'mp3' | 'wav';
+export type TranscodeTarget = 'mp3' | 'wav' | 'flac';
 
 export const TARGET_MIME: Record<TranscodeTarget, string> = {
   mp3: 'audio/mpeg',
   wav: 'audio/wav',
+  flac: 'audio/flac',
 };
 
 const ALIASES: Record<string, string> = {
@@ -41,6 +43,12 @@ const ALIASES: Record<string, string> = {
   'audio/x-ogg': 'audio/ogg',
 };
 
+export const TARGET_LABEL: Record<TranscodeTarget, string> = {
+  mp3: 'MP3 320 kbit/s',
+  wav: 'WAV (lossless)',
+  flac: 'FLAC',
+};
+
 /** `audio/x-flac;foo=bar` → `audio/flac`: one name per format. */
 export function normalizeMime(mime: string): string {
   const bare = mime.split(';')[0].trim().toLowerCase();
@@ -54,6 +62,8 @@ export interface TranscodeDecision {
   to: string;
   /** Why, in a sentence the audio path can show. */
   reason: string;
+  /** Volume leveling applied on the way (R10.2). */
+  gain?: LevelGain;
 }
 
 /**
@@ -77,9 +87,7 @@ export function decideTranscode(
     target,
     from,
     to: TARGET_MIME[target],
-    reason: `The speaker does not list ${label(from)} among the formats it accepts, so the NAS converts it to ${
-      target === 'mp3' ? 'MP3 320 kbit/s' : 'WAV (lossless)'
-    }.`,
+    reason: `The speaker does not list ${label(from)} among the formats it accepts, so the NAS converts it to ${TARGET_LABEL[target]}.`,
   };
 }
 
@@ -151,14 +159,57 @@ export function resetTranscode(): void {
 export async function planTranscode(
   sourceMime: string,
   deviceId: string,
+  context?: { zoneId: string; trackId: string },
 ): Promise<TranscodeDecision | null> {
   if (process.env.TRANSCODE_FOR_SPEAKERS === 'false') return null;
   const caps = await getOutputCapabilities(deviceId).catch(() => null);
-  const decision = decideTranscode(sourceMime, caps?.formats ?? [], deps.preferred());
+  const accepted = caps?.formats ?? [];
+  let decision = decideTranscode(sourceMime, accepted, deps.preferred());
+
+  // Volume leveling (R10.2): with what is converted anyway in 'auto', always
+  // in 'track'/'album'. Without ReplayGain data nothing is leveled.
+  const leveling = context ? getLeveling(context.zoneId) : 'off';
+  const mode =
+    leveling === 'track' || leveling === 'album'
+      ? leveling
+      : leveling === 'auto' && decision
+        ? 'album'
+        : null;
+  const gain = mode && context ? replayGainFor(context.trackId, mode) : null;
+
+  if (!decision && gain) {
+    // Leveling alone: keep the format where the speaker takes it.
+    const from = normalizeMime(sourceMime);
+    const same: TranscodeTarget | undefined = (Object.keys(TARGET_MIME) as TranscodeTarget[]).find(
+      (t) => TARGET_MIME[t] === from,
+    );
+    const takes = (t: TranscodeTarget) =>
+      accepted.length === 0 || accepted.map(normalizeMime).includes(TARGET_MIME[t]);
+    const target = same && takes(same) ? same : takes('mp3') ? 'mp3' : null;
+    if (!target) return null;
+    decision = {
+      target,
+      from,
+      to: TARGET_MIME[target],
+      reason:
+        target === same
+          ? `Volume leveling is on for this room, so the NAS adjusts the level and sends ${TARGET_LABEL[target]} again.`
+          : `Volume leveling is on for this room, so the NAS adjusts the level and sends ${TARGET_LABEL[target]}.`,
+    };
+  }
   if (!decision) return null;
+  if (gain) {
+    decision = {
+      ...decision,
+      gain,
+      reason: `${decision.reason} Level: ${gain.basis} ReplayGain ${gain.gainDb > 0 ? '+' : ''}${gain.gainDb.toFixed(1)} dB${
+        gain.limitedByPeak ? ' (held back so the loudest peak does not clip)' : ''
+      }.`,
+    };
+  }
   if (!(await deps.ffmpegAvailable())) {
     logger.warn(
-      `Transcode: ${deviceId} needs ${decision.to} but ffmpeg is not installed; sending the original`,
+      `Transcode: ${deviceId} needs ${decision.to}${gain ? ' with leveling' : ''} but ffmpeg is not installed; sending the original`,
     );
     return null;
   }
@@ -169,9 +220,18 @@ export async function planTranscode(
 export function ffmpegArgs(
   file: string,
   target: TranscodeTarget,
-  source: { sampleRate?: number | null; bitDepth?: number | null } = {},
+  source: { sampleRate?: number | null; bitDepth?: number | null; gainDb?: number | null } = {},
 ): string[] {
   const args = ['-hide_banner', '-loglevel', 'error', '-nostdin', '-i', file, '-map', '0:a:0'];
+  const deep = (source.bitDepth ?? 16) > 16;
+  const filters: string[] = [];
+  if (source.gainDb) {
+    filters.push(`volume=${source.gainDb.toFixed(2)}dB`);
+    // Back to 16 bit after a gain change: dither, so the rounding is noise
+    // instead of distortion. 24 bit has room enough.
+    if (target !== 'mp3' && !deep) filters.push('aresample=osf=s16:dither_method=triangular');
+  }
+  if (filters.length > 0) args.push('-af', filters.join(','));
   if (target === 'mp3') {
     // MP3 stops at 48 kHz: higher rates come down to their own family.
     const rate = source.sampleRate ?? 44100;
@@ -179,14 +239,13 @@ export function ffmpegArgs(
       args.push('-ar', rate % 48000 === 0 ? '48000' : '44100');
     }
     args.push('-codec:a', 'libmp3lame', '-b:a', '320k', '-f', 'mp3', 'pipe:1');
+  } else if (target === 'flac') {
+    args.push('-codec:a', 'flac');
+    if (deep) args.push('-sample_fmt', 's32', '-bits_per_raw_sample', '24');
+    else args.push('-sample_fmt', 's16');
+    args.push('-f', 'flac', 'pipe:1');
   } else {
-    args.push(
-      '-codec:a',
-      (source.bitDepth ?? 16) > 16 ? 'pcm_s24le' : 'pcm_s16le',
-      '-f',
-      'wav',
-      'pipe:1',
-    );
+    args.push('-codec:a', deep ? 'pcm_s24le' : 'pcm_s16le', '-f', 'wav', 'pipe:1');
   }
   return args;
 }
@@ -196,6 +255,8 @@ export interface TranscodeRun {
   zoneId: string;
   trackId: string;
   target: TranscodeTarget;
+  /** Leveling applied, in dB (R10.2). */
+  gainDb?: number | null;
   startedAt: number;
   endedAt?: number;
   /** CPU time ffmpeg used, as far as sampled. */
@@ -224,6 +285,7 @@ export function startTranscode(input: {
   trackId: string;
   sampleRate?: number | null;
   bitDepth?: number | null;
+  gainDb?: number | null;
 }): { stream: Readable; stop: () => void; run: TranscodeRun } {
   // At most two per room: the oldest beyond that is a track nobody hears.
   const mine = [...running.values()]
@@ -237,6 +299,7 @@ export function startTranscode(input: {
     zoneId: input.zoneId,
     trackId: input.trackId,
     target: input.target,
+    gainDb: input.gainDb ?? null,
     startedAt: Date.now(),
     cpuMs: 0,
     peakRssKb: 0,

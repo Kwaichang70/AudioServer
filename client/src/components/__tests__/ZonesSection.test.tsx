@@ -36,6 +36,7 @@ const mocks = vi.hoisted(() => ({
     createZone: vi.fn(),
     renameZone: vi.fn(),
     deleteZone: vi.fn(),
+    setZoneLeveling: vi.fn(() => Promise.resolve({ data: {} })),
   },
   refreshZones: vi.fn(),
   toast: vi.fn(),
@@ -167,5 +168,18 @@ describe('ZonesSection', () => {
     fireEvent.click((await screen.findAllByText('Remove'))[0]);
     expect(mocks.api.deleteZone).not.toHaveBeenCalled();
     confirm.mockRestore();
+  });
+
+  it('sets volume leveling per speaker room, and says what "always" costs (R10.2)', async () => {
+    render(<ZonesSection />);
+    expect(screen.queryByLabelText('Volume leveling for Browser')).toBeNull();
+    const select = screen.getByLabelText('Volume leveling for Kitchen');
+    expect(select).toHaveValue('auto');
+    fireEvent.change(select, { target: { value: 'album' } });
+    await waitFor(() =>
+      expect(mocks.api.setZoneLeveling).toHaveBeenCalledWith('zone-kitchen', 'album'),
+    );
+    expect(mocks.toast).toHaveBeenCalledWith(expect.stringMatching(/not bit-perfect/), 'info');
+    expect(mocks.refreshZones).toHaveBeenCalled();
   });
 });

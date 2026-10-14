@@ -1321,6 +1321,14 @@ export const openApiSpec = {
         },
       },
     },
+    '/playback/zones/{id}/leveling': {
+      put: {
+        tags: ['Playback'],
+        summary:
+          "Volume leveling on the speaker path for one room (R10.2, admin): 'auto' | 'off' | 'track' | 'album'",
+        responses: { 200: ok('{ zoneId, leveling }'), 404: ok('unknown room') },
+      },
+    },
     '/playback/transcodes': {
       get: {
         tags: ['Playback'],

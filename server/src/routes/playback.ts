@@ -41,6 +41,7 @@ import { deviceManager } from '../devices/manager.js';
 import { addMeasurement, listTransitions, recordTransition } from '../services/transitions.js';
 import { describeAudioPath } from '../services/audio-path.js';
 import { transcodeStats } from '../services/transcode.js';
+import { getLeveling, setLeveling } from '../services/zone-audio.js';
 import { getAllCapabilities } from '../services/playback-resolver.js';
 import {
   cancelSleepTimer,
@@ -233,6 +234,7 @@ playbackRouter.get('/zones', (_req, res) => {
         queueLength: snapshot.queue.length,
         queueIndex: snapshot.queueIndex,
         volume: snapshot.state.volume,
+        leveling: getLeveling(zone.id),
         ...groupInfo(zone),
       };
     }),
@@ -299,6 +301,23 @@ playbackRouter.patch(
       return;
     }
     res.json({ data: zone });
+    broadcastZones();
+  },
+);
+
+// Volume leveling on the speaker path for one room (R10.2).
+playbackRouter.put(
+  '/zones/:id/leveling',
+  requireAdmin,
+  validate({ body: z.object({ leveling: z.enum(['auto', 'off', 'track', 'album']) }) }),
+  (req: Request, res: Response) => {
+    const zone = zones.get(String(req.params.id));
+    if (!zone) {
+      res.status(404).json({ error: 'NotFound', message: 'That zone does not exist' });
+      return;
+    }
+    setLeveling(zone.id, req.body.leveling);
+    res.json({ data: { zoneId: zone.id, leveling: getLeveling(zone.id) } });
     broadcastZones();
   },
 );

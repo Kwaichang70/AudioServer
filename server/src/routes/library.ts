@@ -724,7 +724,14 @@ libraryRouter.get('/tracks/:id/stream', (req, res) => {
   // resolver only asks for one when the speaker said so; anything else is
   // the original file, byte for byte.
   const format = req.query.format;
-  if ((format === 'mp3' || format === 'wav') && mime !== TARGET_MIME[format]) {
+  // Leveling (R10.2) may re-encode to the same format; the gain is bounded.
+  const gainParam = Number(req.query.gain);
+  const gainDb =
+    Number.isFinite(gainParam) && gainParam !== 0 ? Math.max(-40, Math.min(20, gainParam)) : null;
+  if (
+    (format === 'mp3' || format === 'wav' || format === 'flac') &&
+    (mime !== TARGET_MIME[format] || gainDb !== null)
+  ) {
     res.status(200);
     res.setHeader('Content-Type', TARGET_MIME[format]);
     // Converted on the fly: no length, and no byte ranges to jump to.
@@ -742,6 +749,7 @@ libraryRouter.get('/tracks/:id/stream', (req, res) => {
       trackId: track.id,
       sampleRate: track.sampleRate,
       bitDepth: track.bitDepth,
+      gainDb,
     });
     // The speaker hung up before the end (skip, stop): no reason to keep converting.
     res.on('close', () => {

@@ -146,12 +146,17 @@ export async function describeAudioPath(session: PlaybackService): Promise<Audio
     // The same decision the resolver takes when it hands this track over (R10.1).
     const row = trackId && sourceOf(trackId) === 'local' ? localTrack(trackId) : undefined;
     const sourceMime = row?.format ? MIME_BY_EXTENSION[row.format.toLowerCase()] : undefined;
-    converted = sourceMime ? await planTranscode(sourceMime, deviceId) : null;
+    converted =
+      sourceMime && trackId
+        ? await planTranscode(sourceMime, deviceId, { zoneId: session.getZoneId(), trackId })
+        : null;
     steps.push(
       converted
         ? {
             stage: 'transfer',
-            title: `Converted on the NAS to ${converted.target === 'mp3' ? 'MP3 320' : 'WAV'}`,
+            title: `${converted.gain ? 'Level adjusted' : 'Converted'} on the NAS to ${
+              { mp3: 'MP3 320', wav: 'WAV', flac: 'FLAC' }[converted.target]
+            }`,
             detail: `${converted.reason} The speaker fetches the converted stream over the local network.`,
             certainty: 'known',
           }
@@ -165,9 +170,14 @@ export async function describeAudioPath(session: PlaybackService): Promise<Audio
     );
     if (converted?.target === 'mp3') {
       caveats.push('The speaker gets MP3 made from the file, not the original: this is lossy.');
-    } else if (converted) {
+    } else if (converted && !converted.gain) {
       caveats.push(
         'The speaker gets WAV made from the file: the same samples, in another container.',
+      );
+    }
+    if (converted?.gain) {
+      caveats.push(
+        `Volume leveling changes the samples (${converted.gain.basis} ReplayGain ${converted.gain.gainDb.toFixed(1)} dB): this path is not bit-perfect.`,
       );
     }
     steps.push({
@@ -185,7 +195,9 @@ export async function describeAudioPath(session: PlaybackService): Promise<Audio
         'Decoding, volume and any processing happen inside the device; none of that is visible from here.',
       certainty: 'unknown',
     });
-    caveats.push('ReplayGain is not applied on this path; the file plays at its own level.');
+    if (!converted?.gain) {
+      caveats.push('ReplayGain is not applied on this path; the file plays at its own level.');
+    }
   }
 
   if (caps?.gapless === 'verified') {

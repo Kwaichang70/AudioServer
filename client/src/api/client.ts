@@ -19,6 +19,7 @@ import type {
   ZoneOverview,
   ZoneTransferResult,
   ZoneGroupInfo,
+  ZoneLeveling,
   ZoneSummary,
   AuthResult,
   DeviceStatusResponse,
@@ -504,6 +505,14 @@ export const api = {
     fetchApi(`/playback/zones/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify({ name }),
+    }),
+  setZoneLeveling: (
+    id: string,
+    leveling: ZoneLeveling,
+  ): Promise<ApiResponse<{ zoneId: string; leveling: ZoneLeveling }>> =>
+    fetchApi(`/playback/zones/${id}/leveling`, {
+      method: 'PUT',
+      body: JSON.stringify({ leveling }),
     }),
   deleteZone: (id: string): Promise<ApiResponse<{ ok: boolean }>> =>
     fetchApi(`/playback/zones/${encodeURIComponent(id)}`, { method: 'DELETE' }),

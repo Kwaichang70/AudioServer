@@ -4,6 +4,16 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## R10.2 — Volume-egalisatie op speakers (verbeterplan 2)
+
+- Per kamer in Settings → Rooms: egaliseren alleen bij conversie
+  (standaard), nooit, of altijd (album of track). "Altijd" maakt het pad
+  niet meer bit-perfect; de app en het audiopad zeggen dat.
+- ReplayGain uit de bibliotheek, begrensd door de piek (geen clipping); bij
+  16 bit met dither. Geen EQ.
+
+**Deploy:** schemaversie 20 (`zone_audio`) — eerst een back-up.
+
 ## R10.1 — Formaatadaptatie voor speakers (proef, verbeterplan 2)
 
 - Een speaker die zelf zegt dat hij het bronformaat niet speelt (bijvoorbeeld
