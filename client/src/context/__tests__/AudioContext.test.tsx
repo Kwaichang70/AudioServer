@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TrackInfo } from '../AudioContext.js';
 import { createFakePlaybackServer } from '../../test/fakePlaybackServer.js';
@@ -651,8 +651,15 @@ describe('AudioProvider next-track preparation (R00.1)', () => {
   });
 
   /** Start the album and put the current track near its end, then re-render. */
-  function playNearTheEnd(view: ReturnType<typeof renderHarness>, extraClick?: string) {
+  async function playNearTheEnd(view: ReturnType<typeof renderHarness>, extraClick?: string) {
     fireEvent.click(screen.getByText('Play Album'));
+    // Let the server's answer to "play this album" land first, as it does
+    // for someone who presses Shuffle while the album plays. Clicking in the
+    // same tick let that answer (made before the click) briefly undo the
+    // shuffle, and the preparation saw a fixed next track in that window.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
     if (extraClick) fireEvent.click(screen.getByText(extraClick));
     mocks.audio.isPlaying = true;
     mocks.audio.getDuration.mockReturnValue(200);
@@ -666,7 +673,7 @@ describe('AudioProvider next-track preparation (R00.1)', () => {
 
   it('prepares the next local track when the current one is nearly over', async () => {
     const view = renderHarness();
-    playNearTheEnd(view);
+    await playNearTheEnd(view);
 
     await waitFor(() =>
       expect(mocks.audio.preloadNext).toHaveBeenCalledWith('/api/library/tracks/track-2/stream'),
@@ -691,7 +698,7 @@ describe('AudioProvider next-track preparation (R00.1)', () => {
 
   it('prepares nothing under shuffle, because the next track is not decided', async () => {
     const view = renderHarness();
-    playNearTheEnd(view, 'Shuffle');
+    await playNearTheEnd(view, 'Shuffle');
 
     await waitFor(() => expect(screen.getByTestId('shuffle')).toHaveTextContent('true'));
     expect(mocks.audio.preloadNext).not.toHaveBeenCalled();
@@ -699,7 +706,7 @@ describe('AudioProvider next-track preparation (R00.1)', () => {
 
   it('prepares nothing with crossfade on, which builds its own element', async () => {
     const view = renderHarness();
-    playNearTheEnd(view, 'Crossfade On');
+    await playNearTheEnd(view, 'Crossfade On');
 
     await waitFor(() => expect(mocks.audio.setCrossfadeDuration).toHaveBeenCalledWith(6));
     expect(mocks.audio.preloadNext).not.toHaveBeenCalled();
