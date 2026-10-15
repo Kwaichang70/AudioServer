@@ -4,6 +4,13 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## R10.3 — Opzet besluitdocument (verbeterplan 2)
+
+- `docs/r10-besluit.md`: meetprotocol, beslisregels en lege velden voor de
+  NAS-meting en de keuze.
+- Settings → Rooms → _Conversion trial_: zet het spelende nummer om (één of
+  twee tegelijk) en toont CPU per minuut muziek en piekgeheugen.
+
 ## R10.2 — Volume-egalisatie op speakers (verbeterplan 2)
 
 - Per kamer in Settings → Rooms: egaliseren alleen bij conversie

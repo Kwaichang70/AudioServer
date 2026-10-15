@@ -750,6 +750,7 @@ libraryRouter.get('/tracks/:id/stream', (req, res) => {
       sampleRate: track.sampleRate,
       bitDepth: track.bitDepth,
       gainDb,
+      audioSeconds: track.duration,
     });
     // The speaker hung up before the end (skip, stop): no reason to keep converting.
     res.on('close', () => {

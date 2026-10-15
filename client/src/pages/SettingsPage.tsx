@@ -1,6 +1,7 @@
 import { useSearchParams } from 'react-router-dom';
 import AudioPathPanel from '../components/AudioPathPanel.js';
 import ZonesSection from '../components/ZonesSection.js';
+import TranscodeTrial from '../components/TranscodeTrial.js';
 import { useAuth } from '../context/AuthContext.js';
 import PlaybackSection from './settings/PlaybackSection.js';
 import LibrarySection from './settings/LibrarySection.js';
@@ -42,7 +43,17 @@ const TABS: Tab[] = [
       </>
     ),
   },
-  { id: 'rooms', label: 'Rooms', admin: true, render: () => <ZonesSection /> },
+  {
+    id: 'rooms',
+    label: 'Rooms',
+    admin: true,
+    render: () => (
+      <>
+        <ZonesSection />
+        <TranscodeTrial />
+      </>
+    ),
+  },
   {
     id: 'library',
     label: 'Library',

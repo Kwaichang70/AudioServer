@@ -1007,3 +1007,19 @@ export interface HealthResponse {
 }
 
 export type ProviderSearchResponse = ApiResponse<SearchResults>;
+
+/** One conversion for a speaker, with what it cost on the NAS (R10.1/R10.3). */
+export interface TranscodeRun {
+  id: number;
+  zoneId: string;
+  trackId: string;
+  target: 'mp3' | 'wav' | 'flac';
+  gainDb?: number | null;
+  audioSeconds?: number | null;
+  cpuMsPerAudioMinute?: number | null;
+  startedAt: number;
+  endedAt?: number;
+  cpuMs: number;
+  peakRssKb: number;
+  outcome?: 'finished' | 'stopped' | 'replaced' | 'failed' | 'reset';
+}

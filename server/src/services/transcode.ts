@@ -257,6 +257,10 @@ export interface TranscodeRun {
   target: TranscodeTarget;
   /** Leveling applied, in dB (R10.2). */
   gainDb?: number | null;
+  /** Length of the track converted, in seconds. */
+  audioSeconds?: number | null;
+  /** CPU per minute of music, once finished: the number R10.3 decides on. */
+  cpuMsPerAudioMinute?: number | null;
   startedAt: number;
   endedAt?: number;
   /** CPU time ffmpeg used, as far as sampled. */
@@ -286,6 +290,8 @@ export function startTranscode(input: {
   sampleRate?: number | null;
   bitDepth?: number | null;
   gainDb?: number | null;
+  /** Length of the track, so CPU can be read per minute of music (R10.3). */
+  audioSeconds?: number | null;
 }): { stream: Readable; stop: () => void; run: TranscodeRun } {
   // At most two per room: the oldest beyond that is a track nobody hears.
   const mine = [...running.values()]
@@ -300,6 +306,7 @@ export function startTranscode(input: {
     trackId: input.trackId,
     target: input.target,
     gainDb: input.gainDb ?? null,
+    audioSeconds: input.audioSeconds ?? null,
     startedAt: Date.now(),
     cpuMs: 0,
     peakRssKb: 0,
@@ -326,7 +333,15 @@ export function startTranscode(input: {
     running.delete(job.id);
     const { stop: _stop, ...run } = job;
     void _stop;
-    const record: TranscodeRun = { ...run, endedAt: Date.now(), outcome };
+    const record: TranscodeRun = {
+      ...run,
+      endedAt: Date.now(),
+      outcome,
+      cpuMsPerAudioMinute:
+        outcome === 'finished' && job.audioSeconds
+          ? Math.round((job.cpuMs / job.audioSeconds) * 60)
+          : null,
+    };
     finished.unshift(record);
     finished.length = Math.min(finished.length, 20);
     logger.info(

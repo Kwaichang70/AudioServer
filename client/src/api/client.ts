@@ -20,6 +20,7 @@ import type {
   ZoneTransferResult,
   ZoneGroupInfo,
   ZoneLeveling,
+  TranscodeRun,
   ZoneSummary,
   AuthResult,
   DeviceStatusResponse,
@@ -594,6 +595,9 @@ export const api = {
 
   // ─── Sleep timer (E01) ──────────────────────────────────────
   // Per room, and run by the server: it fires with this tab closed.
+  /** Conversions for speakers and their cost (R10.1 trial, admin). */
+  getTranscodes: (): Promise<ApiResponse<{ active: TranscodeRun[]; recent: TranscodeRun[] }>> =>
+    fetchApi('/playback/transcodes'),
   getSleepTimer: (): Promise<ApiResponse<SleepTimer | null>> => fetchApi('/playback/sleep'),
   setSleepTimer: (
     mode: SleepTimer['mode'],

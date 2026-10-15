@@ -218,7 +218,13 @@ describe('Converting for a speaker', () => {
     expect(probe.trim()).toBe('mp3,48000,320000');
     await new Promise((r) => setTimeout(r, 100));
     const run = transcodeStats().recent.find((r) => r.zoneId === 'zone-real');
-    expect(run).toMatchObject({ trackId: 'tone', target: 'mp3', outcome: 'finished' });
+    expect(run).toMatchObject({
+      trackId: 'tone',
+      target: 'mp3',
+      outcome: 'finished',
+      audioSeconds: 4,
+    });
+    expect(run?.cpuMsPerAudioMinute).toBe(Math.round((run!.cpuMs / 4) * 60));
   });
 
   it.skipIf(!hasFfmpeg)('stops converting when the speaker hangs up', async () => {
