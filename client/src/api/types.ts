@@ -1023,3 +1023,12 @@ export interface TranscodeRun {
   peakRssKb: number;
   outcome?: 'finished' | 'stopped' | 'replaced' | 'failed' | 'reset';
 }
+
+/** An API key for an assistant (Grok, Jarvis, Homey); the key itself is shown once. */
+export interface ApiKeyInfo {
+  id: string;
+  name: string;
+  prefix: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+}

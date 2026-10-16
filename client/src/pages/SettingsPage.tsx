@@ -11,6 +11,7 @@ import ProvidersSection from './settings/ProvidersSection.js';
 import LibrespotSection from './settings/LibrespotSection.js';
 import ScrobblingSection from './settings/ScrobblingSection.js';
 import SecuritySection from './settings/SecuritySection.js';
+import ApiKeysSection from './settings/ApiKeysSection.js';
 import ThemeSection from './settings/ThemeSection.js';
 import UsersSection from './settings/UsersSection.js';
 import AboutSection from './settings/AboutSection.js';
@@ -78,7 +79,16 @@ const TABS: Tab[] = [
     ),
   },
   { id: 'scrobbling', label: 'Scrobbling', admin: true, render: () => <ScrobblingSection /> },
-  { id: 'account', label: 'Account', render: () => <SecuritySection /> },
+  {
+    id: 'account',
+    label: 'Account',
+    render: () => (
+      <>
+        <SecuritySection />
+        <ApiKeysSection />
+      </>
+    ),
+  },
   { id: 'appearance', label: 'Appearance', render: () => <ThemeSection /> },
   { id: 'users', label: 'Users', admin: true, render: () => <UsersSection /> },
   { id: 'about', label: 'About', render: () => <AboutSection /> },

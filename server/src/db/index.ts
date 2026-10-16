@@ -21,7 +21,7 @@ import { fileURLToPath } from 'url';
  * it does not understand. Databases from before this check carry version 0,
  * which every build accepts and upgrades.
  */
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 21;
 
 export class DatabaseVersionError extends Error {
   constructor(
@@ -333,6 +333,21 @@ export async function initDatabase(overridePath?: string) {
       leveling TEXT NOT NULL DEFAULT 'auto',
       updated_at INTEGER
     );
+  `);
+  // API keys for assistants (Grok, Jarvis): a long-lived key per purpose that
+  // controls playback and reads the library. Only a hash is stored.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      prefix TEXT NOT NULL,
+      key_hash TEXT NOT NULL UNIQUE,
+      created_at INTEGER NOT NULL,
+      last_used_at INTEGER,
+      revoked_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys (user_id);
   `);
   // R07.3: a playlist item names its source explicitly — 'qobuz:track:123' —
   // beside the snapshot that makes it readable when the source is away.

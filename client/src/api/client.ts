@@ -21,6 +21,7 @@ import type {
   ZoneGroupInfo,
   ZoneLeveling,
   TranscodeRun,
+  ApiKeyInfo,
   ZoneSummary,
   AuthResult,
   DeviceStatusResponse,
@@ -431,6 +432,11 @@ export const api = {
   getDiagnostics: (): Promise<ApiResponse<Record<string, unknown>>> =>
     fetchApi('/health/diagnostics'),
   getSessions: (): Promise<ApiResponse<SessionInfo[]>> => fetchApi('/auth/sessions'),
+  getApiKeys: (): Promise<ApiResponse<ApiKeyInfo[]>> => fetchApi('/auth/api-keys'),
+  createApiKey: (name: string): Promise<ApiResponse<ApiKeyInfo & { key: string }>> =>
+    fetchApi('/auth/api-keys', { method: 'POST', body: JSON.stringify({ name }) }),
+  revokeApiKey: (id: string): Promise<ApiResponse<{ ok: boolean }>> =>
+    fetchApi(`/auth/api-keys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   revokeSession: (id: string): Promise<ApiResponse<{ ok: boolean; current: boolean }>> =>
     fetchApi(`/auth/sessions/${id}`, { method: 'DELETE' }),
   revokeOtherSessions: (): Promise<ApiResponse<{ revoked: number }>> =>

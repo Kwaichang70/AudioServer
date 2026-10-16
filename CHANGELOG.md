@@ -4,6 +4,17 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## API-sleutels voor assistenten (Grok, Jarvis, Homey) — stap 1
+
+- Settings → Account → **API keys**: een sleutel per toepassing maken (één
+  keer getoond, alleen als hash bewaard) en intrekken.
+- Een sleutel bedient `/api/playback` en leest bibliotheek, playlists, Home en
+  zoeken bij providers; verder niets, en geen admin-acties, ook niet als een
+  admin hem maakte. Meesturen als `Authorization: Bearer as_…` of
+  `X-API-Key: as_…`.
+
+**Deploy:** schemaversie 21 (`api_keys`) — eerst een back-up.
+
 ## Voortgang van "Fetch covers/images" in de pagina
 
 - Settings → Library toont een voortgangsbalk ("316 of 1262 albums · 200 found

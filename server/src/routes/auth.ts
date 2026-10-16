@@ -21,6 +21,7 @@ import {
 } from '../services/setup.js';
 import { validate, idParam } from '../utils/validate.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { ApiKeyError, createApiKey, listApiKeys, revokeApiKey } from '../services/api-keys.js';
 
 const usernameSchema = z.string().trim().min(1).max(64);
 const passwordSchema = z.string().min(8).max(256);
@@ -223,6 +224,40 @@ authRouter.delete('/sessions/:id', validate({ params: idParam }), (req, res) => 
   }
   revokeSession(id);
   res.json({ data: { ok: true, current: id === req.sessionId } });
+});
+
+// ─── API keys for assistants (Grok, Jarvis) ──────────────────────
+// Managed only by a person signed in: requireAuth refuses /api/auth to a key.
+
+authRouter.get('/api-keys', (req, res) => {
+  res.json({ data: listApiKeys(req.userId!) });
+});
+
+authRouter.post(
+  '/api-keys',
+  validate({ body: z.object({ name: z.string().min(1).max(60) }) }),
+  (req, res) => {
+    try {
+      const { key, summary } = createApiKey(req.userId!, req.body.name);
+      logger.info(`API key "${summary.name}" (${summary.prefix}…) created`);
+      // The only time the key itself is shown.
+      res.status(201).json({ data: { ...summary, key } });
+    } catch (err) {
+      if (err instanceof ApiKeyError) {
+        res.status(400).json({ error: err.code, message: err.message });
+        return;
+      }
+      throw err;
+    }
+  },
+);
+
+authRouter.delete('/api-keys/:id', validate({ params: idParam }), (req, res) => {
+  if (!revokeApiKey(req.userId!, String(req.params.id))) {
+    res.status(404).json({ error: 'NotFound', message: 'API key not found' });
+    return;
+  }
+  res.json({ data: { ok: true } });
 });
 
 // "Sign out everywhere else": keeps the caller's own session.

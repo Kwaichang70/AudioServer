@@ -1321,6 +1321,26 @@ export const openApiSpec = {
         },
       },
     },
+    '/auth/api-keys': {
+      get: {
+        tags: ['Auth'],
+        summary: 'Your API keys (name, prefix, created, last used); never the key itself',
+        responses: { 200: ok('ApiKey[]') },
+      },
+      post: {
+        tags: ['Auth'],
+        summary:
+          'Make an API key for an assistant or automation (Grok, Jarvis, Homey). The key is returned once. Send it as "Authorization: Bearer as_…" or "X-API-Key: as_…". A key controls /api/playback and reads library, playlists, Home and provider search; nothing else, no admin actions.',
+        responses: { 201: ok('ApiKey & { key }'), 400: ok('no name, or too many keys') },
+      },
+    },
+    '/auth/api-keys/{id}': {
+      delete: {
+        tags: ['Auth'],
+        summary: 'Revoke one of your API keys; it stops working at once',
+        responses: { 200: ok('{ ok: true }'), 404: ok('no such key of yours') },
+      },
+    },
     '/playback/zones/{id}/leveling': {
       put: {
         tags: ['Playback'],

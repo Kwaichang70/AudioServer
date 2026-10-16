@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { config } from '../config.js';
 import { getRawDb } from '../db/index.js';
+import { apiKeyMayUse, looksLikeApiKey, resolveApiKey } from '../services/api-keys.js';
 import {
   resolveSessionById,
   resolveSessionToken,
@@ -16,6 +17,8 @@ declare global {
       sessionId?: string;
       userRole?: string;
       requestId?: string;
+      /** Set when the request was made with an API key instead of a session. */
+      apiKeyId?: string;
     }
   }
 }
@@ -90,8 +93,26 @@ function attachPrincipal(req: Request, principal: SessionPrincipal): void {
  */
 export function attachUser(req: Request, _res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
-  if (authHeader?.startsWith('Bearer ')) {
-    const principal = resolveSessionToken(authHeader.slice(7));
+  const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const headerKey = req.headers['x-api-key'];
+  const apiKey = looksLikeApiKey(bearer)
+    ? bearer
+    : typeof headerKey === 'string'
+      ? headerKey
+      : null;
+  if (apiKey) {
+    // An assistant (Grok, Jarvis) with an API key: it acts as the person who
+    // made the key, within what a key may do (requireAuth checks that).
+    const key = resolveApiKey(apiKey);
+    if (key) {
+      req.userId = key.userId;
+      req.userRole = key.role;
+      req.apiKeyId = key.keyId;
+      // Playback commands carry who sent them; a key is its own sender.
+      if (!req.headers['x-client-id']) req.headers['x-client-id'] = `apikey:${key.keyId}`;
+    }
+  } else if (bearer) {
+    const principal = resolveSessionToken(bearer);
     if (principal) attachPrincipal(req, principal);
   }
   next();
@@ -137,6 +158,14 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     });
     return;
   }
+  if (req.apiKeyId && !apiKeyMayUse(req.method, req.path)) {
+    res.status(403).json({
+      error: 'ApiKeyScope',
+      message:
+        'An API key can control playback and read the library; this needs a person signed in.',
+    });
+    return;
+  }
   next();
 }
 
@@ -151,6 +180,14 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
   }
   if (req.userRole !== 'admin') {
     res.status(403).json({ error: 'Forbidden', message: 'Admin role required' });
+    return;
+  }
+  // A key made by an admin is still only a key: no admin actions with it.
+  if (req.apiKeyId) {
+    res.status(403).json({
+      error: 'ApiKeyScope',
+      message: 'Admin actions need a person signed in, not an API key.',
+    });
     return;
   }
   next();
