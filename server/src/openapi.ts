@@ -1321,6 +1321,83 @@ export const openApiSpec = {
         },
       },
     },
+    '/control/rooms': {
+      get: {
+        tags: ['Control'],
+        summary:
+          'Rooms with what plays in them (simple commands for Homey/Grok/Jarvis; works with an API key)',
+        responses: { 200: ok('{ id, name, speaker, state, track, volume }[]') },
+      },
+    },
+    '/control/playlists': {
+      get: {
+        tags: ['Control'],
+        summary: 'Your playlists and smart playlists by name',
+        responses: { 200: ok('{ id, name, trackCount, kind }[]') },
+      },
+    },
+    '/control/play': {
+      post: {
+        tags: ['Control'],
+        summary:
+          'Play a playlist, album or artist in a room, by name (no case or accents needed): { room?, playlist? | album? (+artist?) | artist?, shuffle? }',
+        responses: {
+          200: ok('{ room, playing, tracks, first }'),
+          400: ok('no room given and more than one speaker room'),
+          404: ok('unknown room/playlist/album/artist; options lists what exists'),
+          409: ok('ambiguous name, browser room, room in a Sonos group, or nothing playable'),
+        },
+      },
+    },
+    '/control/pause': {
+      post: {
+        tags: ['Control'],
+        summary: 'Pause a room (session and speaker): { room? }',
+        responses: { 200: ok('{ room, state }') },
+      },
+    },
+    '/control/resume': {
+      post: {
+        tags: ['Control'],
+        summary: 'Resume a room; a stopped room starts its current track again: { room? }',
+        responses: { 200: ok('{ room, state, track }') },
+      },
+    },
+    '/control/stop': {
+      post: {
+        tags: ['Control'],
+        summary: 'Stop a room and its speaker: { room? }',
+        responses: { 200: ok('{ room, state }') },
+      },
+    },
+    '/control/next': {
+      post: {
+        tags: ['Control'],
+        summary: 'Next track in a room: { room? }',
+        responses: { 200: ok('{ room, track }') },
+      },
+    },
+    '/control/previous': {
+      post: {
+        tags: ['Control'],
+        summary: 'Previous track in a room: { room? }',
+        responses: { 200: ok('{ room, track }') },
+      },
+    },
+    '/control/volume': {
+      post: {
+        tags: ['Control'],
+        summary: 'Set the volume of a room and its speaker: { room?, volume 0..100 }',
+        responses: { 200: ok('{ room, volume }') },
+      },
+    },
+    '/control/now-playing': {
+      get: {
+        tags: ['Control'],
+        summary: 'What plays in a room: ?room=',
+        responses: { 200: ok('{ room, state, track, position, volume }') },
+      },
+    },
     '/auth/api-keys': {
       get: {
         tags: ['Auth'],

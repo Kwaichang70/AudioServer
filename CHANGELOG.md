@@ -4,6 +4,16 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Eenvoudige commando's voor Homey, Grok en Jarvis — stap 2
+
+- `/api/control`: playlist, album of artiest afspelen in een kamer op naam
+  (zonder hoofdletters/accenten), pauzeren, verder, stoppen, volgende, vorige,
+  volume, wat speelt er, kamers en playlists. Werkt met een API-sleutel.
+- Elk commando bedient de sessie én de speaker zelf (pauze en volume bereikten
+  de speaker eerder alleen via een open app).
+- Verkeerde naam → foutmelding met de namen die wél bestaan.
+- Handleiding met een Homey-flow: `docs/control-api.md`.
+
 ## API-sleutels voor assistenten (Grok, Jarvis, Homey) — stap 1
 
 - Settings → Account → **API keys**: een sleutel per toepassing maken (één

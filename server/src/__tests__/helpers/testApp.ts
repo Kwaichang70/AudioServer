@@ -11,6 +11,7 @@ import { authRouter } from '../../routes/auth.js';
 import { healthRouter } from '../../routes/health.js';
 import { libraryRouter } from '../../routes/library.js';
 import { playbackRouter } from '../../routes/playback.js';
+import { controlRouter } from '../../routes/control.js';
 import { playlistsRouter } from '../../routes/playlists.js';
 import { providersRouter } from '../../routes/providers.js';
 import { historyRouter } from '../../routes/history.js';
@@ -92,6 +93,7 @@ export async function createTestApp(options: TestAppOptions = {}) {
   app.use('/api/health', healthRouter);
   app.use('/api/library', libraryRouter);
   app.use('/api/playback', playbackRouter);
+  app.use('/api/control', controlRouter);
   app.use('/api/playlists', playlistsRouter);
   app.use('/api/providers', providersRouter);
   app.use('/api/history', historyRouter);

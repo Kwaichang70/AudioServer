@@ -142,14 +142,15 @@ export function resolveApiKey(key: unknown): ApiKeyPrincipal | null {
 }
 
 /**
- * What a key may do: control playback (any method under /api/playback) and
+ * What a key may do: control playback (any method under /api/playback and
+ * the simple commands under /api/control) and
  * read the library, playlists, Home and provider search. Everything else —
  * accounts, sessions, keys, settings, scanning, devices — needs a person
  * signed in. Admin-only routes inside playback are refused by requireAdmin.
  */
 export function apiKeyMayUse(method: string, path: string): boolean {
   const under = (prefix: string) => path === prefix || path.startsWith(`${prefix}/`);
-  if (under('/api/playback')) return true;
+  if (under('/api/playback') || under('/api/control')) return true;
   if (under('/api/health')) return true;
   if (method !== 'GET' && method !== 'HEAD') return false;
   if (under('/api/library')) return true;
