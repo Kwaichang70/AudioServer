@@ -4,6 +4,14 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fix — opgehaalde covers en artiestfoto's overleven een rebuild
+
+- "Fetch covers" en "Fetch images" schreven naar `/app/data/covers`, in de
+  container zelf. Elke `docker-compose up --build` maakte een nieuwe container
+  en gooide alles weg. Ze staan nu naast de database (`/data/covers`, in het
+  volume). `COVER_CACHE_DIR` blijft voorgaan als die gezet is.
+- **Na de volgende deploy:** één keer opnieuw ophalen, daarna blijft het.
+
 ## R10.3 — Opzet besluitdocument (verbeterplan 2)
 
 - `docs/r10-besluit.md`: meetprotocol, beslisregels en lege velden voor de

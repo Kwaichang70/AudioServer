@@ -1,5 +1,5 @@
 import { mkdirSync, existsSync, writeFileSync, readFileSync, rmSync } from 'fs';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { getDb, getRawDb } from '../db/index.js';
 import { albums } from '../db/schema.js';
 // eq removed - not currently used
@@ -500,6 +500,14 @@ function coverMimeForPath(path: string): string {
   return match?.mime || 'image/jpeg';
 }
 
-function getCoverDir(): string {
-  return process.env.COVER_CACHE_DIR || DEFAULT_COVER_DIR;
+/**
+ * Where fetched covers and artist images live: next to the database, so in
+ * Docker they land in the `/data` volume. The old default (`./data/covers`
+ * under the working directory) was inside the container, and every rebuild
+ * threw away everything "Fetch covers" had found.
+ */
+export function getCoverDir(): string {
+  if (process.env.COVER_CACHE_DIR) return process.env.COVER_CACHE_DIR;
+  const database = process.env.DATABASE_PATH;
+  return database ? join(dirname(database), 'covers') : DEFAULT_COVER_DIR;
 }

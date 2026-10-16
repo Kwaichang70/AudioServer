@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import {
   cacheEmbeddedCover,
+  getCoverDir,
   getLocalCoverPath,
   readCachedCover,
 } from '../services/coverart-fetch.js';
@@ -39,5 +40,21 @@ describe('embedded cover disk cache', () => {
       data: Buffer.from([1, 2, 3]),
       mime: 'image/jpeg',
     });
+  });
+
+  it('keeps covers next to the database, so a rebuilt container keeps them', () => {
+    const saved = { cache: process.env.COVER_CACHE_DIR, db: process.env.DATABASE_PATH };
+    try {
+      delete process.env.COVER_CACHE_DIR;
+      process.env.DATABASE_PATH = '/data/audioserver.db';
+      expect(getCoverDir()).toBe('/data/covers');
+      // An explicit setting still wins.
+      process.env.COVER_CACHE_DIR = '/elsewhere';
+      expect(getCoverDir()).toBe('/elsewhere');
+    } finally {
+      process.env.COVER_CACHE_DIR = saved.cache;
+      if (saved.db === undefined) delete process.env.DATABASE_PATH;
+      else process.env.DATABASE_PATH = saved.db;
+    }
   });
 });
