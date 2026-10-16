@@ -50,6 +50,23 @@ export function errorHandler(
     return;
   }
 
+  // Errors from body-parser and friends carry their own 4xx status (413 for
+  // a body that is too large, 400 for broken JSON): a client mistake, not a
+  // server crash, and it should say so instead of answering 500.
+  const status = (err as { status?: unknown; statusCode?: unknown } | null)?.status;
+  if (typeof status === 'number' && status >= 400 && status < 500) {
+    const tooLarge = status === 413;
+    logger.warn(`[${reqId}] ${req.method} ${req.path} → ${status} ${String(err)}`);
+    res.status(status).json({
+      error: tooLarge ? 'PayloadTooLarge' : 'BadRequest',
+      message: tooLarge
+        ? 'This request is too large for the server to accept at once.'
+        : 'The request could not be read.',
+      requestId: reqId,
+    });
+    return;
+  }
+
   const message = err instanceof Error ? err.message : String(err);
   const stack = err instanceof Error ? err.stack : undefined;
   logger.error(`[${reqId}] ${req.method} ${req.path} → 500 ${message}\n${stack ?? ''}`);

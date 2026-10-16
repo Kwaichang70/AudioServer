@@ -41,6 +41,7 @@ import { initLibraryRadio } from './services/radio-wiring.js';
 import { startSonosGroupWatch, stopSonosGroupWatch } from './services/sonos-groups.js';
 import { closeOrphanedSessions, playbackListeningObserver } from './services/listening.js';
 import { globalLimiter } from './middleware/rateLimiter.js';
+import { jsonBody } from './middleware/jsonBody.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { attachUser, requireAuth } from './middleware/auth.js';
 import { announceSetupIfRequired } from './services/setup.js';
@@ -126,13 +127,7 @@ app.use(
     callback(null, { origin: false });
   }),
 );
-// CSP violation reports arrive as application/csp-report (report-uri) or
-// application/reports+json (Reporting API); parse them as JSON too.
-app.use(
-  express.json({
-    type: ['application/json', 'application/csp-report', 'application/reports+json'],
-  }),
-);
+app.use(jsonBody());
 app.use(globalLimiter);
 app.use(requestLogger);
 app.use(attachUser);

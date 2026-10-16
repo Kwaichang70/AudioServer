@@ -6,6 +6,7 @@ import { v4 as uuid } from 'uuid';
 import { initDatabase, getRawDb } from '../../db/index.js';
 import { attachUser, hashPassword, requireAuth } from '../../middleware/auth.js';
 import { errorHandler, notFoundHandler } from '../../middleware/errorHandler.js';
+import { jsonBody } from '../../middleware/jsonBody.js';
 import { authRouter } from '../../routes/auth.js';
 import { healthRouter } from '../../routes/health.js';
 import { libraryRouter } from '../../routes/library.js';
@@ -74,7 +75,7 @@ export async function createTestApp(options: TestAppOptions = {}) {
   }
 
   const app = express();
-  app.use(express.json());
+  app.use(jsonBody());
   if (admin) {
     const adminToken = admin.token;
     app.use((req: Request, _res: Response, next: NextFunction) => {

@@ -4,6 +4,17 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fix — een lange playlist op een speaker viel terug naar het vorige album
+
+- De server weigerde een playlist van een paar honderd nummers (limiet van
+  100 kB per verzoek, gemeld als 500). De app speelde dan zelf nummer 1 op
+  de Sonos, maar de server hield de album-wachtrij en ging daarmee verder.
+- De app stuurt nu alleen wat de speler leest (geen bestandspaden of
+  playlistvelden meer); de server neemt tot 2 MB aan; een te groot verzoek
+  krijgt 413 met uitleg in plaats van 500.
+- Weigert de server toch, dan start de app op een speaker niets zelf: een
+  melding, en de speaker speelt door wat hij had.
+
 ## Fix — opgehaalde covers en artiestfoto's overleven een rebuild
 
 - "Fetch covers" en "Fetch images" schreven naar `/app/data/covers`, in de

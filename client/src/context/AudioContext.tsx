@@ -146,20 +146,33 @@ function entryToTrack(entry: PlaybackQueueEntry): TrackInfo {
   };
 }
 
+/**
+ * The extras a queued track keeps on the server, beyond id, title, artist,
+ * album and duration: what the player and the queue actually read. A page
+ * hands over whole library rows (file path, playlist item ids, source refs…);
+ * sending all of that made a long playlist too large for the server, which
+ * then kept playing the previous queue (Danny, 16 Oct 2026).
+ */
+const QUEUE_EXTRAS = [
+  'format',
+  'sampleRate',
+  'bitDepth',
+  'replayGainTrack',
+  'replayGainTrackPeak',
+  'replayGainAlbum',
+  'replayGainAlbumPeak',
+  'availability',
+  'coverUrl',
+] as const;
+
 /** Client TrackInfo → the payload the server queue keeps (extras travel as metadata). */
-function trackToPayload(track: TrackInfo) {
-  const {
-    id,
-    itemId: _itemId,
-    title,
-    artistName,
-    albumTitle,
-    albumId,
-    duration,
-    source,
-    ...metadata
-  } = track;
-  void _itemId;
+export function trackToPayload(track: TrackInfo) {
+  const { id, title, artistName, albumTitle, albumId, duration, source } = track;
+  const metadata: Record<string, unknown> = {};
+  for (const key of QUEUE_EXTRAS) {
+    const value = (track as unknown as Record<string, unknown>)[key];
+    if (value !== undefined && value !== null) metadata[key] = value;
+  }
   return { id, title, artistName, albumTitle, albumId, duration, source, metadata };
 }
 
@@ -531,12 +544,26 @@ export function AudioProvider({ children }: { children: ReactNode }) {
           startFromSnapshot(res.data, tracks[startIndex]);
         })
         .catch((err) => {
-          // Server unreachable: still play locally so the user is not stuck,
-          // the queue will re-sync on the next snapshot.
-          toastRef.current(
-            `Could not hand the queue to the server (${err instanceof Error ? err.message : err})`,
-            'error',
-          );
+          const reason = err instanceof Error ? err.message : String(err);
+          // A speaker is driven by the server's queue. Starting the track on
+          // it from here anyway left the server with the old queue, which it
+          // went on with after this one track — so say no, and show again
+          // what the room really plays.
+          if (isExternalLocalDevice(deviceId)) {
+            setIsLoading(false);
+            toastRef.current(
+              `The server did not take the new queue (${reason}); the speaker keeps playing what it had.`,
+              'error',
+            );
+            api
+              .getPlaybackSession()
+              .then((res) => applySnapshotRef.current(res.data, true))
+              .catch(() => {});
+            return;
+          }
+          // The browser: still play locally so the user is not stuck; the
+          // queue re-syncs on the next snapshot.
+          toastRef.current(`Could not hand the queue to the server (${reason})`, 'error');
           startTrack(tracks[startIndex]);
         });
     },

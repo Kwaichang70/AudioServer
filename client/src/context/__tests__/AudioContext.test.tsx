@@ -110,7 +110,8 @@ vi.mock('../../api/client.js', () => ({
   newCommandId: () => `cmd-${Math.random()}`,
 }));
 
-const { AudioProvider, useAudioContext, useProgress } = await import('../AudioContext.js');
+const { AudioProvider, useAudioContext, useProgress, trackToPayload } =
+  await import('../AudioContext.js');
 
 const tracks: TrackInfo[] = [
   { id: 'track-1', title: 'First', artistName: 'Artist A', albumTitle: 'Album' },
@@ -873,5 +874,53 @@ describe('AudioProvider on an external speaker', () => {
     );
     await waitFor(() => expect(screen.getByTestId('duration')).toHaveTextContent('245'));
     expect(screen.getByTestId('position')).toHaveTextContent('41');
+  });
+});
+
+describe('Handing a long list to the server (Danny, 16 Oct 2026)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fakeServer = createFakePlaybackServer();
+    mocks.socket.snapshot = null;
+    mocks.socket.queueEvent = null;
+    mocks.socket.trackChanged = null;
+    mocks.socket.deviceUpdate = null;
+    localStorage.clear();
+    mocks.api.getDeviceStatus.mockResolvedValue({ data: {} });
+  });
+
+  it('sends only what the player reads, not whole library rows', () => {
+    const row = {
+      ...tracks[0],
+      format: 'flac',
+      replayGainTrack: -7.5,
+      availability: 'available',
+      filePath: '/volume1/music/Prince/21 Nights/01.flac',
+      playlistItemId: 'pli-1',
+      sourceRef: 'local:track:track-1',
+      lyrics: null,
+    } as TrackInfo;
+    expect(trackToPayload(row).metadata).toEqual({
+      format: 'flac',
+      replayGainTrack: -7.5,
+      availability: 'available',
+    });
+  });
+
+  it('on a speaker, does not start the track itself when the server says no', async () => {
+    vi.spyOn(fakeServer.api, 'setServerQueue').mockRejectedValue(
+      new Error('This request is too large for the server to accept at once.'),
+    );
+    renderHarness();
+    fireEvent.click(screen.getByText('External Device'));
+    fireEvent.click(screen.getByText('Play Album'));
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith(
+        expect.stringMatching(/did not take the new queue .*too large.*keeps playing/),
+        'error',
+      ),
+    );
+    expect(mocks.api.play).not.toHaveBeenCalled();
+    expect(mocks.audio.play).not.toHaveBeenCalled();
   });
 });
