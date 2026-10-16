@@ -341,7 +341,7 @@ _Vrijgegeven op 13 oktober 2026: NAS-test "twintig overgangen zonder dubbele dis
 
 ## 7. Volgorde, beslismomenten en meetpunten
 
-**Voorwaarde vooraf.** De open NAS-acceptatie uit V03–V11 (§2) wordt afgerond tijdens R00–R01; de NAS is alleen overdag beschikbaar, dus plan die tests aan het begin van een werkdag. Zolang "twintig overgangen zonder dubbele dispatch" niet is gezien, start R09 niet. **Gezien op 13 oktober 2026:** Danny voerde de test op de NAS uit, twintig overgangen zonder dubbele dispatch. R09 is daarmee vrijgegeven.
+**Voorwaarde vooraf.** De open NAS-acceptatie uit V03–V11 (§2) wordt afgerond tijdens R00–R01; de NAS is alleen overdag beschikbaar, dus plan die tests aan het begin van een werkdag. Zolang "twintig overgangen zonder dubbele dispatch" niet is gezien, start R09 niet. **Gezien op 13 oktober 2026:** Danny voerde de test op de NAS uit, twintig overgangen zonder dubbele dispatch. R09 is daarmee vrijgegeven. **Deploy op de NAS, 16 oktober 2026:** master `e2fcef8` (R05–R10.3), database in één keer van schemaversie 11 naar 20 gemigreerd (back-up `before-r10.db` vooraf: 1 user, 1.262 albums, 11.404 tracks, integriteit ok); `/api/health/ready` gaf `ready`, schema 20. Eerste indruk van Danny: alles lijkt te werken. De functionele NAS-acceptatie per sprint (R05–R10) staat nog open.
 
 **Beslismomenten**
 
