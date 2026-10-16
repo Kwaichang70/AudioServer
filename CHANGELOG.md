@@ -4,6 +4,16 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fix — "Fetch covers/images" overspoelde Spotify
+
+- Beide taken vragen Spotify om een plaatje voor elk album of artiest zonder
+  plaatje. Samen gestart wachtten ze op hetzelfde moment en riepen ze tegelijk
+  aan; na een rate-limit gingen ze door met aanroepen die direct faalden (en
+  niets vonden), met een foutregel per aanroep.
+- Nu één rij voor beide taken, een Spotify-pauze wordt uitgewacht, de
+  tussenpauze verdubbelt daarna (tot 10 s), en tijdens een pauze geen
+  foutregels meer.
+
 ## Fix — een lange playlist op een speaker viel terug naar het vorige album
 
 - De server weigerde een playlist van een paar honderd nummers (limiet van

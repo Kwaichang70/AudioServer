@@ -31,14 +31,63 @@ async function rateLimitedFetch(url: string): Promise<Response> {
   });
 }
 
-// Spotify search shares the user's app-wide rate limit, so space out the
-// cover-fetch's Spotify calls (≥1.5s apart) to avoid 429s that would also
-// break the user's own searches.
+// Spotify search shares the user's app-wide rate limit, so the cover and
+// artist-image jobs space out their Spotify calls. One queue for both jobs:
+// they used to run side by side, read the same timestamp, wait the same
+// 1.5 s and call together. During a rate-limit pause the job waits instead
+// of firing calls that fail at once (and then finds nothing), and every
+// pause doubles the spacing for the rest of the run, up to 10 s.
+const SPOTIFY_SPACING_MS = 1500;
+const SPOTIFY_MAX_SPACING_MS = 10_000;
+let spotifySpacing = SPOTIFY_SPACING_MS;
 let lastSpotifyCall = 0;
-async function throttleSpotify(): Promise<void> {
-  const wait = Math.max(0, 1500 - (Date.now() - lastSpotifyCall));
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  lastSpotifyCall = Date.now();
+let spotifyQueue: Promise<void> = Promise.resolve();
+
+interface SpotifyThrottleDeps {
+  cooldownMs: () => number;
+  sleep: (ms: number) => Promise<void>;
+  now: () => number;
+}
+
+let throttleDeps: SpotifyThrottleDeps = {
+  cooldownMs: () => 0,
+  sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  now: () => Date.now(),
+};
+
+/** Tests replace the clock and Spotify's cooldown. */
+export function configureSpotifyThrottle(overrides: Partial<SpotifyThrottleDeps> | null): void {
+  throttleDeps = overrides
+    ? { ...throttleDeps, ...overrides }
+    : {
+        cooldownMs: () => 0,
+        sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+        now: () => Date.now(),
+      };
+  spotifySpacing = SPOTIFY_SPACING_MS;
+  lastSpotifyCall = 0;
+  spotifyQueue = Promise.resolve();
+}
+
+async function waitForSpotifyTurn(cooldownMs: () => number): Promise<void> {
+  const cooldown = cooldownMs();
+  if (cooldown > 0) {
+    spotifySpacing = Math.min(spotifySpacing * 2, SPOTIFY_MAX_SPACING_MS);
+    logger.info(
+      `Cover fetch: Spotify asked for a pause; waiting ${Math.ceil(cooldown / 1000)} s, then one call per ${spotifySpacing / 1000} s`,
+    );
+    await throttleDeps.sleep(cooldown);
+  }
+  const wait = Math.max(0, spotifySpacing - (throttleDeps.now() - lastSpotifyCall));
+  if (wait > 0) await throttleDeps.sleep(wait);
+  lastSpotifyCall = throttleDeps.now();
+}
+
+/** Wait for this job's turn at Spotify; calls from both jobs go one by one. */
+export function throttleSpotify(cooldownMs: () => number = throttleDeps.cooldownMs): Promise<void> {
+  const turn = spotifyQueue.then(() => waitForSpotifyTurn(cooldownMs));
+  spotifyQueue = turn.catch(() => {});
+  return turn;
 }
 
 interface FetchStatus {
@@ -292,7 +341,7 @@ async function fetchFromSpotify(artist: string, title: string): Promise<Buffer |
     const { providers } = await import('../providers/registry.js');
     if (!providers.spotify.auth.isAuthenticated) return null;
 
-    await throttleSpotify();
+    await throttleSpotify(() => providers.spotify.cooldownRemainingMs());
     const results = await providers.spotify.search(`album:${title} artist:${artist}`, 3);
     const album = results.albums?.[0];
     if (!album?.coverUrl) return null;
@@ -435,7 +484,7 @@ async function fetchArtistImage(artistId: string, artistName: string): Promise<b
     const { providers } = await import('../providers/registry.js');
     if (!providers.spotify.auth.isAuthenticated) return false;
 
-    await throttleSpotify();
+    await throttleSpotify(() => providers.spotify.cooldownRemainingMs());
     const results = await providers.spotify.search(`artist:${artistName}`, 3);
     const match =
       results.artists?.find(

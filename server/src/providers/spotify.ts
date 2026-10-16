@@ -384,6 +384,11 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     logger.warn(`Spotify rate-limited (429); pausing API calls for ${retryAfter}s`);
   }
 
+  /** How long Spotify asked us to stay quiet; 0 when calls may go out. */
+  cooldownRemainingMs(): number {
+    return Math.max(0, this.rateLimitedUntil - Date.now());
+  }
+
   private async apiRequest<T>(path: string): Promise<T> {
     if (Date.now() < this.rateLimitedUntil) {
       throw new SpotifyProviderError(
@@ -619,7 +624,13 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
           .map((playlist) => this.mapPlaylist(playlist)),
       };
     } catch (err) {
-      logger.error(`Spotify search failed: ${err}`);
+      // A rate limit is announced once when it starts (noteRateLimit); every
+      // call during the pause failing the same way is not news.
+      if (err instanceof SpotifyProviderError && err.code === 'spotify_rate_limited') {
+        logger.debug(`Spotify search skipped: ${err.message}`);
+      } else {
+        logger.error(`Spotify search failed: ${err}`);
+      }
       return { artists: [], albums: [], tracks: [], playlists: [] };
     }
   }
