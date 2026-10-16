@@ -4,6 +4,13 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Voortgang van "Fetch covers/images" in de pagina
+
+- Settings → Library toont een voortgangsbalk ("316 of 1262 albums · 200 found
+  · 25%") en daarna het resultaat. Ook na herladen of op een ander apparaat:
+  de pagina vraagt de server waar de taak is. De knop staat uit zolang de taak
+  loopt.
+
 ## Fix — "Fetch covers/images" overspoelde Spotify
 
 - Beide taken vragen Spotify om een plaatje voor elk album of artiest zonder

@@ -5,6 +5,7 @@ import { DEVICE_POLL_INTERVAL } from '../../constants.js';
 import { useSocket, type LibraryScanProgress } from '../../hooks/useSocket.js';
 import type { MissingTrack, ScanRun } from '../../api/types.js';
 import { best, formatScanInfo, getErrorMessage } from './shared.js';
+import FetchJob from './FetchJob.js';
 
 /** Scanning, missing files, covers and artist images (R02.4). */
 export default function LibrarySection() {
@@ -14,18 +15,6 @@ export default function LibrarySection() {
   const [scanInfo, setScanInfo] = useState('');
   const scanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const scanCompleteToastRef = useRef(false);
-  // Cover/artist-image fetch progress polls. Kept in refs so they can be
-  // cleared on unmount, on error, and before starting a new one (a double
-  // click used to stack intervals that then leaked forever).
-  const coverPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const artistPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  useEffect(
-    () => () => {
-      if (coverPollRef.current) clearInterval(coverPollRef.current);
-      if (artistPollRef.current) clearInterval(artistPollRef.current);
-    },
-    [],
-  );
   const [lastRun, setLastRun] = useState<ScanRun | null>(null);
   const [configuredRoots, setConfiguredRoots] = useState<string[]>([]);
   const [missing, setMissing] = useState<MissingTrack[]>([]);
@@ -232,88 +221,23 @@ export default function LibrarySection() {
           )}
         </div>
 
-        {/* Cover Art Fetch */}
-        <div className="flex items-center justify-between pt-2 border-t border-white/5">
-          <div>
-            <p className="text-sm font-medium">Fetch Missing Cover Art</p>
-            <p className="text-xs text-gray-500">
-              Download covers from MusicBrainz for albums without embedded art
-            </p>
-          </div>
-          <button
-            onClick={async () => {
-              try {
-                // Use the api client so the Bearer token is attached — requireAuth
-                // would otherwise 401 these /api/* calls.
-                const data = await api.fetchCovers();
-                toast(data.message || 'Cover fetch started', 'info');
-                if (coverPollRef.current) clearInterval(coverPollRef.current);
-                coverPollRef.current = setInterval(async () => {
-                  try {
-                    const statusRes = await api.getCoverFetchStatus();
-                    const s = statusRes.data;
-                    if (s.isRunning) {
-                      toast(`Covers: ${s.processed}/${s.total} (${s.found} found)`, 'info');
-                    } else {
-                      if (coverPollRef.current) clearInterval(coverPollRef.current);
-                      coverPollRef.current = null;
-                      toast(`Cover art done: ${s.found} found, ${s.notFound} not found`, 'success');
-                    }
-                  } catch {
-                    // A failing status poll must stop the interval, not loop forever
-                    if (coverPollRef.current) clearInterval(coverPollRef.current);
-                    coverPollRef.current = null;
-                  }
-                }, 10000);
-              } catch (err) {
-                toast(`Cover fetch failed: ${String(err)}`, 'error');
-              }
-            }}
-            className="px-4 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-accent transition"
-          >
-            Fetch Covers
-          </button>
-        </div>
-
-        {/* Artist Images */}
-        <div className="flex items-center justify-between pt-2 border-t border-white/5">
-          <div>
-            <p className="text-sm font-medium">Fetch Artist Images</p>
-            <p className="text-xs text-gray-500">
-              Download artist photos from Spotify (requires Spotify connection)
-            </p>
-          </div>
-          <button
-            onClick={async () => {
-              try {
-                const data = await api.fetchArtistImages();
-                toast(data.message || 'Artist image fetch started', 'info');
-                if (artistPollRef.current) clearInterval(artistPollRef.current);
-                artistPollRef.current = setInterval(async () => {
-                  try {
-                    const statusRes = await api.getArtistImageFetchStatus();
-                    const s = statusRes.data;
-                    if (s.isRunning) {
-                      toast(`Artists: ${s.processed}/${s.total} (${s.found} found)`, 'info');
-                    } else {
-                      if (artistPollRef.current) clearInterval(artistPollRef.current);
-                      artistPollRef.current = null;
-                      toast(`Artist images done: ${s.found} found`, 'success');
-                    }
-                  } catch {
-                    if (artistPollRef.current) clearInterval(artistPollRef.current);
-                    artistPollRef.current = null;
-                  }
-                }, 10000);
-              } catch (err) {
-                toast(`Artist image fetch failed: ${String(err)}`, 'error');
-              }
-            }}
-            className="px-4 py-1.5 text-sm bg-surface-dark border border-white/10 rounded hover:border-accent transition"
-          >
-            Fetch Images
-          </button>
-        </div>
+        {/* Cover art and artist images: server jobs, progress on the page. */}
+        <FetchJob
+          title="Fetch Missing Cover Art"
+          description="Download covers from MusicBrainz (and Spotify, when connected) for albums without embedded art"
+          button="Fetch Covers"
+          noun="albums"
+          start={api.fetchCovers}
+          status={api.getCoverFetchStatus}
+        />
+        <FetchJob
+          title="Fetch Artist Images"
+          description="Download artist photos (fanart.tv when configured, otherwise Spotify)"
+          button="Fetch Images"
+          noun="artists"
+          start={api.fetchArtistImages}
+          status={api.getArtistImageFetchStatus}
+        />
       </div>
     </section>
   );
