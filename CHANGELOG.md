@@ -4,6 +4,15 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## AudioServer als MCP-server voor Grok en Jarvis — stap 3
+
+- `/mcp` (Streamable HTTP, zonder sessies): kamers, playlists, zoeken, wat
+  speelt er, afspelen op naam, pauze/verder/stop, volgende/vorige, volume en
+  muziek naar een andere kamer verhuizen, als MCP-tools.
+- Alleen met een API-sleutel: als header, of in het adres (`/mcp/as_…`) voor
+  clients zonder headers. Sleutels in het adres komen niet in het log.
+- Handleiding voor Grok (Connectors → Custom) en Jarvis: `docs/mcp.md`.
+
 ## Eenvoudige commando's voor Homey, Grok en Jarvis — stap 2
 
 - `/api/control`: playlist, album of artiest afspelen in een kamer op naam

@@ -9,6 +9,7 @@ bedienen en je bibliotheek lezen, verder niets.
 - **Homey Pro en andere apparaten thuis:** `http://192.168.2.58:3001` — blijft
   binnen je netwerk, de snelste en veiligste weg.
 - **Grok, Jarvis of iets buiten je huis:** `https://kwaichangmusic.synology.me`.
+  Grok en Jarvis kunnen ook via MCP: zie [mcp.md](mcp.md).
 
 Stuur de sleutel mee als header: `X-API-Key: as_…` (of
 `Authorization: Bearer as_…`). Bodies zijn JSON:

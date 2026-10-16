@@ -12,6 +12,7 @@ import { healthRouter } from '../../routes/health.js';
 import { libraryRouter } from '../../routes/library.js';
 import { playbackRouter } from '../../routes/playback.js';
 import { controlRouter } from '../../routes/control.js';
+import { mcpRouter } from '../../routes/mcp.js';
 import { playlistsRouter } from '../../routes/playlists.js';
 import { providersRouter } from '../../routes/providers.js';
 import { historyRouter } from '../../routes/history.js';
@@ -106,6 +107,7 @@ export async function createTestApp(options: TestAppOptions = {}) {
   app.use('/api/recommendations', recommendationsRouter);
   app.use('/api/scrobble', scrobbleRouter);
   app.use('/api/librespot', librespotRouter);
+  app.use('/mcp', mcpRouter);
   app.use('/api', notFoundHandler);
   app.use(errorHandler);
 

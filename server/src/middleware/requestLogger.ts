@@ -15,7 +15,9 @@ export function requestLogger(req: Request, res: Response, next: NextFunction): 
     if (req.path.includes('/covers/fetch/status') || req.path.includes('/scan/status')) return;
 
     const level = status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info';
-    const msg = `${req.method} ${req.path} ${status} ${duration}ms`;
+    // An API key in the address (/mcp/as_…) must not end up in the log.
+    const path = req.originalUrl.split('?')[0].replace(/\/as_[\w-]+/g, '/as_…');
+    const msg = `${req.method} ${path} ${status} ${duration}ms`;
 
     if (level === 'error') logger.error(`[${requestId}] ${msg}`);
     else if (level === 'warn') logger.warn(`[${requestId}] ${msg}`);
