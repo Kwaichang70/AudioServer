@@ -17,25 +17,25 @@
   },
   "dependencies": {
     "@audioserver/shared": "*",
-    "@modelcontextprotocol/sdk": "1.31.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^11.7.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.45.2",
-    "express": "^4.22.2",
+    "express": "^4.22.3",
     "express-rate-limit": "^8.3.2",
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.3",
     "multicast-dns": "^7.2.5",
-    "music-metadata": "^11.15.0",
+    "music-metadata": "^11.16.1",
     "node-ssdp": "^4.0.1",
     "socket.io": "^4.8.1",
     "tsx": "^4.23.13",
     "uuid": "^11.1.0",
     "winston": "^3.17.0",
     "xml2js": "^0.6.2",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -50,6 +50,6 @@
     "@types/xml2js": "^0.4.14",
     "drizzle-kit": "^0.31.10",
     "supertest": "^7.2.2",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.12"
   }
 }

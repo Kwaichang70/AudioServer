@@ -4,6 +4,20 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Beveiligingsupdates pakketten en nettere MCP-verbinding
+
+- Pakketten bijgewerkt (alleen versies van minstens twee weken oud): onder
+  meer `music-metadata` (een kapot MP4- of MKV-bestand kon de scanner laten
+  vastlopen), `body-parser`/`express`/`qs`, `zod`, de MCP-SDK, `undici`,
+  `vite`/`vitest` en `shell-quote`. `npm audit --omit=dev` meldt alleen nog
+  `ip` via `node-ssdp`; dat raakt ons niet (alleen `ip.address()` wordt
+  gebruikt, de kwetsbare `isPublic` niet) en er bestaat geen gerepareerde
+  versie. Wat overblijft zit in ontwikkelgereedschap (drizzle-kit,
+  typescript-eslint).
+- `/.well-known/oauth-…` en `/.well-known/openid-configuration` geven nu een
+  nette 404 in JSON in plaats van de webpagina. MCP-clients zoals Grok zoeken
+  daar naar OAuth en konden op de webpagina vastlopen.
+
 ## AudioServer als MCP-server voor Grok en Jarvis — stap 3
 
 - `/mcp` (Streamable HTTP, zonder sessies): kamers, playlists, zoeken, wat

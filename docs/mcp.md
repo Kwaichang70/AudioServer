@@ -17,7 +17,8 @@ zegt dan gewoon _"zet Purple Rain op in de woonkamer"_.
    Stuurt hij de hele host door (zoals voor de app), dan werkt het al.
 
 Transport: Streamable HTTP, alleen POST, zonder sessies (elk verzoek staat op
-zichzelf).
+zichzelf). Er is geen OAuth-login: een client die daarom vraagt, krijgt een
+nette 404 en moet de sleutel gebruiken.
 
 ## Gereedschap
 

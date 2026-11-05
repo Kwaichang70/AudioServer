@@ -143,6 +143,20 @@ describe('MCP server', () => {
     expect(res.data.options).toContain('Woonkamer');
   });
 
+  it('says plainly that there is no OAuth, instead of serving the app', async () => {
+    for (const path of [
+      '/.well-known/oauth-protected-resource',
+      '/.well-known/oauth-protected-resource/mcp',
+      '/.well-known/oauth-authorization-server',
+      '/.well-known/openid-configuration',
+    ]) {
+      const res = await request(app).get(path);
+      expect(res.status).toBe(404);
+      expect(res.type).toBe('application/json');
+      expect(res.body.message).toMatch(/API keys/);
+    }
+  });
+
   it('keeps no sessions: GET and DELETE are refused', async () => {
     const get = await request(app).get('/mcp').set('X-API-Key', key);
     expect(get.status).toBe(405);

@@ -250,6 +250,28 @@ function notAllowed(_req: Request, res: Response): void {
     .json({ jsonrpc: '2.0', error: { code: -32000, message: 'Use POST.' }, id: null });
 }
 
+/**
+ * MCP clients look for OAuth metadata under /.well-known before they connect.
+ * In production the SPA fallback would answer that with index.html and a 200,
+ * which a client reads as broken metadata; a plain 404 tells it there is no
+ * OAuth here, so it goes on with the key it was given.
+ */
+export function noOAuthDiscovery(req: Request, res: Response, next: NextFunction): void {
+  if (
+    /^\/(oauth-protected-resource|oauth-authorization-server|openid-configuration)(\/|$)/.test(
+      req.path,
+    )
+  ) {
+    res.status(404).json({
+      error: 'not_found',
+      message:
+        'AudioServer uses API keys, not OAuth: add the key to the address (/mcp/as_…) or send it as a Bearer token.',
+    });
+    return;
+  }
+  next();
+}
+
 const asyncRoute =
   (fn: (req: Request, res: Response) => Promise<void>) =>
   (req: Request, res: Response, next: NextFunction) =>

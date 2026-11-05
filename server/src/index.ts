@@ -13,7 +13,7 @@ import { libraryRouter } from './routes/library.js';
 import { devicesRouter } from './routes/devices.js';
 import { playbackRouter } from './routes/playback.js';
 import { controlRouter } from './routes/control.js';
-import { mcpRouter } from './routes/mcp.js';
+import { mcpRouter, noOAuthDiscovery } from './routes/mcp.js';
 import { historyRouter } from './routes/history.js';
 import { authRouter } from './routes/auth.js';
 import { providersRouter } from './routes/providers.js';
@@ -182,6 +182,7 @@ app.use('/api/recommendations', recommendationsRouter);
 app.use('/api/librespot', librespotRouter);
 // MCP for assistants (Grok, Jarvis); outside /api, it checks its own API key.
 app.use('/mcp', mcpRouter);
+app.use('/.well-known', noOAuthDiscovery);
 
 // API 404 must precede the SPA catch-all: otherwise an unknown GET /api/*
 // route is answered with index.html and a misleading 200 in production.
