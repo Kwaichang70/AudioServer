@@ -19,6 +19,7 @@ import {
 import { searchLocal } from '../services/local-search.js';
 import { transferZone, TransferError } from '../services/zone-transfer.js';
 import { zones } from '../services/zones.js';
+import { listSpotifyPlaylists } from '../services/spotify-rooms.js';
 import type { PlaybackOrigin } from '../types/socket-events.js';
 import { logger } from '../logger.js';
 
@@ -98,10 +99,11 @@ export function buildMcpServer(caller: Caller): McpServer {
     'list_playlists',
     {
       title: 'List playlists',
-      description: "The user's playlists and smart playlists by name.",
+      description:
+        'The user\'s playlists and smart playlists by name, then their Spotify playlists (kind "spotify": play those with source "spotify").',
       annotations: { readOnlyHint: true },
     },
-    () => tool(() => listPlaylists(caller.userId)),
+    () => tool(async () => [...listPlaylists(caller.userId), ...(await listSpotifyPlaylists())]),
   );
 
   server.registerTool(
@@ -147,7 +149,7 @@ export function buildMcpServer(caller: Caller): McpServer {
     {
       title: 'Play music in a room',
       description:
-        'Play a playlist, an album or an artist in a room, by name. Give exactly one of playlist, album or artist (artist may be added to album to pick the right one). Replaces what the room was playing.',
+        'Play a playlist, an album or an artist in a room, by name. Give exactly one of playlist, album or artist (artist may be added to album to pick the right one). Replaces what the room was playing. With source "spotify" it comes from Spotify and the speaker plays it through Spotify Connect; without, from the music library.',
       inputSchema: {
         room,
         playlist: z.string().optional().describe('Playlist name (list_playlists)'),
@@ -157,6 +159,10 @@ export function buildMcpServer(caller: Caller): McpServer {
           .optional()
           .describe('Artist name; alone it plays the artist, album by album'),
         shuffle: z.boolean().optional().describe('Shuffle the tracks'),
+        source: z
+          .enum(['library', 'spotify'])
+          .optional()
+          .describe('library (default): the music library; spotify: Spotify, on the speaker'),
       },
     },
     (args) => tool(() => playInRoom(caller.userId, args, origin)),

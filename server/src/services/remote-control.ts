@@ -9,6 +9,13 @@ import { leaderOf } from './sonos-groups.js';
 import { searchText } from '../utils/search-text.js';
 import { deviceManager } from '../devices/manager.js';
 import { logger } from '../logger.js';
+import {
+  activeSpotifyDevice,
+  forgetSpotifyRoom,
+  playSpotifyInRoom,
+  spotifyControl,
+  spotifyNowPlaying,
+} from './spotify-rooms.js';
 
 /**
  * Simple commands by name, for automations and assistants (Homey, Grok,
@@ -27,12 +34,7 @@ import { logger } from '../logger.js';
 export class ControlError extends Error {
   constructor(
     public code:
-      | 'unknown_room'
-      | 'room_required'
-      | 'not_found'
-      | 'ambiguous'
-      | 'not_playable'
-      | 'empty',
+      'unknown_room' | 'room_required' | 'not_found' | 'ambiguous' | 'not_playable' | 'empty',
     message: string,
     public options: string[] = [],
   ) {
@@ -198,18 +200,16 @@ function playlistTracks(userId: string, wanted: string): { name: string; tracks:
   if (found.kind === 'playlist') {
     const tracks = listItems(found.id)
       .filter((i) => i.availability === 'available')
-      .map(
-        (i): TrackInfo => ({
-          id: i.id,
-          title: i.title,
-          artistName: i.artistName,
-          albumTitle: i.albumTitle,
-          albumId: i.albumId ?? undefined,
-          duration: i.duration ?? undefined,
-          source: i.source,
-          metadata: i.format ? { format: i.format } : undefined,
-        }),
-      );
+      .map((i): TrackInfo => ({
+        id: i.id,
+        title: i.title,
+        artistName: i.artistName,
+        albumTitle: i.albumTitle,
+        albumId: i.albumId ?? undefined,
+        duration: i.duration ?? undefined,
+        source: i.source,
+        metadata: i.format ? { format: i.format } : undefined,
+      }));
     return { name: found.name, tracks };
   }
   const row = getRawDb()
@@ -220,17 +220,15 @@ function playlistTracks(userId: string, wanted: string): { name: string; tracks:
     throw new ControlError('empty', `The smart playlist "${found.name}" cannot be read.`);
   }
   const { rows } = evaluateDefinition(definition, row.user_id ?? userId);
-  const tracks = rows.map(
-    (r): TrackInfo => ({
-      id: String(r.id),
-      title: String(r.title ?? ''),
-      artistName: String(r.artistName ?? ''),
-      albumTitle: String(r.albumTitle ?? ''),
-      albumId: (r.albumId as string | undefined) ?? undefined,
-      duration: (r.duration as number | undefined) ?? undefined,
-      source: (r.source as string | undefined) ?? 'local',
-    }),
-  );
+  const tracks = rows.map((r): TrackInfo => ({
+    id: String(r.id),
+    title: String(r.title ?? ''),
+    artistName: String(r.artistName ?? ''),
+    albumTitle: String(r.albumTitle ?? ''),
+    albumId: (r.albumId as string | undefined) ?? undefined,
+    duration: (r.duration as number | undefined) ?? undefined,
+    source: (r.source as string | undefined) ?? 'local',
+  }));
   return { name: found.name, tracks };
 }
 
@@ -279,10 +277,17 @@ export interface PlayRequest {
   album?: string;
   artist?: string;
   shuffle?: boolean;
+  /** Where to find it: the library (default) or Spotify, played by the speaker itself. */
+  source?: 'library' | 'spotify';
 }
 
-/** Play a playlist, an album or an artist in a room. */
-export function playInRoom(userId: string, request: PlayRequest, origin: PlaybackOrigin) {
+/** Play a playlist, an album or an artist in a room, from the library or Spotify. */
+export async function playInRoom(userId: string, request: PlayRequest, origin: PlaybackOrigin) {
+  if (request.source === 'spotify') return playSpotifyInRoom(request);
+  return playFromLibrary(userId, request, origin);
+}
+
+function playFromLibrary(userId: string, request: PlayRequest, origin: PlaybackOrigin) {
   const zone = resolveRoom(request.room);
   const chosen = request.playlist
     ? playlistTracks(userId, request.playlist)
@@ -297,6 +302,7 @@ export function playInRoom(userId: string, request: PlayRequest, origin: Playbac
   if (chosen.tracks.length === 0) {
     throw new ControlError('empty', `"${chosen.name}" has nothing that can play right now.`);
   }
+  forgetSpotifyRoom(zone.id);
   const session = zones.sessionFor(zone.id);
   session.setQueue(chosen.tracks, 0, origin, zone.deviceId);
   session.setShuffle(request.shuffle === true, origin);
@@ -324,6 +330,11 @@ async function onDevice(zone: Zone, what: string, action: () => Promise<void>): 
 
 export async function pauseRoom(room: string | undefined, origin: PlaybackOrigin) {
   const zone = resolveRoom(room);
+  const sp = await activeSpotifyDevice(zone.id);
+  if (sp) {
+    await spotifyControl.pause(sp);
+    return { room: zone.name, state: 'paused', source: 'spotify' };
+  }
   zones.sessionFor(zone.id).pause(origin);
   await onDevice(zone, 'pause', () => deviceManager.pause(zone.deviceId));
   return { room: zone.name, state: 'paused' };
@@ -331,12 +342,18 @@ export async function pauseRoom(room: string | undefined, origin: PlaybackOrigin
 
 export async function resumeRoom(room: string | undefined, userId: string, origin: PlaybackOrigin) {
   const zone = resolveRoom(room);
+  const sp = await activeSpotifyDevice(zone.id);
+  if (sp) {
+    await spotifyControl.resume(sp);
+    return { room: zone.name, state: 'playing', source: 'spotify' };
+  }
   const session = zones.sessionFor(zone.id);
   const state = session.getState().state;
   const current = session.getCurrentItemId();
   if (!current) throw new ControlError('empty', `Nothing is queued in "${zone.name}".`);
   if (state === 'stopped') {
     // A stopped speaker has nothing loaded: start the current item again.
+    forgetSpotifyRoom(zone.id);
     startServerPlayback(userId, zone.deviceId, zone.id);
     session.playItem(current, origin, zone.deviceId);
   } else {
@@ -348,16 +365,29 @@ export async function resumeRoom(room: string | undefined, userId: string, origi
 
 export async function stopInRoom(room: string | undefined) {
   const zone = resolveRoom(room);
+  const sp = await activeSpotifyDevice(zone.id);
+  if (sp) {
+    // Spotify has no stop; a pause that the room then forgets is the same.
+    await spotifyControl.pause(sp);
+    forgetSpotifyRoom(zone.id);
+    return { room: zone.name, state: 'stopped', source: 'spotify' };
+  }
   await stopRoom(zone.id);
   return { room: zone.name, state: 'stopped' };
 }
 
-export function skipInRoom(
+export async function skipInRoom(
   room: string | undefined,
   direction: 'next' | 'previous',
   origin: PlaybackOrigin,
 ) {
   const zone = resolveRoom(room);
+  const sp = await activeSpotifyDevice(zone.id);
+  if (sp) {
+    await spotifyControl[direction](sp);
+    // Spotify reports the new track a moment later; ask now_playing for it.
+    return { room: zone.name, track: null, source: 'spotify' };
+  }
   const session = zones.sessionFor(zone.id);
   if (direction === 'next') session.advance(origin);
   else session.previous(origin);
@@ -371,13 +401,25 @@ export async function setRoomVolume(
 ) {
   const zone = resolveRoom(room);
   const level = Math.max(0, Math.min(100, Math.round(volume)));
+  const sp = await activeSpotifyDevice(zone.id);
+  if (sp) {
+    try {
+      await spotifyControl.volume(sp, level);
+      return { room: zone.name, volume: level, source: 'spotify' };
+    } catch (err) {
+      // Some Connect devices refuse remote volume; the speaker itself still takes it.
+      logger.debug(`Spotify volume on ${sp.deviceName}: ${err}`);
+    }
+  }
   zones.sessionFor(zone.id).setVolume(level, origin);
   await onDevice(zone, 'volume', () => deviceManager.setVolume(zone.deviceId, level));
   return { room: zone.name, volume: level };
 }
 
-export function nowPlaying(room: string | undefined) {
+export async function nowPlaying(room: string | undefined) {
   const zone = resolveRoom(room);
+  const sp = await spotifyNowPlaying(zone.id);
+  if (sp) return { room: zone.name, ...sp };
   const state = zones.sessionFor(zone.id).getState();
   return {
     room: zone.name,

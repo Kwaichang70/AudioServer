@@ -15,6 +15,7 @@ import {
   skipInRoom,
   stopInRoom,
 } from '../services/remote-control.js';
+import { listSpotifyPlaylists } from '../services/spotify-rooms.js';
 
 /**
  * Simple commands for automations and assistants (Homey, Grok, Jarvis), by
@@ -65,9 +66,15 @@ controlRouter.get('/rooms', (_req, res) => {
   res.json({ data: listRooms() });
 });
 
-controlRouter.get('/playlists', (req, res) => {
-  res.json({ data: listPlaylists(req.userId!) });
-});
+// The library's playlists, then Spotify's (kind "spotify"; play them with
+// "source": "spotify"). Spotify adds nothing when it is not connected.
+const allPlaylists = (userId: string) =>
+  listSpotifyPlaylists().then((spotify) => [...listPlaylists(userId), ...spotify]);
+
+controlRouter.get(
+  '/playlists',
+  command((req) => allPlaylists(req.userId!)),
+);
 
 controlRouter.get(
   '/now-playing',
@@ -84,6 +91,7 @@ controlRouter.post(
         album: z.string().min(1).max(200).optional(),
         artist: z.string().min(1).max(200).optional(),
         shuffle: z.boolean().optional(),
+        source: z.enum(['library', 'spotify']).optional(),
       })
       .refine((b) => b.playlist || b.album || b.artist, {
         message: 'Say what to play: playlist, album or artist',

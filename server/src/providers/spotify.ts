@@ -525,6 +525,12 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     await this.apiPut(`/me/player/volume?${params}`);
   }
 
+  async connectSetShuffle(on: boolean, deviceId?: string): Promise<void> {
+    const params = new URLSearchParams({ state: String(on) });
+    if (deviceId) params.set('device_id', deviceId);
+    await this.apiPut(`/me/player/shuffle?${params}`);
+  }
+
   async connectTransferPlayback(deviceId: string): Promise<void> {
     await this.apiPut('/me/player', { device_ids: [deviceId], play: true });
   }

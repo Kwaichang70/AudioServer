@@ -34,6 +34,12 @@ nette 404 en moet de sleutel gebruiken.
 | `set_volume`                    | Volume 0–100                                         |
 | `move_music`                    | Muziek naar een andere kamer verhuizen (met positie) |
 
+Spotify: `list_playlists` toont ook je Spotify-playlists (`kind: spotify`), en
+`play` met `source: spotify` speelt een Spotify-playlist, -album of -artiest
+op de speaker via Spotify Connect (zie [control-api.md](control-api.md#spotify)).
+Vraag Grok bijvoorbeeld: _"Speel mijn Spotify-playlist Zondag Jazz in de
+woonkamer."_
+
 Namen mogen zonder hoofdletters of accenten. Een verkeerde naam geeft een
 foutmelding mét de namen die wél bestaan, zodat de assistent zelf kan
 verbeteren. Het zijn dezelfde commando's als in [control-api.md](control-api.md).

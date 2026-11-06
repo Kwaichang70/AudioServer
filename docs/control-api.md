@@ -17,17 +17,18 @@ Stuur de sleutel mee als header: `X-API-Key: as_…` (of
 
 ## Commando's
 
-| Wat                           | Verzoek                                                                       |
-| ----------------------------- | ----------------------------------------------------------------------------- |
-| Kamers (met wat er speelt)    | `GET /api/control/rooms`                                                      |
-| Playlists (ook slimme)        | `GET /api/control/playlists`                                                  |
-| Playlist afspelen             | `POST /api/control/play` `{"room":"Woonkamer","playlist":"Zondag"}`           |
-| Album afspelen                | `POST /api/control/play` `{"room":"Keuken","album":"Purple Rain"}`            |
-| Artiest afspelen (geshuffled) | `POST /api/control/play` `{"room":"Keuken","artist":"Prince","shuffle":true}` |
-| Pauzeren / verder / stoppen   | `POST /api/control/pause` · `/resume` · `/stop` `{"room":"Woonkamer"}`        |
-| Volgende / vorige             | `POST /api/control/next` · `/previous` `{"room":"Woonkamer"}`                 |
-| Volume (0–100)                | `POST /api/control/volume` `{"room":"Woonkamer","volume":30}`                 |
-| Wat speelt er                 | `GET /api/control/now-playing?room=Woonkamer`                                 |
+| Wat                           | Verzoek                                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------------------------- |
+| Kamers (met wat er speelt)    | `GET /api/control/rooms`                                                                    |
+| Playlists (ook slimme)        | `GET /api/control/playlists`                                                                |
+| Playlist afspelen             | `POST /api/control/play` `{"room":"Woonkamer","playlist":"Zondag"}`                         |
+| Album afspelen                | `POST /api/control/play` `{"room":"Keuken","album":"Purple Rain"}`                          |
+| Artiest afspelen (geshuffled) | `POST /api/control/play` `{"room":"Keuken","artist":"Prince","shuffle":true}`               |
+| Pauzeren / verder / stoppen   | `POST /api/control/pause` · `/resume` · `/stop` `{"room":"Woonkamer"}`                      |
+| Volgende / vorige             | `POST /api/control/next` · `/previous` `{"room":"Woonkamer"}`                               |
+| Volume (0–100)                | `POST /api/control/volume` `{"room":"Woonkamer","volume":30}`                               |
+| Wat speelt er                 | `GET /api/control/now-playing?room=Woonkamer`                                               |
+| Spotify-playlist afspelen     | `POST /api/control/play` `{"room":"Woonkamer","playlist":"Zondag Jazz","source":"spotify"}` |
 
 - **Namen** mogen zonder hoofdletters of accenten (`bjork` vindt Björk) en
   mogen het begin van de naam zijn (`purple` vindt Purple Rain).
@@ -36,6 +37,23 @@ Stuur de sleutel mee als header: `X-API-Key: as_…` (of
   (`options`), zodat je het in de flow kunt verbeteren.
 - Alleen kamers met een speaker (Sonos, DLNA, Volumio); een browserkamer kan
   niet op afstand starten.
+
+## Spotify
+
+Met `"source":"spotify"` komt de playlist, het album of de artiest uit
+Spotify (Premium, gekoppeld in Settings → Streaming Providers). De speaker
+speelt het zelf via **Spotify Connect**: de muziek gaat niet via de NAS.
+
+- `GET /api/control/playlists` toont je Spotify-playlists met `"kind":"spotify"`.
+- De speaker wordt op naam gevonden tussen de apparaten die Spotify ziet
+  (dezelfde lijst als in de Spotify-app). Vindt hij niets, dan krijg je de
+  namen die Spotify wél ziet. Geef de kamer dan de naam van de speaker zoals
+  Spotify hem toont, of zet de speaker aan.
+- Pauzeren, verder, volgende/vorige, volume en "wat speelt er" gaan daarna naar
+  Spotify. Stoppen pauzeert Spotify.
+- Shuffle begint bij een willekeurig nummer en zet shuffle aan in Spotify.
+- Niet mogelijk: "Move to…" van Spotify-muziek naar een andere kamer (doe dat
+  in de Spotify-app).
 
 ## Voorbeeld: Homey Pro, zondagochtend
 

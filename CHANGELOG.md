@@ -4,6 +4,22 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Spotify in een kamer, vanuit de server (Homey, Grok, Jarvis)
+
+- `play` met `source: "spotify"` (in `/api/control/play` en de MCP-tool) speelt
+  een Spotify-playlist, -album of -artiest op de speaker van de kamer via
+  **Spotify Connect**. Sonos en CocktailAudio halen de muziek zelf bij Spotify;
+  er gaat geen audio via de NAS.
+- De speaker wordt op naam gevonden tussen Spotify's apparaten (naam van de
+  kamer of van de speaker). Niet gevonden of twijfel: een melding met de namen
+  die Spotify ziet.
+- AudioServer laat de speaker eerst los als hij er zelf speelde. Daarna gaan
+  pauze, verder, volgende/vorige, volume en "wat speelt er" naar Spotify, zolang
+  Spotify daar nog speelt.
+- De playlistlijst (control en MCP) toont ook je Spotify-playlists.
+- Grens: "Move to…" werkt niet voor Spotify-muziek; de kamer in de app toont
+  Spotify nog niet als "speelt".
+
 ## Wachtwoord vergeten: herstellen op de NAS
 
 - `npm run user:password` in de container toont de gebruikersnamen, en met

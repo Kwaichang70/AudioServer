@@ -1340,7 +1340,7 @@ export const openApiSpec = {
       post: {
         tags: ['Control'],
         summary:
-          'Play a playlist, album or artist in a room, by name (no case or accents needed): { room?, playlist? | album? (+artist?) | artist?, shuffle? }',
+          'Play a playlist, album or artist in a room, by name (no case or accents needed): { room?, playlist? | album? (+artist?) | artist?, shuffle?, source? }. source "spotify" plays it from Spotify on the speaker through Spotify Connect',
         responses: {
           200: ok('{ room, playing, tracks, first }'),
           400: ok('no room given and more than one speaker room'),
