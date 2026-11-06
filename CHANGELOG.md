@@ -4,6 +4,13 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Wachtwoord vergeten: herstellen op de NAS
+
+- `npm run user:password` in de container toont de gebruikersnamen, en met
+  een naam erachter stel je een nieuw wachtwoord in (twee keer typen,
+  onzichtbaar). Alle sessies van die gebruiker worden afgemeld; API-sleutels
+  blijven werken. Stappen in `DEPLOY_SYNOLOGY.md`, §7.
+
 ## Beveiligingsupdates pakketten en nettere MCP-verbinding
 
 - Pakketten bijgewerkt (alleen versies van minstens twee weken oud): onder

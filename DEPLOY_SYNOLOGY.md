@@ -190,3 +190,22 @@ compatibility check doing its job: restore the pre-update backup with
 `db:restore ... --yes` as described in
 [docs/backup-restore.md](docs/backup-restore.md#rollback-procedure), then start
 again. Only when `/api/health/ready` answers 200 is the rollback complete.
+
+## 7. Forgotten Login
+
+With no other admin to reset you in the app, use the container. List the
+user names:
+
+```bash
+sudo docker exec audioserver_audioserver_1 npm run -s user:password --workspace=server
+```
+
+Set a new password (it is asked twice and not shown while typing; keep the
+`-it`):
+
+```bash
+sudo docker exec -it audioserver_audioserver_1 npm run -s user:password --workspace=server -- <username>
+```
+
+It works while the server runs. Every session of that user is signed out;
+API keys keep working.

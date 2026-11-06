@@ -11,6 +11,7 @@
     "bench:search": "node --import tsx/esm src/scripts/search-bench.ts",
     "db:verify": "node --import tsx/esm src/scripts/db-verify.ts",
     "db:restore": "node --import tsx/esm src/scripts/db-restore.ts",
+    "user:password": "node --import tsx/esm src/scripts/user-password.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "start": "node dist/index.js"
