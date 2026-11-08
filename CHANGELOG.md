@@ -4,6 +4,18 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fase 1: favorieten van iedereen blijven behouden (B01)
+
+- Herkent de scanner een verplaatst of opnieuw gevonden bestand als hetzelfde
+  nummer (relink), of neemt een nieuwe albummap het over van de oude, dan
+  verhuizen **favorieten, waarderingen en tags van iedere gebruiker apart**
+  mee. Voorheen verdwenen alle favorieten van het oude nummer zodra iemand
+  anders het nieuwe als favoriet had, en bleven waarderingen en tags achter.
+- Had iemand beide versies gemarkeerd, dan blijft die persoon één favoriet
+  houden, en de waardering van de nieuwe versie.
+- Gegevens die vóór deze versie al verdwenen zijn, komen niet terug; daarvoor
+  is een back-up nodig.
+
 ## Analyse en verbeterplan, fase 0: betrouwbare basis
 
 - De Windows-specifieke testfouten uit de analyse aangepakt (hier op Linux

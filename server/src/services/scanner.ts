@@ -529,18 +529,10 @@ function pruneEmptyAlbums(): void {
         )
         .all(a.id) as Array<{ id: string }>;
       if (heir.length === 1) {
-        const exists = db
-          .prepare("SELECT id FROM favorites WHERE item_type = 'album' AND item_id = ?")
-          .get(heir[0].id);
-        if (exists) {
-          db.prepare("DELETE FROM favorites WHERE item_type = 'album' AND item_id = ?").run(a.id);
-        } else {
-          db.prepare(
-            "UPDATE favorites SET item_id = ? WHERE item_type = 'album' AND item_id = ?",
-          ).run(heir[0].id, a.id);
-        }
+        moveMarks('album', a.id, heir[0].id);
       } else {
-        db.prepare("DELETE FROM favorites WHERE item_type = 'album' AND item_id = ?").run(a.id);
+        // No single heir: the marks would point at nothing.
+        dropMarks('album', a.id);
       }
       db.prepare('DELETE FROM albums WHERE id = ?').run(a.id);
       removed++;
@@ -549,6 +541,44 @@ function pruneEmptyAlbums(): void {
     }
   }
   if (removed > 0) logger.info(`Pruned ${removed} empty albums`);
+}
+
+/**
+ * Move every person's marks — favourites, ratings, tags — from one track or
+ * album id to another (a relinked track, a moved album folder). Each person
+ * keeps their own: where someone already has the same mark on the target,
+ * their mark on the target stays and the old one goes; nobody else's mark is
+ * touched (ANALYSE_EN_VERBETERPLAN B01). Returns the favourites moved.
+ */
+export function moveMarks(itemType: 'track' | 'album', fromId: string, toId: string): number {
+  const db = getRawDb();
+  const favorites = db
+    .prepare(
+      `UPDATE favorites SET item_id = ? WHERE item_type = ? AND item_id = ?
+         AND NOT EXISTS (SELECT 1 FROM favorites f WHERE f.item_type = favorites.item_type
+                           AND f.item_id = ? AND f.user_id IS favorites.user_id)`,
+    )
+    .run(toId, itemType, fromId, toId).changes;
+  db.prepare(
+    `UPDATE ratings SET item_id = ? WHERE item_type = ? AND item_id = ?
+       AND NOT EXISTS (SELECT 1 FROM ratings r WHERE r.item_type = ratings.item_type
+                         AND r.item_id = ? AND r.user_id = ratings.user_id)`,
+  ).run(toId, itemType, fromId, toId);
+  db.prepare(
+    `UPDATE tag_items SET item_id = ? WHERE item_type = ? AND item_id = ?
+       AND NOT EXISTS (SELECT 1 FROM tag_items t WHERE t.item_type = tag_items.item_type
+                         AND t.item_id = ? AND t.tag_id = tag_items.tag_id)`,
+  ).run(toId, itemType, fromId, toId);
+  // What stayed behind was a duplicate of a mark the same person has on the target.
+  dropMarks(itemType, fromId);
+  return favorites;
+}
+
+function dropMarks(itemType: 'track' | 'album', id: string): void {
+  const db = getRawDb();
+  for (const table of ['favorites', 'ratings', 'tag_items']) {
+    db.prepare(`DELETE FROM ${table} WHERE item_type = ? AND item_id = ?`).run(itemType, id);
+  }
 }
 
 function markAvailable(trackId: string): void {
@@ -718,17 +748,8 @@ export function relinkMissingTrack(
     playlistRefs = db
       .prepare('UPDATE playlist_tracks SET track_id = ? WHERE track_id = ?')
       .run(targetId, missingId).changes;
-    // A favorite for B may already exist; then A's is simply dropped.
-    const hasTargetFavorite = db
-      .prepare("SELECT id FROM favorites WHERE item_type = 'track' AND item_id = ?")
-      .get(targetId);
-    if (hasTargetFavorite) {
-      db.prepare("DELETE FROM favorites WHERE item_type = 'track' AND item_id = ?").run(missingId);
-    } else {
-      favorites = db
-        .prepare("UPDATE favorites SET item_id = ? WHERE item_type = 'track' AND item_id = ?")
-        .run(targetId, missingId).changes;
-    }
+    // Everyone's favourite, rating and tags go along, each person their own.
+    favorites = moveMarks('track', missingId, targetId);
     sessions = db
       .prepare('UPDATE listening_sessions SET track_id = ? WHERE track_id = ?')
       .run(targetId, missingId).changes;
@@ -787,8 +808,7 @@ export function purgeMissingTracks(ids?: string[]): number {
     const count =
       (
         db.prepare('SELECT COUNT(*) as c FROM tracks WHERE album_id = ?').get(albumId) as
-          | { c: number }
-          | undefined
+          { c: number } | undefined
       )?.c ?? 0;
     if (count === 0) {
       db.prepare("DELETE FROM favorites WHERE item_type = 'album' AND item_id = ?").run(albumId);
@@ -801,8 +821,7 @@ export function purgeMissingTracks(ids?: string[]): number {
     const count =
       (
         db.prepare('SELECT COUNT(*) as c FROM albums WHERE artist_id = ?').get(artistId) as
-          | { c: number }
-          | undefined
+          { c: number } | undefined
       )?.c ?? 0;
     if (count === 0) {
       db.prepare("DELETE FROM favorites WHERE item_type = 'artist' AND item_id = ?").run(artistId);
