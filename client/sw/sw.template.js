@@ -15,21 +15,30 @@
 //     promises offline music: streams are not cached.
 
 const BUILD_ID = '__BUILD_ID__';
+// Build id plus a hash of what this release contains: unique per release even
+// when every build is called "local" (B08).
+const RELEASE_ID = '__RELEASE_ID__';
 const PRECACHE = __PRECACHE__;
-const SHELL_CACHE = `audioserver-shell-${BUILD_ID}`;
+const SHELL_CACHE = `audioserver-shell-${RELEASE_ID}`;
+// Nice to have, not needed to run: a missing icon must not block an update.
+const OPTIONAL = new Set(['/manifest.json', '/icon-192.svg', '/icon-512.svg']);
 const COVER_CACHE = 'audioserver-covers-v3';
 const OWN_PREFIX = 'audioserver-';
 const MAX_COVERS = 400;
 
+// All or nothing (B08): the page and every script and stylesheet of this
+// release arrive, or the install fails and the running version stays — its
+// cache is only cleared when a complete new one activates. Before, a failed
+// script download still "installed" a release that could not start.
 self.addEventListener('install', (event) => {
+  const request = (path) => new Request(path, { cache: 'reload' });
   event.waitUntil(
-    caches
-      .open(SHELL_CACHE)
-      .then((cache) =>
-        Promise.allSettled(
-          PRECACHE.map((path) => cache.add(new Request(path, { cache: 'reload' }))),
-        ),
-      ),
+    caches.open(SHELL_CACHE).then(async (cache) => {
+      await cache.addAll(PRECACHE.filter((p) => !OPTIONAL.has(p)).map(request));
+      await Promise.allSettled(
+        PRECACHE.filter((p) => OPTIONAL.has(p)).map((p) => cache.add(request(p))),
+      );
+    }),
   );
 });
 

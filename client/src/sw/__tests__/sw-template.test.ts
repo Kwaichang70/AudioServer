@@ -18,6 +18,7 @@ interface FakeCache {
   match(req: Request | string): Promise<Response | undefined>;
   put(req: Request | string, res: Response): Promise<void>;
   add(req: Request | string): Promise<void>;
+  addAll(reqs: Array<Request | string>): Promise<void>;
   delete(req: Request | string): Promise<boolean>;
   keys(): Promise<Request[]>;
 }
@@ -25,6 +26,9 @@ interface FakeCache {
 function keyOf(req: Request | string): string {
   return typeof req === 'string' ? new URL(req, 'https://nas.local').toString() : req.url;
 }
+
+/** Paths whose download fails during an install (B08). */
+const failing = new Set<string>();
 
 function makeCaches() {
   const cachesMap = new Map<string, FakeCache>();
@@ -39,7 +43,16 @@ function makeCaches() {
           store.set(keyOf(req), res);
         },
         add: async (req) => {
+          if (failing.has(new URL(keyOf(req)).pathname)) throw new TypeError('network error');
           store.set(keyOf(req), new Response('cached ' + keyOf(req)));
+        },
+        // Like the real Cache API: all of them, or none.
+        addAll: async (reqs) => {
+          const keys = reqs.map(keyOf);
+          if (keys.some((k) => failing.has(new URL(k).pathname))) {
+            throw new TypeError('network error');
+          }
+          for (const k of keys) store.set(k, new Response('cached ' + k));
         },
         delete: async (req) => store.delete(keyOf(req)),
         keys: async () => Array.from(store.keys()).map((k) => new Request(k)),
@@ -68,6 +81,7 @@ function makeCaches() {
 function loadWorker(precache: string[]) {
   const template = readFileSync(resolve(__dirname, '../../../sw/sw.template.js'), 'utf8')
     .replace('__BUILD_ID__', 'test1')
+    .replace('__RELEASE_ID__', 'test1-abc')
     .replace('__PRECACHE__', JSON.stringify(precache));
   const listeners = new Map<string, Handler>();
   const caches = makeCaches();
@@ -122,14 +136,39 @@ describe('service worker template', () => {
     await w.caches.api.open('audioserver-covers-v3');
     await w.caches.api.open('other-app-cache');
     await w.waitUntil('install');
-    expect(w.caches.map.get('audioserver-shell-test1')!.store.size).toBe(3);
+    expect(w.caches.map.get('audioserver-shell-test1-abc')!.store.size).toBe(3);
     await w.waitUntil('activate');
     expect(await w.caches.api.keys()).toEqual([
       'audioserver-covers-v3',
       'other-app-cache',
-      'audioserver-shell-test1',
+      'audioserver-shell-test1-abc',
     ]);
     expect(w.self.clients.claim).toHaveBeenCalled();
+  });
+
+  it('B08: a release whose script did not arrive is not installed; the running one stays', async () => {
+    const running = await w.caches.api.open('audioserver-shell-test0-old');
+    await running.put('https://nas.local/index.html', new Response('old shell'));
+    failing.add('/assets/app-abc.js');
+    try {
+      await expect(w.waitUntil('install')).rejects.toThrow(/network error/);
+    } finally {
+      failing.clear();
+    }
+    // Nothing half-written, and the old cache was never touched.
+    expect(w.caches.map.get('audioserver-shell-test1-abc')?.store.size ?? 0).toBe(0);
+    expect(w.caches.map.get('audioserver-shell-test0-old')!.store.size).toBe(1);
+  });
+
+  it('B08: a missing icon does not block an update', async () => {
+    const withIcons = loadWorker(['/index.html', '/assets/app-abc.js', '/icon-192.svg']);
+    failing.add('/icon-192.svg');
+    try {
+      await withIcons.waitUntil('install');
+    } finally {
+      failing.clear();
+    }
+    expect(withIcons.caches.map.get('audioserver-shell-test1-abc')!.store.size).toBe(2);
   });
 
   it('never intercepts API or socket requests, nor other origins or non-GET', async () => {

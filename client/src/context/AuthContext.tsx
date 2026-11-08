@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { resetFavorites } from '../hooks/useFavorite.js';
 import { resetRatings } from '../hooks/useRating.js';
 import type { ReactNode } from 'react';
-import { api, clearStreamToken, ensureStreamToken, onApiError } from '../api/client.js';
+import { api, ApiError, clearStreamToken, ensureStreamToken, onApiError } from '../api/client.js';
 import type { UserAccount } from '../api/types.js';
 import { STORAGE_KEYS } from '../constants.js';
 import { shouldRenewToken } from '../utils/jwt.js';
@@ -18,7 +18,12 @@ import { shouldRenewToken } from '../utils/jwt.js';
  * lands here too and flips the app back to the login screen.
  */
 
-export type AuthStatus = 'loading' | 'setup' | 'anonymous' | 'authenticated';
+/**
+ * `unreachable`: there is a login on this device, but the server did not
+ * answer (offline, NAS restarting, 502/503). The login is kept and the app
+ * keeps trying (B05); only the server saying "no such session" signs out.
+ */
+export type AuthStatus = 'loading' | 'setup' | 'anonymous' | 'authenticated' | 'unreachable';
 
 export interface AuthState {
   status: AuthStatus;
@@ -37,6 +42,15 @@ const AuthCtx = createContext<AuthState | null>(null);
 
 /** Window event other modules (useSocket) dispatch when the server refuses the session. */
 export const SESSION_LOST_EVENT = 'audioserver:session-lost';
+export const UNREACHABLE_RETRY_MS = 5000;
+
+function hasLocalSession(): boolean {
+  try {
+    return !!localStorage.getItem(STORAGE_KEYS.authToken);
+  } catch {
+    return false;
+  }
+}
 
 function clearLocalSession() {
   try {
@@ -84,8 +98,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         maybeRenewToken().catch(() => {});
         return;
       }
-    } catch {
-      // fall through: treat as signed out
+      // The server answered: this login is not valid (any more).
+    } catch (err) {
+      // No answer, or a server error: that says nothing about the login.
+      // Keep it and try again, unless the server said 401 (B05).
+      const rejected = err instanceof ApiError && err.isUnauthorized;
+      if (!rejected && hasLocalSession()) {
+        setStatus('unreachable');
+        return;
+      }
     }
     clearLocalSession();
     setUser(null);
@@ -95,6 +116,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Unreachable: try again every few seconds, and at once when the device
+  // comes back online or the app comes to the foreground.
+  useEffect(() => {
+    if (status !== 'unreachable') return;
+    const retry = () => void refresh();
+    const timer = window.setInterval(retry, UNREACHABLE_RETRY_MS);
+    const onVisible = () => document.visibilityState === 'visible' && retry();
+    window.addEventListener('online', retry);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('online', retry);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [status, refresh]);
 
   // Back to the foreground after a long sleep (phone in a pocket): renew the
   // token when it is about to expire. Playback state is resynced by the

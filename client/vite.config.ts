@@ -6,6 +6,7 @@ import { resolve, dirname, extname, join } from 'node:path';
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { brotliCompressSync, constants as zlibConstants, gzipSync } from 'node:zlib';
 import { execSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const COMPRESSED_ASSET_EXTENSIONS = new Set(['.css', '.html', '.js', '.json', '.svg']);
@@ -42,6 +43,9 @@ export default defineConfig({
     host: '127.0.0.1',
     proxy: {
       '/api': 'http://localhost:3001',
+      // Realtime (Socket.IO): io() connects to this dev server's origin, so
+      // forward it, WebSocket upgrades included, to the backend (B07).
+      '/socket.io': { target: 'http://localhost:3001', ws: true },
     },
   },
   test: {
@@ -81,8 +85,21 @@ function serviceWorkerPlugin(): Plugin {
           ...emitted,
         ]),
       );
+      // The cache is named after what is in it, not only after the build id:
+      // two builds with the default VCS_REF ("local") must not share a cache,
+      // or the new one writes into the cache the running app uses (B08).
+      // Asset names carry their content hash; index.html is read as is.
+      const indexHtml = await readFile(resolve(__dirname, 'dist/index.html'), 'utf8').catch(
+        () => '',
+      );
+      const releaseId = `${BUILD_ID}-${createHash('sha256')
+        .update([...precache].sort().join('\n'))
+        .update(indexHtml)
+        .digest('hex')
+        .slice(0, 10)}`;
       const output = template
         .replace('__BUILD_ID__', BUILD_ID)
+        .replace('__RELEASE_ID__', releaseId)
         .replace('__PRECACHE__', JSON.stringify(precache));
       await writeFile(resolve(__dirname, 'dist/sw.js'), output);
     },

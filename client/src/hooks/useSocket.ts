@@ -10,7 +10,7 @@ import {
 import { io, type Socket } from 'socket.io-client';
 import { SOCKET_RECONNECT_ATTEMPTS, SOCKET_RECONNECT_DELAY, STORAGE_KEYS } from '../constants.js';
 import { SESSION_LOST_EVENT } from '../context/AuthContext.js';
-import { getClientId } from '../api/client.js';
+import { api, ApiError, getClientId } from '../api/client.js';
 import type {
   DispatchStatus,
   PlaybackQueueEvent,
@@ -126,9 +126,11 @@ export function useSocket(): UseSocketReturn {
   );
 
   useEffect(() => {
-    const token = localStorage.getItem(STORAGE_KEYS.authToken);
+    // A function, not a value: every (re)connect sends the token as it is
+    // now, so a renewed token is used after a reconnect (B06).
     const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io({
-      auth: { token, clientId: getClientId() },
+      auth: (cb) =>
+        cb({ token: localStorage.getItem(STORAGE_KEYS.authToken), clientId: getClientId() }),
       reconnection: true,
       reconnectionDelay: SOCKET_RECONNECT_DELAY,
       reconnectionAttempts: SOCKET_RECONNECT_ATTEMPTS,
@@ -151,8 +153,21 @@ export function useSocket(): UseSocketReturn {
     // login screen instead of silently reconnecting forever.
     const sessionLost = () => window.dispatchEvent(new Event(SESSION_LOST_EVENT));
     socket.on('session:revoked', sessionLost);
+    // A refused handshake may be an old token (renewed meanwhile) or a server
+    // that is restarting: ask the server about the login itself before
+    // signing out, and try again when it is still valid (B06).
     socket.on('connect_error', (err: Error) => {
-      if (/authentication/i.test(err.message)) sessionLost();
+      if (!/authentication/i.test(err.message)) return;
+      api
+        .getMe()
+        .then((me) => {
+          if (me.data) socket.connect();
+          else sessionLost();
+        })
+        .catch((e: unknown) => {
+          if (e instanceof ApiError && e.isUnauthorized) sessionLost();
+          else window.setTimeout(() => socket.connect(), SOCKET_RECONNECT_DELAY);
+        });
     });
 
     socket.on('device:playback-update', setDeviceUpdate);

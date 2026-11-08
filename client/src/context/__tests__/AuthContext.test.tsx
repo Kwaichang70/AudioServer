@@ -19,7 +19,8 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock('../../api/client.js', () => ({
+vi.mock('../../api/client.js', async (importOriginal) => ({
+  ApiError: (await importOriginal<typeof import('../../api/client.js')>()).ApiError,
   api: mocks.api,
   ensureStreamToken: mocks.ensureStreamToken,
   clearStreamToken: mocks.clearStreamToken,
@@ -134,6 +135,62 @@ describe('AuthContext', () => {
     await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('anonymous'));
     expect(mocks.api.logout).toHaveBeenCalled();
     expect(mocks.clearStreamToken).toHaveBeenCalled();
+    expect(localStorage.getItem('audioserver_token')).toBeNull();
+  });
+
+  // ─── B05: a server that does not answer is not a sign-out ─────────
+
+  it('keeps the login when the server is unreachable, and continues when it answers', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      localStorage.setItem('audioserver_token', 'valid');
+      mocks.api.getSetupStatus.mockRejectedValue(new TypeError('Failed to fetch'));
+      mocks.api.getMe.mockRejectedValue(new TypeError('Failed to fetch'));
+      render(
+        <AuthProvider>
+          <Probe />
+        </AuthProvider>,
+      );
+      await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unreachable'));
+      expect(localStorage.getItem('audioserver_token')).toBe('valid');
+
+      // The NAS is back: the next try finds the login still valid.
+      mocks.api.getSetupStatus.mockResolvedValue({ data: { needsSetup: false } });
+      mocks.api.getMe.mockResolvedValue({ data: { id: 'u1', username: 'danny', role: 'admin' } });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+      await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('authenticated'));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('also keeps it on a 503 while the server restarts', async () => {
+    const { ApiError } = await import('../../api/client.js');
+    localStorage.setItem('audioserver_token', 'valid');
+    mocks.api.getSetupStatus.mockResolvedValue({ data: { needsSetup: false } });
+    mocks.api.getMe.mockRejectedValue(new ApiError('Service Unavailable', 503));
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('unreachable'));
+    expect(localStorage.getItem('audioserver_token')).toBe('valid');
+  });
+
+  it('signs out when the server itself refuses the login (401)', async () => {
+    const { ApiError } = await import('../../api/client.js');
+    localStorage.setItem('audioserver_token', 'revoked');
+    mocks.api.getSetupStatus.mockResolvedValue({ data: { needsSetup: false } });
+    mocks.api.getMe.mockRejectedValue(new ApiError('Unauthorized', 401));
+    render(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('anonymous'));
     expect(localStorage.getItem('audioserver_token')).toBeNull();
   });
 });

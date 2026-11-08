@@ -4,6 +4,24 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fase 3: inlog en updates zijn bestand tegen storingen (B05–B08)
+
+- **B05:** herstart de NAS, of is je telefoon even offline, dan blijf je
+  ingelogd. De app toont "AudioServer is not reachable right now", probeert
+  het elke 5 s opnieuw (en direct als je weer online bent of de app opent) en
+  gaat verder waar je was. Alleen als de server zegt dat de sessie niet meer
+  geldig is (401), log je uit.
+- **B06:** de realtime-verbinding (Socket.IO) stuurt bij elke herverbinding
+  het actuele token. Weigert de server de verbinding, dan vraagt de app eerst
+  of je login nog geldig is, in plaats van je meteen uit te loggen.
+- **B07:** `npm run dev` stuurt `/socket.io` (ook WebSocket) door naar de
+  server, zodat realtime-updates ook in de ontwikkelomgeving werken.
+- **B08:** een nieuwe app-versie wordt alleen geïnstalleerd als de pagina en
+  alle scripts en stylesheets binnen zijn; anders blijft de werkende versie
+  staan. De cache heet nu naar de inhoud van de versie, dus twee builds met
+  dezelfde naam (`local`) delen geen cache meer. Een ontbrekend icoon houdt
+  een update niet tegen.
+
 ## Fase 2: afspelen op de speakers klopt met de wachtrij (B02, B03, B09)
 
 - **Terugspoelen naar het begin** laat de wachtrij niet meer naar het volgende

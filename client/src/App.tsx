@@ -36,12 +36,34 @@ function PageLoader() {
 export default function App() {
   // Auth state comes from the server (/auth/setup-status + /auth/me), see
   // AuthContext. A stale token in localStorage never keeps the app "open".
-  const { status, signIn } = useAuth();
+  const { status, signIn, refresh } = useAuth();
 
   if (status === 'loading') {
     return (
       <div className="min-h-screen bg-surface-dark flex items-center justify-center text-gray-400">
         Loading...
+      </div>
+    );
+  }
+
+  if (status === 'unreachable') {
+    // Logged in, but the server does not answer (NAS restarting, offline):
+    // the login stays, the app keeps trying and continues where it was (B05).
+    return (
+      <div className="min-h-screen bg-surface-dark flex items-center justify-center p-6">
+        <div className="text-center max-w-sm" role="status" aria-live="polite">
+          <p className="text-lg font-medium mb-2">AudioServer is not reachable right now</p>
+          <p className="text-sm text-gray-400 mb-4">
+            You stay signed in. The app tries again every few seconds and continues as soon as the
+            server answers.
+          </p>
+          <button
+            onClick={() => void refresh()}
+            className="px-4 py-2 bg-accent rounded hover:bg-accent-hover transition text-sm"
+          >
+            Try again now
+          </button>
+        </div>
       </div>
     );
   }
