@@ -304,12 +304,28 @@ function cacheGet(key: string): RadioStation[] | null {
   return entry.value;
 }
 
+const CACHE_MAX_ENTRIES = 200;
+
 function cacheSet(key: string, value: RadioStation[]): void {
-  cache.set(key, { expires: Date.now() + CACHE_TTL_MS, value });
+  // Bounded (§6): every distinct search is a key, so drop what expired and
+  // then the oldest, instead of growing for as long as the server runs.
+  const now = Date.now();
+  for (const [k, entry] of cache) if (entry.expires <= now) cache.delete(k);
+  while (cache.size >= CACHE_MAX_ENTRIES) cache.delete(cache.keys().next().value!);
+  cache.set(key, { expires: now + CACHE_TTL_MS, value });
+}
+
+/** Tests only. */
+export function radioCacheSize(): number {
+  return cache.size;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+  // A directory that does not answer is given up on (B09), not waited for.
+  const res = await fetch(url, {
+    headers: { 'User-Agent': USER_AGENT },
+    signal: AbortSignal.timeout(10_000),
+  });
   if (!res.ok) throw new Error(`radio-browser ${res.status}: ${res.statusText}`);
   return res.json() as Promise<T>;
 }
@@ -398,8 +414,10 @@ export const radioProvider = {
   },
 
   async getStation(uuid: string): Promise<RadioStation | null> {
-    // Curated first
-    const curated = CURATED_NL.find((s) => s.uuid === uuid);
+    // Curated first. The player asks with what follows "radio:" in the
+    // station id; for 538 and Veronica that is not their uuid, so match the
+    // id too — saved favourites and queues keep working (B10).
+    const curated = CURATED_NL.find((s) => s.uuid === uuid || s.id === `radio:${uuid}`);
     if (curated) return curated;
 
     // radio-browser lookup by uuid

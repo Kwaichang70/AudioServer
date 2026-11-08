@@ -42,7 +42,9 @@ function getGenreColor(genre: string): string {
 export default function GenresPage() {
   const { genre } = useParams<{ genre?: string }>();
 
-  if (genre) return <GenreDetail genre={decodeURIComponent(genre)} />;
+  // The router already decodes the parameter; decoding again broke "100%" and
+  // turned a literal "R%26B" into "R&B" (B15).
+  if (genre) return <GenreDetail genre={genre} />;
   return <GenreList />;
 }
 

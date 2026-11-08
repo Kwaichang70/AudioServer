@@ -21,14 +21,36 @@ import {
 } from '../services/setup.js';
 import { validate, idParam } from '../utils/validate.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { MAX_PASSWORD_BYTES } from '../services/user-recovery.js';
 import { ApiKeyError, createApiKey, listApiKeys, revokeApiKey } from '../services/api-keys.js';
 
 const usernameSchema = z.string().trim().min(1).max(64);
-const passwordSchema = z.string().min(8).max(256);
+/**
+ * A NEW password (setup, a new user, change, reset): at most 72 bytes in
+ * UTF-8, because bcrypt ignores everything after that — two passwords that
+ * share their first 72 bytes would both work (B12). Said up front instead.
+ */
+const passwordSchema = z
+  .string()
+  .min(8)
+  .refine((p) => Buffer.byteLength(p, 'utf8') <= MAX_PASSWORD_BYTES, {
+    message: `At most ${MAX_PASSWORD_BYTES} bytes (about 72 letters; fewer with accents or emoji)`,
+  });
+
+/**
+ * Logging in checks against what was stored, so an existing longer password
+ * still works (it always only counted up to 72 bytes) — nobody is locked out.
+ */
+const loginPasswordSchema = z.string().min(1).max(256);
 
 const credentialsSchema = z.object({
   username: usernameSchema,
   password: passwordSchema,
+});
+
+const loginSchema = z.object({
+  username: usernameSchema,
+  password: loginPasswordSchema,
 });
 
 const setupSchema = credentialsSchema.extend({
@@ -143,13 +165,12 @@ authRouter.post(
 authRouter.post(
   '/login',
   loginLimiter,
-  validate({ body: credentialsSchema }),
+  validate({ body: loginSchema }),
   asyncHandler(async (req, res) => {
     const { username, password } = req.body;
     const db = getRawDb();
     const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username) as
-      | UserRow
-      | undefined;
+      UserRow | undefined;
     if (!user) {
       res.status(401).json({ error: 'Unauthorized', message: 'Invalid credentials' });
       return;
@@ -188,8 +209,7 @@ authRouter.get('/me', (req, res) => {
   }
   const db = getRawDb();
   const user = db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(req.userId) as
-    | { id: string; username: string; role: string }
-    | undefined;
+    { id: string; username: string; role: string } | undefined;
   res.json({ data: user ? { ...user, sessionId: req.sessionId } : null });
 });
 
@@ -273,8 +293,7 @@ authRouter.post(
   asyncHandler(async (req, res) => {
     const db = getRawDb();
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId) as
-      | UserRow
-      | undefined;
+      UserRow | undefined;
     if (!user) {
       res.status(401).json({ error: 'Unauthorized', message: 'Authentication required' });
       return;

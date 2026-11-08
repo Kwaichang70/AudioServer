@@ -30,6 +30,8 @@ export function findUser(db: Db, name: string): { id: string; username: string }
 }
 
 export const MIN_PASSWORD_LENGTH = 8;
+/** bcrypt reads at most 72 bytes; a longer password would be cut off silently (B12). */
+export const MAX_PASSWORD_BYTES = 72;
 
 /**
  * Set a new password and sign the user out everywhere, as the admin reset in
@@ -41,8 +43,13 @@ export async function setUserPassword(
   name: string,
   password: string,
 ): Promise<{ username: string; revokedSessions: number }> {
-  if (password.length < MIN_PASSWORD_LENGTH || password.length > 256) {
-    throw new Error(`The password must be ${MIN_PASSWORD_LENGTH} to 256 characters.`);
+  if (
+    password.length < MIN_PASSWORD_LENGTH ||
+    Buffer.byteLength(password, 'utf8') > MAX_PASSWORD_BYTES
+  ) {
+    throw new Error(
+      `The password must be at least ${MIN_PASSWORD_LENGTH} characters and at most ${MAX_PASSWORD_BYTES} bytes.`,
+    );
   }
   const user = findUser(db, name);
   if (!user) throw new Error(`No user "${name}".`);

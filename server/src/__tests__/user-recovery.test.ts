@@ -57,7 +57,9 @@ describe('user recovery on the server', () => {
   });
 
   it('refuses a short password or an unknown user, changing nothing', async () => {
-    await expect(setUserPassword(getRawDb(), 'guest', 'short')).rejects.toThrow(/8 to 256/);
+    await expect(setUserPassword(getRawDb(), 'guest', 'short')).rejects.toThrow(
+      /at least 8 characters/,
+    );
     await expect(setUserPassword(getRawDb(), 'nobody', 'long-enough-1')).rejects.toThrow(/No user/);
     expect((await login('guest', TEST_PASSWORD)).status).toBe(200);
   });
