@@ -17,7 +17,10 @@ const mocks = vi.hoisted(() => ({
   audio: { playAlbum: vi.fn(), currentTrack: null, isPlaying: false },
 }));
 
-vi.mock('../../api/client.js', () => ({ api: mocks.api }));
+vi.mock('../../api/client.js', async (importOriginal) => ({
+  ApiError: (await importOriginal<typeof import('../../api/client.js')>()).ApiError,
+  api: mocks.api,
+}));
 vi.mock('../../context/AudioContext.js', () => ({ useAudioContext: () => mocks.audio }));
 vi.mock('../../components/PlayActions.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../components/PlayActions.js')>()),
@@ -76,6 +79,15 @@ describe('Spotify playlists', () => {
     renderApp('/playlists');
     expect(await screen.findByText('Mine')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: /Spotify/ })).toBeNull();
+  });
+
+  it('tells to reconnect Spotify when the token cannot read playlists', async () => {
+    const { ApiError } = await import('../../api/client.js');
+    mocks.api.getSpotifyPlaylists.mockRejectedValue(
+      new ApiError('Spotify refused this request: Insufficient client scope', 403),
+    );
+    renderApp('/playlists');
+    expect(await screen.findByRole('status')).toHaveTextContent(/Disconnect, then Connect/);
   });
 
   it('plays the whole playlist, or from a clicked track', async () => {

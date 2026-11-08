@@ -13,7 +13,11 @@ import { parseSearchOptions, unifiedSearch } from '../services/search.js';
 // Qobuz account per server), so connecting, completing OAuth and disconnecting
 // are admin-only. Reading status, searching and streaming stay open to every
 // signed-in user. See docs/permissions.md.
-const oauthInitSchema = z.object({ redirectUri: z.string().url().max(2048) });
+const oauthInitSchema = z.object({
+  redirectUri: z.string().url().max(2048),
+  /** Spotify: connect with the playback scopes only (see getAuthUrl). */
+  basic: z.boolean().optional(),
+});
 const oauthCallbackSchema = z.object({
   code: z.string().min(1).max(4096),
   redirectUri: z.string().url().max(2048),
@@ -290,8 +294,8 @@ providersRouter.post(
       });
       return;
     }
-    const { redirectUri } = req.body;
-    res.json({ data: { authUrl: spotify.getAuthUrl(redirectUri) } });
+    const { redirectUri, basic } = req.body;
+    res.json({ data: { authUrl: spotify.getAuthUrl(redirectUri, basic === true) } });
   },
 );
 

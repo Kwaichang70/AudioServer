@@ -15,6 +15,12 @@ the kind of change, not semver — there are no releases yet.
 - Alle playlists, niet alleen de eerste 50 (tot 200), en het aantal nummers
   klopt ook na Spotify's wijziging van februari 2026.
 - Lange playlists komen helemaal binnen (per 100, tot 1000 nummers).
+- Koppelen vraagt Spotify nu ook toestemming om je playlists te lezen
+  (`playlist-read-private`, `playlist-read-collaborative`). Wie al gekoppeld
+  was, ziet op Playlists de melding om Spotify opnieuw te koppelen
+  (Disconnect, daarna Connect). Weigert Spotify het koppelen daardoor, dan biedt
+  de foutpagina "Try again without playlists": afspelen werkt dan nog, de
+  playlists niet.
 
 ## Spotify in een kamer, vanuit de server (Homey, Grok, Jarvis)
 

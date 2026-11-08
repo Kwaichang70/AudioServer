@@ -68,6 +68,12 @@ on it.
 Used for: browsing playlists/albums/artists, library sync, Spotify Connect
 device control.
 
+Connecting asks for the playback scopes plus `playlist-read-private` and
+`playlist-read-collaborative`, so Playlists → Spotify can list your playlists.
+A connection made before these scopes were added answers 403 "Insufficient
+client scope": Disconnect and Connect again. If Spotify refuses the request
+because of them, the callback page offers to connect with playback only.
+
 #### Browser playback via the Web Playback SDK
 
 Once Option A's OAuth is connected, AudioServer can play full Spotify tracks

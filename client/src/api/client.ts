@@ -918,13 +918,15 @@ export const api = {
   getProviderStatus: (): Promise<ApiResponse<ProviderStatuses>> => fetchApi('/providers/status'),
   providerSearch: (q: string, options: SearchFilters = {}): Promise<ProviderSearchResponse> =>
     fetchApi(`/providers/search?${searchQuery(q, options)}`),
+  /** `basic`: Spotify with the playback scopes only, when it refused the playlist ones. */
   providerAuthInit: (
     provider: string,
     redirectUri: string,
+    basic?: boolean,
   ): Promise<ApiResponse<{ authUrl: string }>> =>
     fetchApi(`/providers/${provider}/auth/init`, {
       method: 'POST',
-      body: JSON.stringify({ redirectUri }),
+      body: JSON.stringify(basic ? { redirectUri, basic } : { redirectUri }),
     }),
   providerAuthCallback: (
     provider: string,

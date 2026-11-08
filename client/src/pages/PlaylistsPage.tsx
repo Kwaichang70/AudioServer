@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../api/client.js';
+import { api, ApiError } from '../api/client.js';
 import { useToast } from '../components/Toast.js';
 import type { StoredPlaylist } from '../api/types.js';
 
@@ -16,6 +16,7 @@ export default function PlaylistsPage() {
   const [loading, setLoading] = useState(true);
   // The user's Spotify playlists, when Spotify is connected (empty otherwise).
   const [spotifyLists, setSpotifyLists] = useState<StoredPlaylist[]>([]);
+  const [spotifyError, setSpotifyError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -38,7 +39,13 @@ export default function PlaylistsPage() {
       .then((res) => {
         if (alive) setSpotifyLists(res.data);
       })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        // A token from before the playlist scopes: Spotify answers 403
+        // "Insufficient client scope" until Spotify is connected again.
+        if (alive && err instanceof ApiError && err.statusCode === 403) {
+          setSpotifyError(err.message);
+        }
+      });
     return () => {
       alive = false;
     };
@@ -159,6 +166,14 @@ export default function PlaylistsPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {spotifyError && (
+        <p className="mt-10 text-sm text-gray-400" role="status">
+          {/scope/i.test(spotifyError)
+            ? 'Your Spotify playlists can be shown here once Spotify is connected again with permission to read them: Settings → Streaming Providers → Spotify → Disconnect, then Connect.'
+            : `Spotify did not return your playlists: ${spotifyError}`}
+        </p>
       )}
 
       {spotifyLists.length > 0 && (

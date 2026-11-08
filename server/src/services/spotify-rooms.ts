@@ -1,5 +1,5 @@
 import { providers } from '../providers/registry.js';
-import type { SpotifyConnectDevice } from '../providers/spotify.js';
+import { SpotifyProviderError, type SpotifyConnectDevice } from '../providers/spotify.js';
 import { deviceManager } from '../devices/manager.js';
 import { zones, type Zone } from './zones.js';
 import { stopRoom } from './server-player.js';
@@ -152,7 +152,13 @@ async function chooseOnSpotify(request: SpotifyPlayRequest): Promise<Chosen> {
 /** Spotify playlists by name, for whoever builds a flow or asks an assistant. */
 export async function listSpotifyPlaylists() {
   if (!spotify().auth.isAuthenticated) return [];
-  return (await spotify().getPlaylists()).map((p) => ({
+  const lists = await spotify()
+    .getPlaylists()
+    .catch((err: unknown) => {
+      logger.warn(`Spotify playlists for a command: ${err}`);
+      return [];
+    });
+  return lists.map((p) => ({
     name: p.name,
     trackCount: p.trackCount,
     kind: 'spotify' as const,
@@ -161,6 +167,23 @@ export async function listSpotifyPlaylists() {
 
 /** Play a Spotify playlist, album or artist on the room's speaker. */
 export async function playSpotifyInRoom(request: SpotifyPlayRequest) {
+  try {
+    return await startOnSpotify(request);
+  } catch (err) {
+    // Spotify's own refusals (no playlist scope, session expired, device gone)
+    // reach the caller as a readable command error, not a 500.
+    if (err instanceof SpotifyProviderError) {
+      const reconnect =
+        err.code === 'spotify_not_authenticated' || /scope/i.test(err.message)
+          ? ' Reconnect Spotify in Settings → Streaming Providers.'
+          : '';
+      throw new ControlError('not_playable', `${err.message}${reconnect}`);
+    }
+    throw err;
+  }
+}
+
+async function startOnSpotify(request: SpotifyPlayRequest) {
   requireSpotify();
   const zone = resolveRoom(request.room);
   const [device, chosen] = await Promise.all([connectDeviceFor(zone), chooseOnSpotify(request)]);

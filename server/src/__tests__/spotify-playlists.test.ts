@@ -3,6 +3,7 @@ import request from 'supertest';
 import type { Express } from 'express';
 import { createTestApp } from './helpers/testApp.js';
 import { providers } from '../providers/registry.js';
+import { SpotifyProviderError } from '../providers/spotify.js';
 
 /**
  * The user's Spotify playlists in AudioServer: all of them (Spotify pages by
@@ -64,6 +65,45 @@ describe('Spotify playlists', () => {
     expect(tracks).toHaveLength(230);
     expect(tracks[229]).toMatchObject({ id: 'spotify:t229', title: 'Song 229' });
     expect(api).toHaveBeenCalledTimes(3);
+  });
+
+  it('asks Spotify for the playlist scopes, or only playback when told to', () => {
+    const scopes = (url: string) => new URL(url).searchParams.get('scope')!.split(' ');
+    const full = scopes(spotify.getAuthUrl('https://example.org/settings/callback/spotify'));
+    expect(full).toEqual(
+      expect.arrayContaining(['streaming', 'playlist-read-private', 'playlist-read-collaborative']),
+    );
+    const basic = scopes(spotify.getAuthUrl('https://example.org/settings/callback/spotify', true));
+    expect(basic).toContain('streaming');
+    expect(basic).not.toContain('playlist-read-private');
+  });
+
+  it('passes "basic" through when connecting', async () => {
+    const was = spotify.isAvailable;
+    spotify.isAvailable = true;
+    const res = await request(app)
+      .post('/api/providers/spotify/auth/init')
+      .send({ redirectUri: 'https://example.org/settings/callback/spotify', basic: true });
+    spotify.isAvailable = was;
+    expect(res.status).toBe(200);
+    expect(new URL(res.body.data.authUrl).searchParams.get('scope')).not.toMatch(/playlist/);
+  });
+
+  it('says why when Spotify refuses the playlists (old token without the scope)', async () => {
+    spotify.auth.isAuthenticated = true;
+    vi.spyOn(
+      spotify as unknown as { apiRequest: () => Promise<unknown> },
+      'apiRequest',
+    ).mockRejectedValue(
+      new SpotifyProviderError(
+        'spotify_forbidden',
+        'Spotify refused: Insufficient client scope',
+        403,
+      ),
+    );
+    const res = await request(app).get('/api/providers/spotify/playlists');
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/Insufficient client scope/);
   });
 
   it('serves a playlist with its tracks', async () => {

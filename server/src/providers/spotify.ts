@@ -243,20 +243,28 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
 
   // ─── OAuth Flow ──────────────────────────────────────────────
 
-  getAuthUrl(redirectUri: string): string {
-    // Spotify Development Mode (since the March 2026 changes) rejects the whole
-    // authorize request up front — error=server_error, *before* the consent
-    // screen — if it asks for scopes whose endpoints were pulled from Dev Mode,
-    // i.e. the library/playlist "browse" scopes. We request only what in-browser
-    // playback via the Web Playback SDK needs: streaming + the SDK-required
-    // identity scopes + playback control. (Catalogue browsing inside the app
-    // would need Extended Quota Mode anyway, since those endpoints are gone.)
+  /**
+   * `basic` asks only for what playback needs. Spotify Development Mode (since
+   * the March 2026 changes) was seen to reject the whole authorize request up
+   * front — error=server_error, before the consent screen — when it asks for
+   * scopes whose endpoints were pulled from Dev Mode. Reading the user's own
+   * playlists (GET /me/playlists, /playlists/{id}/items) stayed, so those two
+   * scopes are asked for by default; should Spotify refuse them, the callback
+   * page offers to connect again with `basic`.
+   */
+  getAuthUrl(redirectUri: string, basic = false): string {
     const scopes = [
       'streaming', // Web Playback SDK: in-browser playback
       'user-read-email', // required by the Web Playback SDK
       'user-read-private', // required by the Web Playback SDK
       'user-read-playback-state', // read player state for the transport UI
       'user-modify-playback-state', // start / pause / seek on the SDK device
+      ...(basic
+        ? []
+        : [
+            'playlist-read-private', // the user's own playlists (Playlists → Spotify)
+            'playlist-read-collaborative', // and the ones shared with them
+          ]),
     ].join(' ');
 
     const params = new URLSearchParams({
@@ -664,7 +672,10 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
         if (page.length < 50 || (data.total !== undefined && all.length >= data.total)) break;
       }
     } catch (err) {
-      if (all.length === 0) logger.warn(`Spotify playlists failed: ${err}`);
+      // Nothing came: say why (the page tells the user to reconnect when the
+      // token lacks the playlist scope). A later page failing keeps the rest.
+      if (all.length === 0) throw err;
+      logger.warn(`Spotify playlists: a later page failed: ${err}`);
     }
     return all;
   }
