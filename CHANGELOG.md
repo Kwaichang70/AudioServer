@@ -4,6 +4,33 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fase 6: meten en afronden
+
+- **Bibliotheekscan veel sneller:** gemeten met 50.000 nummers
+  (`npm run bench:scan`): eerste scan van 528 s naar 120 s, een herscan
+  zonder wijzigingen van 132 s naar 11 s. De scanner zocht elk bestand op
+  zonder index, dus het werd trager naarmate de bibliotheek groeide. Het
+  schema blijft 21; bij de eerste start na de update worden twee indexen
+  gebouwd (enkele seconden). Details: `docs/performance.md`.
+- **Uitloggen en een ander account:** een hoes- of streamtoken dat nog
+  onderweg was bij het uitloggen, wordt niet meer bewaard voor het volgende
+  account (anders bleven hoesjes tot een uur lang weg).
+- **Rooktest na een deploy:** `sh scripts/nas-smoke.sh http://localhost:3001 21 <commit>`
+  controleert in één keer: server gereed, schemaversie, welke commit draait,
+  de webapp met al zijn bestanden, dat de bibliotheek een login vraagt en
+  de realtime-verbinding. Alleen lezen, geen login nodig.
+- **Snel terug naar de vorige versie:** het runbook bewaart de draaiende
+  image als `previous`; terugzetten is één `docker tag` plus
+  `docker-compose up -d --no-build` (als het schema niet veranderde).
+  Geef de commit mee aan de build (`sudo VCS_REF=<commit> …`), dan laat de
+  rooktest zien welke versie draait.
+- **Documentatie:** `docs/architecture.md` heeft één tabel met wie sessies,
+  sockets, tokens, OAuth, apparaten, timers en releases beheert en wat er
+  gebeurt als het misgaat. Verouderde "open vragen" (OpenAPI, MusicBrainz)
+  zijn weg; die bestaan al.
+- **Niet gedaan:** lijsten in de browser virtualiseren. Pagina's laden per 50;
+  pas als een lange lijst op je telefoon merkbaar hapert, heeft dat zin.
+
 ## Fase 5: interface (U01–U04)
 
 - **U01:** de volledige speler past op een kleine telefoon (320 px) en
