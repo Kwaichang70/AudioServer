@@ -93,6 +93,10 @@ describe('server startup and shutdown (smoke)', () => {
           PATH: process.env.PATH,
           HOME: process.env.HOME,
           NODE_ENV: 'production',
+          // Nor through the repository's .env (config.ts would load it).
+          AUDIOSERVER_SKIP_DOTENV: '1',
+          // No device discovery on the network during the test.
+          VOLUMIO_MDNS: 'false',
           PORT: String(port),
           DATABASE_PATH: join(tmp, 'smoke.db'),
           MUSIC_LIBRARY_PATHS: musicDir,

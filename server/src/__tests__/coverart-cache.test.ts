@@ -47,7 +47,8 @@ describe('embedded cover disk cache', () => {
     try {
       delete process.env.COVER_CACHE_DIR;
       process.env.DATABASE_PATH = '/data/audioserver.db';
-      expect(getCoverDir()).toBe('/data/covers');
+      // path.join: '/data/covers' here, '\\data\\covers' on Windows.
+      expect(getCoverDir()).toBe(join('/data', 'covers'));
       // An explicit setting still wins.
       process.env.COVER_CACHE_DIR = '/elsewhere';
       expect(getCoverDir()).toBe('/elsewhere');

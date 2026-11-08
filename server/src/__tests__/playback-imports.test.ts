@@ -31,10 +31,11 @@ describe('playback service import order', () => {
       service.setQueue([{ id: 'a', title: 'A', artistName: 'x', albumTitle: 'y' }]);
       expect(service.getSnapshot().queue).toHaveLength(1);
       expect(loaded).toEqual([]); // socketio was never needed
-      db.closeDatabase();
     } finally {
+      // Close before removing: Windows refuses (EPERM) to delete an open file.
+      (await import('../db/index.js')).closeDatabase();
       vi.doUnmock('../socketio.js');
-      rmSync(tmp, { recursive: true, force: true });
+      rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 });

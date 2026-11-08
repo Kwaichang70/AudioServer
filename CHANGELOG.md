@@ -4,6 +4,22 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Analyse en verbeterplan, fase 0: betrouwbare basis
+
+- De Windows-specifieke testfouten uit de analyse aangepakt (hier op Linux
+  getest, niet op Windows zelf): de scannertests bouwen het verwachte pad
+  zoals de scanner (`root + "/" + bestand`), de covertest gebruikt
+  `path.join`, en de importvolgordetest sluit de database vóór het opruimen
+  (Windows weigert een open bestand te verwijderen).
+- De opstarttest leest geen `.env` meer (`AUDIOSERVER_SKIP_DOTENV=1`), dus
+  geen echte provider-sleutels of -accounts tijdens tests, en zoekt geen
+  Volumio's op het netwerk.
+- `AGENTS.md` en `CLAUDE.md` beschrijven Spotify, Qobuz, Sonos, DLNA en Volumio
+  niet langer als "stubs" of "mock devices".
+- In CI (Linux, Node 22 en 24) waren lint, typecheck, tests, build en de
+  Docker-controle al groen. De op de Windows-pc lokaal verwijderde CI-workflow
+  staat gewoon in de repository.
+
 ## Spotify-albums in je bibliotheek
 
 - Op een Spotify-albumpagina staat **+ Add to library**, zoals bij Qobuz. Het

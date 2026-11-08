@@ -480,7 +480,7 @@ describe('scanner: identity and credits (R03.2)', () => {
 
   it('reads MusicBrainz ids and release data from the file, with no network', async () => {
     await scanWith(['tagged-one.mp3']);
-    const track = getTrackByPath(join(tmp!, 'music', 'tagged-one.mp3'))!;
+    const track = getTrackByPath(`${join(tmp!, 'music')}/tagged-one.mp3`)!;
     const row = getRawDb().prepare('SELECT * FROM tracks WHERE id = ?').get(track.id) as Record<
       string,
       unknown
@@ -507,7 +507,7 @@ describe('scanner: identity and credits (R03.2)', () => {
 
   it('leaves an untagged album honestly unidentified', async () => {
     await scanWith(['bare-one.mp3']);
-    const track = getTrackByPath(join(tmp!, 'music', 'bare-one.mp3'))!;
+    const track = getTrackByPath(`${join(tmp!, 'music')}/bare-one.mp3`)!;
     const row = getRawDb().prepare('SELECT * FROM tracks WHERE id = ?').get(track.id) as Record<
       string,
       unknown
@@ -524,7 +524,7 @@ describe('scanner: identity and credits (R03.2)', () => {
 
   it('splits "feat." into a guest with their own row, keeping the display name', async () => {
     await scanWith(['feat-one.mp3']);
-    const track = getTrackByPath(join(tmp!, 'music', 'feat-one.mp3'))!;
+    const track = getTrackByPath(`${join(tmp!, 'music')}/feat-one.mp3`)!;
     // The display text is what the tag said, untouched.
     expect(track.artist_name).toBe('Lead Act feat. The Guest');
     expect(credits(track.id)).toEqual([
@@ -554,13 +554,13 @@ describe('scanner: identity and credits (R03.2)', () => {
     }));
     await scanLibrary([root], { trigger: 'test' });
 
-    const track = getTrackByPath(join(root, 'amp-one.mp3'))!;
+    const track = getTrackByPath(`${root}/amp-one.mp3`)!;
     expect(credits(track.id)).toEqual([{ name: 'Simon & Garfunkel', role: 'main', position: 0 }]);
   });
 
   it('gives a classical track its composer, conductor and performer', async () => {
     await scanWith(['classical-adagietto.mp3']);
-    const track = getTrackByPath(join(tmp!, 'music', 'classical-adagietto.mp3'))!;
+    const track = getTrackByPath(`${join(tmp!, 'music')}/classical-adagietto.mp3`)!;
     const row = getRawDb().prepare('SELECT * FROM tracks WHERE id = ?').get(track.id) as Record<
       string,
       unknown
@@ -603,7 +603,7 @@ describe('scanner: identity and credits (R03.2)', () => {
 
   it('stores every genre of a file as a set', async () => {
     await scanWith(['tagged-one.mp3']);
-    const track = getTrackByPath(join(tmp!, 'music', 'tagged-one.mp3'))!;
+    const track = getTrackByPath(`${join(tmp!, 'music')}/tagged-one.mp3`)!;
     const genres = (
       getRawDb()
         .prepare('SELECT genre FROM track_genres WHERE track_id = ? ORDER BY genre')
@@ -616,7 +616,7 @@ describe('scanner: identity and credits (R03.2)', () => {
     const root = await scanWith(['tagged-one.mp3'], (dir) => {
       writeFileSync(join(dir, 'folder.jpg'), 'a full-size scan');
     });
-    const track = getTrackByPath(join(root, 'tagged-one.mp3'))!;
+    const track = getTrackByPath(`${root}/tagged-one.mp3`)!;
     const { readCachedCover } = await import('../services/coverart-fetch.js');
     const cached = readCachedCover(track.album_id);
     expect(cached?.data.toString()).toBe('a full-size scan');
@@ -673,8 +673,12 @@ function getTrack(id: string): TrackRow | undefined {
   return getRawDb().prepare('SELECT * FROM tracks WHERE id = ?').get(id) as TrackRow | undefined;
 }
 
+/**
+ * The scanner joins a root and a file name with "/" (UNC paths must keep their
+ * forward slashes), so tests build the expected path the same way — not with
+ * path.join, which gives "\\" on Windows.
+ */
 function getTrackByPath(filePath: string): TrackRow | undefined {
   return getRawDb().prepare('SELECT * FROM tracks WHERE file_path = ?').get(filePath) as
-    | TrackRow
-    | undefined;
+    TrackRow | undefined;
 }

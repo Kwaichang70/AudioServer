@@ -6,7 +6,11 @@ import { accessSync, constants } from 'fs';
 import { z } from 'zod';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: resolve(__dirname, '../../.env') });
+// AUDIOSERVER_SKIP_DOTENV=1: only the real environment counts (tests that
+// start the server must not pick up a developer's .env and its credentials).
+if (process.env.AUDIOSERVER_SKIP_DOTENV !== '1') {
+  dotenv.config({ path: resolve(__dirname, '../../.env') });
+}
 
 // ─── Schema ──────────────────────────────────────────────────────
 
