@@ -4,6 +4,19 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fase 1: veilige koppeling met Spotify en Tidal (B04)
+
+- Elke klik op **Connect** start één koppelactie met een willekeurige
+  `state`, gebonden aan jouw sessie, de dienst en het terugkeeradres, tien
+  minuten geldig en één keer bruikbaar. Een terugkeerlink zonder of met een
+  andere `state` (bijv. een link die iemand je stuurt) koppelt niets en zegt
+  waarom; klik dan opnieuw op Connect.
+- Tidal bewaart zijn PKCE-sleutel per koppelactie, niet meer één voor de hele
+  server: twee pogingen tegelijk zitten elkaar niet meer in de weg.
+- Je bestaande Spotify-koppeling blijft werken; dit geldt alleen voor nieuwe
+  keren koppelen. Koppel via hetzelfde adres als waar je de app opent
+  (`https://kwaichangmusic.synology.me`).
+
 ## Fase 1: favorieten van iedereen blijven behouden (B01)
 
 - Herkent de scanner een verplaatst of opnieuw gevonden bestand als hetzelfde

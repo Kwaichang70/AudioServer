@@ -253,7 +253,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
    * scopes are asked for by default; should Spotify refuse them, the callback
    * page offers to connect again with `basic`.
    */
-  getAuthUrl(redirectUri: string, basic = false): string {
+  getAuthUrl(redirectUri: string, basic = false, state?: string): string {
     const scopes = [
       'streaming', // Web Playback SDK: in-browser playback
       'user-read-email', // required by the Web Playback SDK
@@ -273,6 +273,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
       client_id: this.clientId,
       scope: scopes,
       redirect_uri: redirectUri,
+      ...(state ? { state } : {}),
     });
     return `${SPOTIFY_AUTH_URL}/authorize?${params}`;
   }

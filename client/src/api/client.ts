@@ -932,10 +932,12 @@ export const api = {
     provider: string,
     code: string,
     redirectUri: string,
+    /** The `state` the provider sent back: proves it is this admin's own Connect click. */
+    state?: string,
   ): Promise<ApiResponse<ProviderAuthResult>> =>
     fetchApi(`/providers/${provider}/auth/callback`, {
       method: 'POST',
-      body: JSON.stringify({ code, redirectUri }),
+      body: JSON.stringify({ code, redirectUri, state }),
     }),
   providerAuthLogout: (
     provider: string,

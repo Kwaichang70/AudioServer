@@ -11,6 +11,7 @@ export default function OAuthCallbackPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
+    const state = params.get('state') ?? undefined;
     const errorParam = params.get('error');
 
     if (errorParam) {
@@ -29,7 +30,7 @@ export default function OAuthCallbackPage() {
     const redirectUri = `${window.location.origin}/settings/callback/${provider}`;
 
     api
-      .providerAuthCallback(provider, code, redirectUri)
+      .providerAuthCallback(provider, code, redirectUri, state)
       .then((data) => {
         if (!data.data.authenticated) throw new Error('Authentication failed');
         setStatus('success');

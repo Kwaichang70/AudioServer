@@ -82,10 +82,7 @@ interface TidalArtworkResource {
 }
 
 type TidalResource =
-  | TidalArtistResource
-  | TidalAlbumResource
-  | TidalTrackResource
-  | TidalArtworkResource;
+  TidalArtistResource | TidalAlbumResource | TidalTrackResource | TidalArtworkResource;
 
 interface TidalAlbumItemIdentifier extends TidalResourceIdentifier {
   meta?: { trackNumber?: number; volumeNumber?: number };
@@ -192,8 +189,8 @@ export class TidalProvider implements AuthenticatedMusicProvider {
   auth: ProviderAuth = {
     isAuthenticated: false,
     login: async (credentials) => {
-      // Called with { code, redirectUri } after OAuth callback
-      await this.exchangeCode(credentials.code, credentials.redirectUri);
+      // Called with { code, redirectUri, codeVerifier } after the OAuth callback
+      await this.exchangeCode(credentials.code, credentials.redirectUri, credentials.codeVerifier);
     },
     logout: async () => {
       this.tokens = null;
@@ -210,9 +207,6 @@ export class TidalProvider implements AuthenticatedMusicProvider {
     this.clientSecret = process.env.TIDAL_CLIENT_SECRET || '';
     this.isAvailable = !!(this.clientId && this.clientSecret);
   }
-
-  // PKCE state
-  private codeVerifier: string | null = null;
 
   async initialize(): Promise<void> {
     if (!this.clientId || !this.clientSecret) {
@@ -243,15 +237,19 @@ export class TidalProvider implements AuthenticatedMusicProvider {
 
   // ─── OAuth Flow ──────────────────────────────────────────────
 
-  getAuthUrl(redirectUri: string): string {
-    // Generate PKCE code verifier and challenge
-    this.codeVerifier = randomBytes(32).toString('base64url');
-    const codeChallenge = createHash('sha256').update(this.codeVerifier).digest('base64url');
+  /** A fresh PKCE verifier; it travels with the OAuth transaction, not this object. */
+  newCodeVerifier(): string {
+    return randomBytes(32).toString('base64url');
+  }
+
+  getAuthUrl(redirectUri: string, state: string, codeVerifier: string): string {
+    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
 
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: this.clientId,
       redirect_uri: redirectUri,
+      state,
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
       scope:
@@ -260,18 +258,18 @@ export class TidalProvider implements AuthenticatedMusicProvider {
     return `https://login.tidal.com/authorize?${params}`;
   }
 
-  private async exchangeCode(code: string, redirectUri: string): Promise<void> {
+  private async exchangeCode(
+    code: string,
+    redirectUri: string,
+    codeVerifier?: string,
+  ): Promise<void> {
     const body: Record<string, string> = {
       grant_type: 'authorization_code',
       code,
       redirect_uri: redirectUri,
       client_id: this.clientId,
     };
-    // Include PKCE code verifier if available
-    if (this.codeVerifier) {
-      body.code_verifier = this.codeVerifier;
-      this.codeVerifier = null; // Single use
-    }
+    if (codeVerifier) body.code_verifier = codeVerifier;
 
     const res = await fetch(`${TIDAL_AUTH_URL}/token`, {
       method: 'POST',

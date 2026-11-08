@@ -5,6 +5,7 @@ import { QobuzProviderError } from '../providers/qobuz.js';
 import { SpotifyProviderError } from '../providers/spotify.js';
 import { logger } from '../logger.js';
 import { requireAdmin } from '../middleware/auth.js';
+import { beginOAuth, finishOAuth, OAuthStateError } from '../services/oauth-transactions.js';
 import { validate } from '../utils/validate.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { parseSearchOptions, unifiedSearch } from '../services/search.js';
@@ -21,7 +22,17 @@ const oauthInitSchema = z.object({
 const oauthCallbackSchema = z.object({
   code: z.string().min(1).max(4096),
   redirectUri: z.string().url().max(2048),
+  /** The state from the provider's redirect: ties it to this admin's Connect click. */
+  state: z.string().min(1).max(256).optional(),
 });
+
+/** Who started a connect: the admin's session (or user, for an older token). */
+const ownerOf = (req: import('express').Request) => req.sessionId ?? req.userId ?? '';
+
+/** A refused state: the callback page shows why and offers Connect again. */
+function sendStateError(res: import('express').Response, err: OAuthStateError): void {
+  res.status(400).json({ error: err.code, message: err.message });
+}
 const qobuzLoginSchema = z.object({
   username: z.string().min(1).max(256),
   password: z.string().min(1).max(256),
@@ -129,7 +140,9 @@ providersRouter.post(
       return;
     }
     const { redirectUri } = req.body;
-    res.json({ data: { authUrl: tidal.getAuthUrl(redirectUri) } });
+    const verifier = tidal.newCodeVerifier();
+    const state = beginOAuth('tidal', ownerOf(req), redirectUri, verifier);
+    res.json({ data: { authUrl: tidal.getAuthUrl(redirectUri, state, verifier) } });
   },
 );
 
@@ -138,9 +151,16 @@ providersRouter.post(
   requireAdmin,
   validate({ body: oauthCallbackSchema }),
   asyncHandler(async (req, res) => {
-    const { code, redirectUri } = req.body;
+    const { code, redirectUri, state } = req.body;
+    let tx;
     try {
-      await tidal.auth.login({ code, redirectUri });
+      tx = finishOAuth(state, 'tidal', ownerOf(req), redirectUri);
+    } catch (err) {
+      if (err instanceof OAuthStateError) return sendStateError(res, err);
+      throw err;
+    }
+    try {
+      await tidal.auth.login({ code, redirectUri, codeVerifier: tx.verifier ?? '' });
       logger.info('Tidal: OAuth flow completed');
       res.json({ data: { authenticated: true } });
     } catch (err) {
@@ -295,7 +315,8 @@ providersRouter.post(
       return;
     }
     const { redirectUri, basic } = req.body;
-    res.json({ data: { authUrl: spotify.getAuthUrl(redirectUri, basic === true) } });
+    const state = beginOAuth('spotify', ownerOf(req), redirectUri);
+    res.json({ data: { authUrl: spotify.getAuthUrl(redirectUri, basic === true, state) } });
   },
 );
 
@@ -304,7 +325,13 @@ providersRouter.post(
   requireAdmin,
   validate({ body: oauthCallbackSchema }),
   asyncHandler(async (req, res) => {
-    const { code, redirectUri } = req.body;
+    const { code, redirectUri, state } = req.body;
+    try {
+      finishOAuth(state, 'spotify', ownerOf(req), redirectUri);
+    } catch (err) {
+      if (err instanceof OAuthStateError) return sendStateError(res, err);
+      throw err;
+    }
     try {
       await spotify.auth.login({ code, redirectUri });
       logger.info('Spotify: OAuth flow completed');
