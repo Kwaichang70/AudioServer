@@ -971,6 +971,16 @@ export const api = {
     fetchApi(`/providers/spotify/albums/${id}`),
   getSpotifyAlbumTracks: (id: string): Promise<ApiResponse<Track[]>> =>
     fetchApi(`/providers/spotify/albums/${id}/tracks`),
+  /** Spotify on a room's speaker through Spotify Connect (the server picks the device). */
+  playSpotifyInRoom: (
+    room: string,
+    playlist: string,
+    shuffle = false,
+  ): Promise<ApiResponse<{ room: string; playing: string; speaker: string }>> =>
+    fetchApi('/control/play', {
+      method: 'POST',
+      body: JSON.stringify({ room, playlist, shuffle, source: 'spotify' }),
+    }),
   getSpotifyPlaylists: (): Promise<ApiResponse<StoredPlaylist[]>> =>
     fetchApi('/providers/spotify/playlists'),
   getSpotifyPlaylistTracks: (id: string): Promise<ApiResponse<Track[]>> =>

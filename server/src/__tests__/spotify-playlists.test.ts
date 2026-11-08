@@ -106,6 +106,28 @@ describe('Spotify playlists', () => {
     expect(res.body.message).toMatch(/Insufficient client scope/);
   });
 
+  it('keeps using /items after one playlist is refused (403 is per playlist)', async () => {
+    spotify.auth.isAuthenticated = true;
+    const seen: string[] = [];
+    vi.spyOn(
+      spotify as unknown as { apiRequest: (p: string) => Promise<unknown> },
+      'apiRequest',
+    ).mockImplementation(async (path: string) => {
+      seen.push(path.split('?')[0]);
+      if (path.startsWith('/playlists/followed/')) {
+        throw new SpotifyProviderError('spotify_forbidden', 'Spotify refused: Forbidden', 403);
+      }
+      return { items: [{ item: { id: 't1', name: 'Mine', artists: [] } }] };
+    });
+    await expect(spotify.getPlaylistTracks('spotify:followed')).rejects.toThrow(/Forbidden/);
+    expect(await spotify.getPlaylistTracks('spotify:own')).toHaveLength(1);
+    expect(seen).toEqual([
+      '/playlists/followed/items',
+      '/playlists/followed/tracks',
+      '/playlists/own/items',
+    ]);
+  });
+
   it('serves a playlist with its tracks', async () => {
     const tracks = vi.spyOn(spotify, 'getPlaylistTracks').mockResolvedValue([
       {

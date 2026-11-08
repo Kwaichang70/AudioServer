@@ -192,6 +192,17 @@ describe('Spotify in a room', () => {
     ]);
   });
 
+  it('takes a room and a playlist by id too, as the playlist page sends them', async () => {
+    const res = await control('post', '/play').send({
+      room: living,
+      playlist: 'spotify:pl1',
+      source: 'spotify',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.data.playing).toBe('Discover Weekly');
+    expect(calls[0]).toBe('play spotify:playlist:pl1 on sonos-wk offset undefined');
+  });
+
   it('lets go of the speaker first when AudioServer was playing there', async () => {
     await control('post', '/play').send({ room: 'Woonkamer', album: 'Purple Rain' });
     expect(zones.sessionFor(living).getState().state).toBe('playing');

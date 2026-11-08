@@ -13,8 +13,19 @@ const mocks = vi.hoisted(() => ({
     getPlaylists: vi.fn(),
     getSpotifyPlaylists: vi.fn(),
     getSpotifyPlaylistTracks: vi.fn(),
+    playSpotifyInRoom: vi.fn(),
   },
-  audio: { playAlbum: vi.fn(), currentTrack: null, isPlaying: false },
+  audio: {
+    playAlbum: vi.fn(),
+    currentTrack: null,
+    isPlaying: false,
+    zones: [
+      { id: 'z-browser', name: 'Browser', deviceId: 'browser', groupedWith: null },
+      { id: 'z-wk', name: 'Woonkamer', deviceId: 'sonos:wk', groupedWith: null },
+      { id: 'z-bad', name: 'Badkamer', deviceId: 'sonos:bad', groupedWith: 'z-wk' },
+    ],
+  },
+  toast: vi.fn(),
 }));
 
 vi.mock('../../api/client.js', async (importOriginal) => ({
@@ -26,7 +37,7 @@ vi.mock('../../components/PlayActions.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../components/PlayActions.js')>()),
   default: () => null,
 }));
-vi.mock('../../components/Toast.js', () => ({ useToast: () => ({ toast: vi.fn() }) }));
+vi.mock('../../components/Toast.js', () => ({ useToast: () => ({ toast: mocks.toast }) }));
 
 const { default: PlaylistsPage } = await import('../PlaylistsPage.js');
 const { default: SpotifyPlaylistPage } = await import('../SpotifyPlaylistPage.js');
@@ -99,6 +110,35 @@ describe('Spotify playlists', () => {
     ]);
     fireEvent.click(screen.getByText('Song 2'));
     expect(mocks.audio.playAlbum).toHaveBeenLastCalledWith(expect.any(Array), 1);
+  });
+
+  it('plays the playlist on a room speaker, offering only rooms that can', async () => {
+    mocks.api.playSpotifyInRoom.mockResolvedValue({
+      data: { room: 'Woonkamer', playing: 'Zondag Jazz', speaker: 'Woonkamer' },
+    });
+    renderApp('/playlists/spotify/abc');
+    const button = await screen.findByRole('button', { name: 'Play in Woonkamer' });
+    expect(screen.queryByRole('button', { name: 'Play in Browser' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Play in Badkamer' })).toBeNull();
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(mocks.api.playSpotifyInRoom).toHaveBeenCalledWith('z-wk', 'spotify:abc'),
+    );
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith(
+        'Playing on Woonkamer via Spotify Connect',
+        'success',
+      ),
+    );
+  });
+
+  it('explains a playlist Spotify will not show, and still offers the rooms', async () => {
+    const { ApiError } = await import('../../api/client.js');
+    mocks.api.getSpotifyPlaylistTracks.mockRejectedValue(new ApiError('Forbidden', 403));
+    renderApp('/playlists/spotify/abc');
+    expect(await screen.findByText(/tracks of your own playlists only/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Play in Woonkamer' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Play All' })).toBeNull();
   });
 
   it('says so when Spotify does not answer', async () => {

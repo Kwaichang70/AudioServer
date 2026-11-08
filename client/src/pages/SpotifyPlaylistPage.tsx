@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
-import { api } from '../api/client.js';
 import { useAudioContext } from '../context/AudioContext.js';
 import { formatDuration } from '../utils/format.js';
 import PlayActions, { toTrackInfo } from '../components/PlayActions.js';
 import type { Track } from '@audioserver/shared';
+import { api as apiClient, ApiError } from '../api/client.js';
+import { useToast } from '../components/Toast.js';
 
 /**
  * A playlist from the user's Spotify account, read-only: Spotify keeps it,
@@ -21,21 +22,42 @@ export default function SpotifyPlaylistPage() {
   const { id } = useParams<{ id: string }>();
   const shown = (useLocation().state ?? {}) as Shown;
   const [tracks, setTracks] = useState<Track[] | null>(null);
-  const [failed, setFailed] = useState(false);
-  const { playAlbum, currentTrack, isPlaying } = useAudioContext();
+  // Why the tracks did not come: 'forbidden' is Spotify refusing to show a
+  // playlist the user does not own (Development Mode); it still plays.
+  const [failed, setFailed] = useState<'forbidden' | 'error' | null>(null);
+  const { playAlbum, currentTrack, isPlaying, zones } = useAudioContext();
+  const { toast } = useToast();
+  const [busyRoom, setBusyRoom] = useState<string | null>(null);
+  // Rooms whose speaker the server can start: Spotify then plays the whole
+  // playlist there itself, with no list needed here and no tab kept open.
+  const rooms = zones.filter(
+    (z) => z.deviceId !== 'browser' && !z.deviceId.startsWith('spotify-connect:') && !z.groupedWith,
+  );
+  const playInRoom = (roomId: string, roomName: string) => {
+    if (!id) return;
+    setBusyRoom(roomId);
+    apiClient
+      .playSpotifyInRoom(roomId, `spotify:${id}`)
+      .then((res) => toast(`Playing on ${res.data.speaker} via Spotify Connect`, 'success'))
+      .catch((err: unknown) =>
+        toast(err instanceof Error ? err.message : `Could not play in ${roomName}`, 'error'),
+      )
+      .finally(() => setBusyRoom(null));
+  };
 
   useEffect(() => {
     if (!id) return;
     let alive = true;
     setTracks(null);
-    setFailed(false);
-    api
+    setFailed(null);
+    apiClient
       .getSpotifyPlaylistTracks(id)
       .then((res) => {
         if (alive) setTracks(res.data);
       })
-      .catch(() => {
-        if (alive) setFailed(true);
+      .catch((err: unknown) => {
+        if (alive)
+          setFailed(err instanceof ApiError && err.statusCode === 403 ? 'forbidden' : 'error');
       });
     return () => {
       alive = false;
@@ -65,20 +87,35 @@ export default function SpotifyPlaylistPage() {
               )}
             </p>
           )}
-          {infos.length > 0 && (
-            <div className="flex gap-3 mt-4">
+          <div className="flex flex-wrap gap-3 mt-4">
+            {infos.length > 0 && (
               <button
                 onClick={() => playAlbum(infos)}
                 className="px-6 py-2 bg-accent rounded-full hover:bg-accent-hover transition text-sm font-medium"
               >
                 Play All
               </button>
-            </div>
-          )}
+            )}
+            {rooms.map((room) => (
+              <button
+                key={room.id}
+                onClick={() => playInRoom(room.id, room.name)}
+                disabled={busyRoom !== null}
+                className="px-4 py-2 bg-surface-light border border-white/10 rounded-full hover:border-accent transition text-sm disabled:opacity-50"
+              >
+                {busyRoom === room.id ? 'Starting…' : `Play in ${room.name}`}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {failed ? (
+      {failed === 'forbidden' ? (
+        <p className="text-gray-500 text-center py-8">
+          Spotify shows AudioServer the tracks of your own playlists only.
+          {rooms.length > 0 && ' This one still plays on a speaker: use a "Play in" button above.'}
+        </p>
+      ) : failed ? (
         <p className="text-gray-500 text-center py-8">
           Spotify did not return this playlist. Is Spotify still connected?
         </p>

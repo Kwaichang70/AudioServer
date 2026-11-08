@@ -695,17 +695,26 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
       this.apiRequest<SpotifyPlaylistTracksResponse>(
         `/playlists/${spotifyId}/${kind}?limit=100&offset=${offset}`,
       );
+    // Only a 404 means the endpoint itself is missing (an app on the old API
+    // mode) and is remembered. A 403 is about THIS playlist — Development Mode
+    // lets an app read only the user's own playlists — so the old path is tried
+    // for this call alone and, failing too, the /items refusal is what counts.
     const page = async (offset: number): Promise<SpotifyPlaylistTracksResponse> => {
       try {
         return await load(this.playlistItemsPath, offset);
       } catch (err) {
         const status = err instanceof SpotifyProviderError ? err.statusCode : 0;
-        if (this.playlistItemsPath === 'items' && (status === 404 || status === 403)) {
-          logger.info('Spotify: /playlists/{id}/items unavailable, falling back to /tracks');
-          this.playlistItemsPath = 'tracks';
-          return load('tracks', offset);
+        if (this.playlistItemsPath !== 'items' || (status !== 404 && status !== 403)) throw err;
+        try {
+          const data = await load('tracks', offset);
+          if (status === 404) {
+            logger.info('Spotify: /playlists/{id}/items unavailable, using /tracks from now on');
+            this.playlistItemsPath = 'tracks';
+          }
+          return data;
+        } catch {
+          throw err;
         }
-        throw err;
       }
     };
     // 100 per page, up to 1000 tracks; a later page that fails keeps what came.

@@ -6,6 +6,12 @@ the kind of change, not semver — there are no releases yet.
 
 ## Je Spotify-playlists in AudioServer
 
+- Een Spotify-playlist speel je ook af met **Play in <kamer>**: de speaker
+  speelt de hele playlist zelf via Spotify Connect. Dat werkt ook voor
+  playlists die je volgt maar niet zelf maakte. Daarvan laat Spotify
+  (ontwikkelmodus) de nummers niet zien; de pagina zegt dat nu.
+- Herstel: na één geweigerde playlist (403) schakelde AudioServer blijvend over
+  op een oude Spotify-route, waardoor daarna ook je eigen playlists faalden.
 - Playlists toont onder je eigen playlists een blok **Spotify** met al je
   Spotify-playlists (met hoes en aantal nummers), zodra Spotify gekoppeld is.
 - Een Spotify-playlist opent als eigen pagina: alleen lezen (Spotify beheert
