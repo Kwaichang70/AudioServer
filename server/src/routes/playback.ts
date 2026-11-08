@@ -17,6 +17,7 @@ import {
   isServerManagedDevice,
   startServerPlayback,
   stopServerPlayback,
+  revalidateNext,
 } from '../services/server-player.js';
 import { validate } from '../utils/validate.js';
 import { requireAdmin } from '../middleware/auth.js';
@@ -753,6 +754,8 @@ playbackRouter.post('/sleep', validate({ body: sleepSchema }), (req, res) => {
       current: current ? { itemId: current.itemId, albumId: current.albumId ?? null } : null,
       userId: req.userId ?? null,
     });
+    // A timer that ends the music at this boundary: the speaker must not hold a next track.
+    revalidateNext(session.getZoneId());
     res.json({
       data: timer,
       meta: {
@@ -775,6 +778,7 @@ playbackRouter.delete('/sleep', (req, res) => {
   const session = sessionOf(req, res);
   if (!session) return;
   const had = cancelSleepTimer(session.getZoneId());
+  revalidateNext(session.getZoneId());
   res.json({ data: { ok: true, cancelled: had } });
 });
 

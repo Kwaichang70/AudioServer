@@ -7,6 +7,7 @@ import type {
 import { DlnaController } from './dlna.js';
 import { SonosController } from './sonos.js';
 import { VolumioController } from './volumio.js';
+import { noteSeek } from '../services/seek-log.js';
 import { logger } from '../logger.js';
 import { DeviceStateMachine } from './state-machine.js';
 
@@ -14,6 +15,14 @@ import { DeviceStateMachine } from './state-machine.js';
  * Central device manager that aggregates all device controllers.
  * Always includes a "browser" virtual device for web playback.
  */
+/** The server cannot reach this device: not found, also not after a fresh discovery. */
+export class DeviceUnavailableError extends Error {
+  constructor(public deviceId: string) {
+    super(`${deviceId} is not on the network (not found after a fresh search)`);
+    this.name = 'DeviceUnavailableError';
+  }
+}
+
 export class DeviceManager {
   private controllers: DeviceController[] = [];
   private cachedDevices: OutputDevice[] = [];
@@ -90,9 +99,31 @@ export class DeviceManager {
     return this.cachedDevices.find((d) => d.id === deviceId);
   }
 
+  /**
+   * A device the server must send a track to. Not known (yet) — after a
+   * restart, or it dropped off the network — means one fresh discovery, then
+   * a clear failure: reporting success for a command that went nowhere made
+   * the server believe a speaker played that never got the track.
+   */
+  private async requireDevice(deviceId: string): Promise<OutputDevice | null> {
+    if (deviceId === 'browser') return null;
+    let device = this.findCachedDevice(deviceId);
+    if (!device) {
+      this.rediscovery ??= this.getDevices(true).finally(() => {
+        this.rediscovery = null;
+      });
+      await this.rediscovery;
+      device = this.findCachedDevice(deviceId);
+    }
+    if (!device) throw new DeviceUnavailableError(deviceId);
+    return device.type === 'browser' ? null : device;
+  }
+
+  private rediscovery: Promise<OutputDevice[]> | null = null;
+
   async play(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void> {
-    const device = this.findCachedDevice(deviceId);
-    if (!device || device.type === 'browser') return;
+    const device = await this.requireDevice(deviceId);
+    if (!device) return;
     const controller = this.getController(device.type);
     if (!controller) throw new Error(`No controller for device type: ${device.type}`);
 
@@ -117,8 +148,8 @@ export class DeviceManager {
   }
 
   async setNextUri(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void> {
-    const device = this.findCachedDevice(deviceId);
-    if (!device || device.type === 'browser') return;
+    const device = await this.requireDevice(deviceId);
+    if (!device) return;
     const controller = this.getController(device.type);
     // A controller without the action must say so: returning quietly would
     // make the server believe the next track was handed over, and then wait
@@ -141,6 +172,8 @@ export class DeviceManager {
     if (!device || device.type === 'browser') return false;
     const controller = this.getController(device.type);
     if (!controller?.seek) return false;
+    // Noted before asking: the next status poll may already see 0:01.
+    noteSeek(deviceId);
     await controller.seek(deviceId, position);
     return true;
   }

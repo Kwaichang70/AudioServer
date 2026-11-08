@@ -4,6 +4,27 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fase 2: afspelen op de speakers klopt met de wachtrij (B02, B03, B09)
+
+- **Terugspoelen naar het begin** laat de wachtrij niet meer naar het volgende
+  nummer springen. De server vraagt de speaker welke URL hij speelt (Sonos en
+  DLNA melden die), en weet zo of het een nieuw nummer is of hetzelfde.
+  Meldt een speaker niets, dan telt een terugspoelopdracht van de server zelf
+  in de laatste 15 s als terugspoelen.
+- **Wachtrij wijzigen terwijl er een nummer klaarstaat** (verwijderen,
+  "volgende afspelen", shuffle, herhalen): de speaker krijgt meteen het juiste
+  volgende nummer, of vergeet het als er niets meer volgt.
+- **Slaaptimer "stop na dit nummer"**: de speaker vergeet zijn klaarstaande
+  nummer, en als de kamer stopt krijgt de speaker zelf ook een stopopdracht.
+  Eerder stopte alleen de app en kon de speaker doorspelen.
+- **Een bron die niet antwoordt** (Qobuz, radio) houdt een kamer niet meer
+  eindeloos op "laden": na de time-out volgt overslaan of stoppen, en een laat
+  antwoord start geen verkeerd nummer meer.
+- **Een speaker die van het netwerk is verdwenen**: de server zoekt nog één
+  keer en meldt het dan, in plaats van te doen alsof hij speelt.
+- Nog te testen op je echte Sonos en Cocktail Audio: of ze bij terugspoelen en
+  bij het automatisch overgaan de juiste URL melden.
+
 ## Fase 1: veilige koppeling met Spotify en Tidal (B04)
 
 - Elke klik op **Connect** start één koppelactie met een willekeurige

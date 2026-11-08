@@ -63,6 +63,8 @@ export interface DevicePlaybackStatus {
   position: number;
   duration: number;
   volume: number;
+  /** The URL the renderer plays now (GetPositionInfo TrackURI), when it says. */
+  trackUri?: string;
   currentTrack?: TrackMetadata;
   deviceState?: DeviceSessionState;
   lastError?: string;

@@ -3,7 +3,7 @@ const { Client: SsdpClient } = ssdp;
 import xml2js from 'xml2js';
 const { parseStringPromise } = xml2js;
 import { logger } from '../logger.js';
-import { formatRelTime, parseSinkProtocolInfo } from './dlna.js';
+import { formatRelTime, parseSinkProtocolInfo, parseTrackUri } from './dlna.js';
 import type {
   DeviceController,
   OutputDevice,
@@ -356,6 +356,7 @@ export class SonosController implements DeviceController {
       position: this.parseTime(posMatch?.[1] || '0:00:00'),
       duration: this.parseTime(durMatch?.[1] || '0:00:00'),
       volume,
+      trackUri: parseTrackUri(pos),
     };
   }
 

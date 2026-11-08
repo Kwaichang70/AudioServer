@@ -2,7 +2,8 @@ import { SERVER_ORIGIN, type PlaybackService, type TrackInfo } from './playback.
 import { zones } from './zones.js';
 import { DEFAULT_ZONE_ID } from '../db/index.js';
 import { deviceMonitor } from './device-monitor.js';
-import { deviceManager } from '../devices/manager.js';
+import { seekedWithin } from './seek-log.js';
+import { deviceManager, DeviceUnavailableError } from '../devices/manager.js';
 import {
   PlaybackResolveError,
   resolveForDevice,
@@ -40,6 +41,8 @@ export interface ServerPlayerDeps {
     url: string,
     metadata: ResolvedStream['metadata'],
   ) => Promise<void>;
+  /** Make the device forget the next track it was handed (the queue changed, B03). */
+  clearNextUri: (deviceId: string) => Promise<void>;
   /** May this output take a next track in advance? */
   supportsNextUri: (deviceId: string) => Promise<boolean>;
   /** The device just told us it cannot, by failing. */
@@ -71,6 +74,7 @@ const envPolicy = process.env.PLAYBACK_UNPLAYABLE_POLICY === 'stop' ? 'stop' : '
 let deps: ServerPlayerDeps = {
   play: (deviceId, url, metadata) => deviceManager.play(deviceId, url, metadata),
   setNextUri: (deviceId, url, metadata) => deviceManager.setNextUri(deviceId, url, metadata),
+  clearNextUri: (deviceId) => deviceManager.setNextUri(deviceId, ''),
   supportsNextUri,
   noteNextUriFailed,
   recordTransition,
@@ -106,9 +110,13 @@ interface ZonePlayback {
    * dispatching again would restart the track and be the "double dispatch"
    * the sprint's acceptance forbids.
    */
-  armed?: { itemId: string | null; trackId: string; at: number } | null;
+  armed?: { itemId: string | null; trackId: string; at: number; url?: string } | null;
   /** The track that was playing when we armed the next one, for the log. */
   playingTrackId?: string | null;
+  /** The URL sent for the track that plays now: tells a seek from a new track (B02). */
+  playingUrl?: string | null;
+  /** Counts hand-overs, so a slow older one does not overwrite a newer one. */
+  armSeq?: number;
 }
 
 const perZone = new Map<string, ZonePlayback>();
@@ -178,6 +186,7 @@ export function stopServerPlayback(zoneId: string = DEFAULT_ZONE_ID): void {
   state.activeDeviceId = null;
   state.armed = null;
   state.playingTrackId = null;
+  state.playingUrl = null;
   state.dispatchSeq++; // any in-flight dispatch becomes stale
   sessionOf(zoneId).setServerManaged(false);
 }
@@ -243,7 +252,14 @@ export async function dispatch(
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= deps.maxAttempts; attempt++) {
     try {
-      const resolved = await deps.resolve(track, { deviceId, zoneId });
+      // Resolving (asking Qobuz or a radio directory for a URL) is bounded
+      // like the device command: a provider that never answers must not keep
+      // the room on "loading" forever (B09). A late answer is ignored.
+      const resolved = await withTimeout(
+        deps.resolve(track, { deviceId, zoneId }),
+        deps.timeoutMs,
+        `finding a stream for "${track.title}"`,
+      );
       if (stale()) return;
       await withTimeout(
         deps.play(deviceId, resolved.url, resolved.metadata),
@@ -263,6 +279,7 @@ export async function dispatch(
         `ServerPlayer[${zoneId}]: sent "${track.title}" (${resolved.source}) to ${deviceId}`,
       );
       zone.playingTrackId = track.id;
+      zone.playingUrl = resolved.url;
       zone.armed = null;
       void armNext(deviceId, zoneId);
       return;
@@ -298,21 +315,33 @@ async function armNext(deviceId: string, zoneId: string): Promise<void> {
   if (!next) return;
   if (zone.armed?.itemId === next.itemId) return;
 
+  const seq = (zone.armSeq = (zone.armSeq ?? 0) + 1);
   try {
     if (!(await deps.supportsNextUri(deviceId))) return;
-    const resolved = await deps.resolve(next.track, { deviceId, zoneId });
-    if (zone.activeDeviceId !== deviceId) return;
+    const resolved = await withTimeout(
+      deps.resolve(next.track, { deviceId, zoneId }),
+      deps.timeoutMs,
+      `finding a stream for "${next.track.title}"`,
+    );
+    if (zone.activeDeviceId !== deviceId || seq !== zone.armSeq) return;
     await withTimeout(
       deps.setNextUri(deviceId, resolved.url, resolved.metadata),
       deps.timeoutMs,
       `handing "${next.track.title}" to ${deviceId} in advance`,
     );
-    zone.armed = { itemId: next.itemId, trackId: next.track.id, at: Date.now() };
+    if (seq !== zone.armSeq) return; // a newer hand-over is under way
+    zone.armed = { itemId: next.itemId, trackId: next.track.id, at: Date.now(), url: resolved.url };
     logger.info(
       `ServerPlayer[${zoneId}]: "${next.track.title}" armed on ${deviceId} for a gapless start`,
     );
+    // The queue changed while this was on its way: hand over the right one.
+    if (sessionOf(zoneId).peekNext()?.itemId !== next.itemId) revalidateNext(zoneId);
   } catch (err) {
     zone.armed = null;
+    if (err instanceof DeviceUnavailableError || /finding a stream/.test(String(err))) {
+      logger.warn(`ServerPlayer[${zoneId}]: nothing handed over in advance: ${err}`);
+      return;
+    }
     deps.noteNextUriFailed(deviceId);
     logger.info(
       `ServerPlayer[${zoneId}]: ${deviceId} will not take the next track in advance (${err}); dispatching at the end instead`,
@@ -383,12 +412,79 @@ function handleUnplayable(
  * follows; nothing is dispatched. Only trusted when this zone really armed
  * something, so a listener seeking back to the start changes nothing.
  */
-export function onDeviceAdvanced(deviceId: string): void {
+export function onDeviceAdvanced(deviceId: string, trackUri?: string): void {
   const zoneId = zoneDriving(deviceId);
   if (!zoneId) return;
   const zone = zoneState(zoneId);
   if (!zone.armed) return;
+  if (judgeRestart(zone, deviceId, trackUri) === 'seek') {
+    logger.info(
+      `ServerPlayer[${zoneId}]: ${deviceId} went back to the start of the same track (a seek); the queue stays`,
+    );
+    return;
+  }
   sessionOf(zoneId).deviceAdvanced();
+}
+
+/** The part of a stream URL that names the track: path and query, no host. */
+function streamKey(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.pathname}${u.search}`;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * The device's position fell back to the start while it plays (B02): did it
+ * move on to the track handed over in advance, or was the same track sought
+ * back? The URL it reports says so when it reports one and the two URLs
+ * differ; otherwise a seek the server itself sent in the last 15 s decides.
+ */
+export function judgeRestart(
+  zone: Pick<ZonePlayback, 'armed' | 'playingUrl'>,
+  deviceId: string,
+  trackUri: string | undefined,
+): 'advanced' | 'seek' {
+  const armedUrl = zone.armed?.url;
+  const playingUrl = zone.playingUrl;
+  if (trackUri && armedUrl && playingUrl && streamKey(armedUrl) !== streamKey(playingUrl)) {
+    if (streamKey(trackUri) === streamKey(armedUrl)) return 'advanced';
+    if (streamKey(trackUri) === streamKey(playingUrl)) return 'seek';
+  }
+  return seekedWithin(deviceId, 15_000) ? 'seek' : 'advanced';
+}
+
+/**
+ * The queue, shuffle, repeat or a sleep timer changed (B03): what the device
+ * holds as "next" must still be what the queue will play next. Otherwise it
+ * gets the right one, or — when nothing should follow — is told to forget it.
+ */
+export function revalidateNext(zoneId: string): void {
+  const zone = zoneState(zoneId);
+  const deviceId = zone.activeDeviceId;
+  if (!deviceId) return;
+  const next = sessionOf(zoneId).peekNext();
+  if (zone.armed && next?.itemId === zone.armed.itemId) return;
+  if (!zone.armed && !next) return;
+  const was = zone.armed;
+  zone.armed = null;
+  zone.armSeq = (zone.armSeq ?? 0) + 1; // whatever is on its way is outdated
+  if (next) {
+    void armNext(deviceId, zoneId);
+    return;
+  }
+  if (was) {
+    deps
+      .clearNextUri(deviceId)
+      .then(() => logger.info(`ServerPlayer[${zoneId}]: ${deviceId} no longer holds a next track`))
+      .catch((err) =>
+        logger.info(
+          `ServerPlayer[${zoneId}]: could not clear the next track on ${deviceId} (${err}); it is stopped at the boundary instead`,
+        ),
+      );
+  }
 }
 
 /** Device monitor gave up on the pinned device: no fictitious "playing". */
@@ -536,8 +632,15 @@ export function initServerPlayer(): void {
       if (deviceId === zoneState(zoneId).activeDeviceId) {
         sessionOf(zoneId).setDispatch({ state: 'idle', deviceId });
         stopServerPlayback(zoneId);
+        // The session is done, but a renderer that was handed a next track
+        // (or a stop-after timer at this boundary) would play on by itself:
+        // tell the speaker itself to stop (B03).
+        deps
+          .stopDevice(deviceId)
+          .catch((err) => logger.warn(`ServerPlayer[${zoneId}]: stopping ${deviceId}: ${err}`));
       }
     },
+    onQueueChanged: (zoneId) => revalidateNext(zoneId),
   });
   deviceMonitor.setUnreachableHandler(onDeviceUnreachable);
   deviceMonitor.setDeviceAdvancedHandler(onDeviceAdvanced);
@@ -552,5 +655,6 @@ export function resetServerPlayerForTests(): void {
     state.consecutiveSkips = 0;
     state.armed = null;
     state.playingTrackId = null;
+    state.playingUrl = null;
   }
 }

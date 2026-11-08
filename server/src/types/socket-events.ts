@@ -111,6 +111,8 @@ export interface DevicePlaybackUpdate {
   position: number;
   duration: number;
   volume: number;
+  /** The URL the device plays now, when it says (tells a seek from a new track). */
+  trackUri?: string;
 }
 
 export interface ServerToClientEvents {

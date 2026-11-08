@@ -10,10 +10,13 @@ import {
   initServerPlayer,
   onDeviceAdvanced,
   resetServerPlayerForTests,
+  revalidateNext,
   startServerPlayback,
   stopServerPlayback,
 } from '../services/server-player.js';
 import { listTransitions } from '../services/transitions.js';
+import { noteSeek } from '../services/seek-log.js';
+import { cancelSleepTimer, setSleepTimer } from '../services/sleep-timer.js';
 import type { DevicePlaybackStatus } from '@audioserver/shared';
 
 /**
@@ -32,6 +35,8 @@ describe('handing the next track over in advance', () => {
   let statuses: DevicePlaybackStatus[];
   let supports: boolean;
   let armFails: boolean;
+  let cleared: number;
+  let stopped: string[];
 
   const tabA = { clientId: 'tab-a', sessionId: 's-a' };
   const local = (id: string) => ({
@@ -44,11 +49,13 @@ describe('handing the next track over in advance', () => {
   const status = (
     state: DevicePlaybackStatus['state'],
     position: number,
+    trackUri?: string,
   ): DevicePlaybackStatus => ({
     state,
     position,
     duration: 100,
     volume: 30,
+    ...(trackUri ? { trackUri } : {}),
   });
 
   const poll = async () => {
@@ -65,6 +72,8 @@ describe('handing the next track over in advance', () => {
     statuses = [];
     supports = true;
     armFails = false;
+    cleared = 0;
+    stopped = [];
 
     configureServerPlayer({
       play: (async (_deviceId: string, url: string) => {
@@ -74,6 +83,12 @@ describe('handing the next track over in advance', () => {
         if (armFails) throw new Error('renderer refuses SetNextAVTransportURI');
         armed.push(url);
       }) as never,
+      clearNextUri: async () => {
+        cleared++;
+      },
+      stopDevice: async (deviceId: string) => {
+        stopped.push(deviceId);
+      },
       supportsNextUri: async () => supports,
       noteNextUriFailed: vi.fn(),
       resolve: (async (track: { id: string; title: string }) => ({
@@ -191,5 +206,90 @@ describe('handing the next track over in advance', () => {
 
     expect(played).toEqual(['http://nas/stream/a']);
     expect(armed).toEqual([]);
+  });
+
+  // ─── ANALYSE_EN_VERBETERPLAN B02, B03, B09 ─────────────────────────
+
+  it('B02: a seek back to 0:01 with the next track armed keeps the queue (URL says so)', async () => {
+    await startAlbum();
+    expect(armed).toEqual(['http://nas/stream/b']);
+    statuses = [
+      status('playing', 60, 'http://nas/stream/a'),
+      status('playing', 1, 'http://nas/stream/a'),
+    ];
+    await poll();
+    await poll();
+    expect(playbackService.getCurrentTrack()?.id).toBe('a');
+  });
+
+  it('B02: the device playing the armed URL moves the queue on, once', async () => {
+    await startAlbum();
+    statuses = [
+      status('playing', 95, 'http://nas/stream/a'),
+      status('playing', 2, 'http://nas/stream/b'),
+      status('playing', 4, 'http://nas/stream/b'),
+    ];
+    await poll();
+    await poll();
+    await poll();
+    expect(playbackService.getCurrentTrack()?.id).toBe('b');
+    expect(played).toEqual(['http://nas/stream/a']);
+  });
+
+  it('B02: without a URL from the device, a seek the server just sent keeps the queue', async () => {
+    await startAlbum();
+    noteSeek('speaker');
+    statuses = [status('playing', 60), status('playing', 1)];
+    await poll();
+    await poll();
+    expect(playbackService.getCurrentTrack()?.id).toBe('a');
+  });
+
+  it('B03: removing the armed track hands the right next one over', async () => {
+    await startAlbum();
+    const b = playbackService.getQueue().find((e) => e.trackId === 'b')!;
+    playbackService.removeItem(b.itemId, tabA);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(armed).toEqual(['http://nas/stream/b', 'http://nas/stream/c']);
+  });
+
+  it('B03: "play next" puts its track in the hand-over', async () => {
+    await startAlbum();
+    playbackService.insertNext([local('x')], tabA);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(armed.at(-1)).toBe('http://nas/stream/x');
+  });
+
+  it('B03: a stop-after-this-track timer makes the device forget its next track', async () => {
+    await startAlbum();
+    const zoneId = playbackService.getZoneId();
+    const current = playbackService.getQueue()[0];
+    setSleepTimer(zoneId, {
+      mode: 'endOfTrack',
+      current: { itemId: current.itemId, albumId: current.albumId ?? null },
+      userId: null,
+    });
+    revalidateNext(zoneId);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(cleared).toBe(1);
+    cancelSleepTimer(zoneId);
+  });
+
+  it('B03: when the room goes idle, the speaker itself is told to stop', async () => {
+    await startAlbum();
+    playbackService.stop(tabA);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(stopped).toEqual(['speaker']);
+  });
+
+  it('B09: a provider that never answers does not keep the room loading', async () => {
+    configureServerPlayer({ resolve: (() => new Promise(() => {})) as never });
+    playbackService.setQueue([local('a'), local('b')], 0, tabA, 'speaker');
+    startServerPlayback('user-1', 'speaker');
+    playbackService.playItem(playbackService.getCurrentItemId()!, tabA, 'speaker');
+    // timeoutMs is 200 here; policy "stop" ends the session after one attempt.
+    await new Promise((r) => setTimeout(r, 400));
+    expect(played).toEqual([]);
+    expect(playbackService.getState().state).toBe('stopped');
   });
 });

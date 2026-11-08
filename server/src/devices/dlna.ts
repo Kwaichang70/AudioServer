@@ -50,6 +50,18 @@ export function parseSinkProtocolInfo(xml: string): string[] {
 }
 
 /** Seconds → `H:MM:SS`, the REL_TIME format AVTransport expects. */
+/** The URL a renderer reports in GetPositionInfo, XML entities decoded; undefined when empty. */
+export function parseTrackUri(positionInfo: string): string | undefined {
+  const raw = positionInfo.match(/<TrackURI>([^<]*)<\/TrackURI>/)?.[1]?.trim();
+  if (!raw) return undefined;
+  return raw
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
 export function formatRelTime(position: number): string {
   const total = Math.max(0, Math.floor(position));
   const hours = Math.floor(total / 3600);
@@ -340,7 +352,8 @@ export class DlnaController implements DeviceController {
    */
   async setNextUri(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void> {
     const device = this.getDevice(deviceId);
-    const didl = this.buildDidlMetadata(streamUrl, metadata);
+    // An empty URL clears what was handed over (the queue changed).
+    const didl = streamUrl ? this.buildDidlMetadata(streamUrl, metadata) : '';
     await this.sendAction(device.controlUrl, 'SetNextAVTransportURI', {
       InstanceID: '0',
       NextURI: streamUrl,
@@ -460,6 +473,7 @@ export class DlnaController implements DeviceController {
       position: this.parseTime(posMatch?.[1] || '0:00:00'),
       duration: this.parseTime(durMatch?.[1] || '0:00:00'),
       volume,
+      trackUri: parseTrackUri(posResult),
     };
   }
 

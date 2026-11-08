@@ -125,6 +125,8 @@ export function observeTrackStarts(observer: TrackStartObserver): () => void {
 export interface PlaybackHooks {
   onAdvance?: (deviceId: string, track: TrackInfo, itemId: string | null, zoneId: string) => void;
   onIdle?: (deviceId: string, zoneId: string) => void;
+  /** Queue, shuffle or repeat changed: the server re-checks what the speaker holds as next. */
+  onQueueChanged?: (zoneId: string) => void;
 }
 
 /** What initialize() found on disk; the server player reconciles it with the device. */
@@ -369,8 +371,7 @@ export class PlaybackService {
       this.appliedCommands.clear();
 
       const row = db.prepare('SELECT * FROM playback_state WHERE zone_id = ?').get(this.zoneId) as
-        | PlaybackStateRow
-        | undefined;
+        PlaybackStateRow | undefined;
       if (row) {
         this.state = {
           deviceId: row.device_id || 'browser',
@@ -1453,6 +1454,7 @@ export class PlaybackService {
     } catch (err) {
       logger.debug(`PlaybackService: emit queue failed: ${err}`);
     }
+    this.hooks.onQueueChanged?.(this.zoneId);
   }
 
   /** Queue items after the current one. */

@@ -44,7 +44,7 @@ interface DeviceMonitorDependencies {
    * The device started a new track by itself (V11.3): it was handed the next
    * url in advance. The queue has to follow without anyone dispatching again.
    */
-  onDeviceAdvanced?: (deviceId: string) => void;
+  onDeviceAdvanced?: (deviceId: string, trackUri?: string) => void;
   /** Milliseconds between polls (tests shorten it). */
   pollIntervalMs?: number;
   /** A single status request slower than this counts as a failure. */
@@ -115,7 +115,7 @@ export class DeviceMonitor {
   }
 
   /** Same, for a device that moves to the next track on its own (V11.3). */
-  setDeviceAdvancedHandler(handler: (deviceId: string) => void): void {
+  setDeviceAdvancedHandler(handler: (deviceId: string, trackUri?: string) => void): void {
     this.deps = { ...this.deps, onDeviceAdvanced: handler };
   }
 
@@ -258,6 +258,7 @@ export class DeviceMonitor {
       position: status.position,
       duration: status.duration,
       volume: status.volume,
+      ...(status.trackUri ? { trackUri: status.trackUri } : {}),
     };
 
     const last = this.lastStates.get(deviceId);
@@ -299,7 +300,8 @@ export class DeviceMonitor {
           `DeviceMonitor: ${update.deviceId} restarted its position after ${Math.round(peak.position)}s; the device moved to the next track itself`,
         );
         this.playingPeaks.delete(update.deviceId);
-        this.deps.onDeviceAdvanced?.(update.deviceId);
+        // The URL it plays now lets the handler tell a new track from a seek.
+        this.deps.onDeviceAdvanced?.(update.deviceId, update.trackUri);
       }
       this.rememberProgress(update);
     }
