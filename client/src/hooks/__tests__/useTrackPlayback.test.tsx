@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
     librespotStatus: vi.fn(),
     librespotPlayToDevice: vi.fn(),
     getDevices: vi.fn(),
+    playSpotifyAlbumInRoom: vi.fn(),
+    spotifyConnectPlayContext: vi.fn(),
   },
 }));
 
@@ -131,6 +133,40 @@ describe('useTrackPlayback', () => {
       },
       'local-1',
     );
+  });
+
+  it('has the server start a Spotify album on a speaker room, from the clicked track', async () => {
+    mocks.api.playSpotifyAlbumInRoom.mockResolvedValue({ data: {} });
+    const track = { ...localTrack, id: 'spotify:t2', albumId: 'spotify:kob' };
+    const options = createOptions({
+      selectedDeviceId: 'sonos:wk',
+      getQueue: () => [track],
+      roomForDevice: (d: string) => (d === 'sonos:wk' ? 'zone-wk' : null),
+    });
+    const { result } = renderHook(() => useTrackPlayback(options));
+    act(() => result.current.startTrack(track));
+    await waitFor(() =>
+      expect(mocks.api.playSpotifyAlbumInRoom).toHaveBeenCalledWith(
+        'zone-wk',
+        'spotify:kob',
+        'spotify:track:t2',
+      ),
+    );
+    expect(mocks.api.spotifyConnectPlayContext).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the app\u2019s own Spotify Connect matching when the room cannot', async () => {
+    mocks.api.playSpotifyAlbumInRoom.mockRejectedValue(new Error('Spotify does not see it'));
+    mocks.api.spotifyConnectPlayContext.mockResolvedValue({});
+    const track = { ...localTrack, id: 'spotify:t2', albumId: 'spotify:kob' };
+    const options = createOptions({
+      selectedDeviceId: 'sonos:wk',
+      getQueue: () => [track],
+      roomForDevice: () => 'zone-wk',
+    });
+    const { result } = renderHook(() => useTrackPlayback(options));
+    act(() => result.current.startTrack(track));
+    await waitFor(() => expect(mocks.api.spotifyConnectPlayContext).toHaveBeenCalled());
   });
 
   it('targets an explicitly selected Spotify Connect device', async () => {

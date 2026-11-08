@@ -66,8 +66,7 @@ const qid = (id: string) => (id.startsWith('qobuz:') ? id : `qobuz:${id}`);
 function resolveArtist(qobuzArtistId: string, name: string): string {
   const db = getRawDb();
   const existing = db.prepare('SELECT id FROM artists WHERE name = ? COLLATE NOCASE').get(name) as
-    | { id: string }
-    | undefined;
+    { id: string } | undefined;
   if (existing) return existing.id;
   const raw = bare(qobuzArtistId);
   const id = raw ? `qobuz:${raw}` : `qobuz:artist:${name.toLowerCase()}`;
@@ -220,10 +219,15 @@ export async function addQobuzTrack(trackId: string): Promise<AddedToLibrary> {
  * own snapshot, as it does for a purged file.
  */
 export function removeQobuzAlbum(albumId: string): boolean {
+  return removeStreamingAlbum(albumId, 'qobuz');
+}
+
+/** Take an added streaming album (Qobuz or Spotify) out of the library. */
+export function removeStreamingAlbum(albumId: string, source: 'qobuz' | 'spotify'): boolean {
   const db = getRawDb();
   const album = db
-    .prepare("SELECT id, artist_id FROM albums WHERE id = ? AND source = 'qobuz'")
-    .get(albumId) as { id: string; artist_id: string } | undefined;
+    .prepare('SELECT id, artist_id FROM albums WHERE id = ? AND source = ?')
+    .get(albumId, source) as { id: string; artist_id: string } | undefined;
   if (!album) return false;
   db.transaction(() => {
     const trackIds = (
@@ -239,12 +243,12 @@ export function removeQobuzAlbum(albumId: string): boolean {
     db.prepare('DELETE FROM tracks WHERE album_id = ?').run(album.id);
     db.prepare('DELETE FROM album_genres WHERE album_id = ?').run(album.id);
     db.prepare('DELETE FROM albums WHERE id = ?').run(album.id);
-    // A Qobuz-only artist with nothing left goes too; a local artist stays.
+    // A streaming-only artist with nothing left goes too; a local artist stays.
     db.prepare(
-      `DELETE FROM artists WHERE source = 'qobuz' AND id = ?
+      `DELETE FROM artists WHERE source = ? AND id = ?
           AND NOT EXISTS (SELECT 1 FROM albums WHERE artist_id = artists.id)
           AND NOT EXISTS (SELECT 1 FROM tracks WHERE artist_id = artists.id)`,
-    ).run(album.artist_id);
+    ).run(source, album.artist_id);
   })();
   return true;
 }

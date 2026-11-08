@@ -48,6 +48,8 @@ interface TrackPlaybackOptions {
   toast: Toast;
   /** Current play queue — used to decide album-context vs single-URI Spotify playback. */
   getQueue: () => TrackInfo[];
+  /** The room (zone id) a speaker device belongs to, so the server can start Spotify there. */
+  roomForDevice?: (deviceId: string) => string | null;
 }
 
 interface PlaybackContext extends TrackPlaybackOptions {
@@ -225,6 +227,26 @@ async function playSpotifyTrack(context: PlaybackContext): Promise<void> {
     : 'Speelt via Spotify Connect';
 
   try {
+    // A speaker room and a whole album: the server starts it on the room's
+    // Spotify Connect device, so the room shows it and Homey/Grok can steer
+    // it, and it plays on with no tab open. Failing that, the paths below.
+    const room =
+      contextUri && deviceId !== 'browser' && !deviceId.startsWith(SPOTIFY_CONNECT_PREFIX)
+        ? (context.roomForDevice?.(deviceId) ?? null)
+        : null;
+    if (room) {
+      try {
+        await api.playSpotifyAlbumInRoom(room, albumId!, spotifyTrackUri);
+        if (!isCurrent()) return;
+        setIsLoading(false);
+        toast(connectToast, 'success');
+        return;
+      } catch (error) {
+        if (!isCurrent()) return;
+        console.warn('[AudioServer] Spotify in the room via the server failed:', error);
+      }
+    }
+
     // An explicitly selected Spotify Connect target can be addressed directly.
     if (deviceId.startsWith(SPOTIFY_CONNECT_PREFIX)) {
       await playOnConnect(deviceId.slice(SPOTIFY_CONNECT_PREFIX.length));

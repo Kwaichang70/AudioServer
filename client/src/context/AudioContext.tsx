@@ -208,6 +208,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   // which room this tab steers. Every request carries it and only that room's
   // events are applied — pressing pause here can never touch another room.
   const [zoneList, setZoneList] = useState<ZoneOverview[]>([]);
+  const zoneListRef = useRef(zoneList);
+  zoneListRef.current = zoneList;
   const refreshZones = useCallback(() => {
     api
       .getZones()
@@ -402,6 +404,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     fallbackToBrowserPlayback,
     toast,
     getQueue: () => queueRef.current,
+    roomForDevice: (deviceId) =>
+      zoneListRef.current.find((z) => z.deviceId === deviceId)?.id ?? null,
   });
 
   // ─── Server session mirror ─────────────────────────────────────

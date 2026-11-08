@@ -41,6 +41,7 @@ interface SpotifyTrackResponse {
   album?: SpotifyAlbumResponse;
   artists?: SpotifyArtistSummaryResponse[];
   track_number?: number;
+  disc_number?: number;
   duration_ms?: number;
 }
 
@@ -591,6 +592,21 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * An album with its tracks in one call, for adding it to the library. Unlike
+   * getAlbum it says why it failed (an error, not null).
+   */
+  async fetchAlbumForLibrary(albumId: string): Promise<{ album: Album; tracks: Track[] }> {
+    const spotifyId = albumId.replace('spotify:', '');
+    const data = await this.apiRequest<SpotifyAlbumResponse>(`/albums/${spotifyId}`);
+    return {
+      album: this.mapAlbum(data),
+      tracks: (data.tracks?.items || [])
+        .filter((track): track is SpotifyTrackResponse => Boolean(track?.id))
+        .map((track) => ({ ...this.mapTrack(track, data), discNumber: track.disc_number ?? 1 })),
+    };
   }
 
   async getAlbumTracks(albumId: string): Promise<Track[]> {

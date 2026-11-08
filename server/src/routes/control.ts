@@ -92,6 +92,7 @@ controlRouter.post(
         artist: z.string().min(1).max(200).optional(),
         shuffle: z.boolean().optional(),
         source: z.enum(['library', 'spotify']).optional(),
+        startTrack: z.string().min(1).max(200).optional(),
       })
       .refine((b) => b.playlist || b.album || b.artist, {
         message: 'Say what to play: playlist, album or artist',

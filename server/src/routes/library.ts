@@ -50,6 +50,13 @@ import {
   removeQobuzAlbum,
 } from '../services/qobuz-library.js';
 import { QobuzProviderError } from '../providers/qobuz.js';
+import { SpotifyProviderError } from '../providers/spotify.js';
+import {
+  addSpotifyAlbum,
+  removeSpotifyAlbum,
+  spotifyAlbumsInLibrary,
+  SpotifyLibraryError,
+} from '../services/spotify-library.js';
 import {
   afterAdd,
   afterRemove,
@@ -489,11 +496,53 @@ libraryRouter.get('/qobuz/in-library', (req, res) => {
   res.json({ data: qobuzAlbumsInLibrary(ids) });
 });
 
-// Remove a Qobuz album from the library. Local albums are files: the scanner
-// and the missing-tracks purge decide about those, never this route.
+// ─── Spotify in the library ──────────────────────────────────────
+
+const spotifyIdParam = z.string().regex(/^(spotify:)?[A-Za-z0-9]{1,64}$/);
+
+libraryRouter.post(
+  '/spotify/albums/:id',
+  asyncHandler(async (req, res) => {
+    if (!requireOwner(req, res)) return;
+    const id = spotifyIdParam.safeParse(req.params.id);
+    if (!id.success) return res.status(400).json({ error: 'Not a Spotify album id' });
+    try {
+      res.status(201).json({ data: await addSpotifyAlbum(id.data) });
+    } catch (err) {
+      if (err instanceof SpotifyLibraryError) {
+        return res
+          .status(err.code === 'not_connected' ? 409 : 404)
+          .json({ error: err.code, message: err.message });
+      }
+      if (err instanceof SpotifyProviderError) {
+        return res.status(err.statusCode).json({ error: err.code, message: err.message });
+      }
+      throw err;
+    }
+  }),
+);
+
+// Which Spotify albums are already in the library, for "In library ✓".
+libraryRouter.get('/spotify/in-library', (req, res) => {
+  const ids = String(req.query.ids ?? '')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+  res.json({ data: spotifyAlbumsInLibrary(ids) });
+});
+
+// Remove an added streaming album (Qobuz or Spotify) from the library. Local
+// albums are files: the scanner and the missing-tracks purge decide about
+// those, never this route.
 libraryRouter.delete('/albums/:id', (req, res) => {
   if (!requireOwner(req, res)) return;
   const albumId = String(req.params.id);
+  if (albumId.startsWith('spotify:')) {
+    if (!removeSpotifyAlbum(albumId)) {
+      return res.status(404).json({ error: 'No Spotify album with that id in the library' });
+    }
+    return res.json({ data: { ok: true } });
+  }
   if (!removeQobuzAlbum(albumId)) {
     return res.status(404).json({ error: 'No Qobuz album with that id in the library' });
   }

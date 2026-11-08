@@ -137,19 +137,37 @@ export default function AlbumPage() {
     };
 
     if (providerType === 'spotify') {
+      // A Spotify album you added is a library album, like an added Qobuz one;
+      // otherwise it is Spotify's page, with "Add".
       const spotifyId = id.replace('spotify:', '');
+      const fromSpotify = () => {
+        api
+          .getSpotifyAlbum(spotifyId)
+          .then((res) => {
+            if (!cancelled) setAlbum(res.data);
+          })
+          .catch(() => {});
+        api
+          .getSpotifyAlbumTracks(spotifyId)
+          .then((res) => {
+            if (!cancelled) setTracks(res.data);
+          })
+          .catch(() => {});
+      };
       api
-        .getSpotifyAlbum(spotifyId)
+        .getSpotifyLibraryState([spotifyId])
         .then((res) => {
-          if (!cancelled) setAlbum(res.data);
+          if (cancelled) return;
+          const added = (res.data ?? []).includes(id);
+          setInLibrary(added);
+          if (added) loadFromLibrary();
+          else fromSpotify();
         })
-        .catch(() => {});
-      api
-        .getSpotifyAlbumTracks(spotifyId)
-        .then((res) => {
-          if (!cancelled) setTracks(res.data);
-        })
-        .catch(() => {});
+        .catch(() => {
+          if (cancelled) return;
+          setInLibrary(false);
+          fromSpotify();
+        });
     } else if (providerType === 'qobuz') {
       // R07.1: a Qobuz album you added is a library album — same page, same
       // hearts, tags and stars. Otherwise it is Qobuz's page, with "Add".
@@ -211,13 +229,16 @@ export default function AlbumPage() {
     if (activeAlbumIdRef.current === albumId) setFavorited(res.data.favorited);
   };
 
-  /** R07.1: put a Qobuz album in the library, or take it out again. */
+  /** R07.1: put a Qobuz or Spotify album in the library, or take it out again. */
   const toggleLibrary = async () => {
     if (!id) return;
+    const spotify = providerType === 'spotify';
     if (
       inLibrary &&
       !window.confirm(
-        `Remove “${album?.title ?? 'this album'}” from your library? It is also removed from your Qobuz favourites.`,
+        spotify
+          ? `Remove “${album?.title ?? 'this album'}” from your library? It stays on Spotify.`
+          : `Remove “${album?.title ?? 'this album'}” from your library? It is also removed from your Qobuz favourites.`,
       )
     ) {
       return;
@@ -225,6 +246,7 @@ export default function AlbumPage() {
     setLibraryBusy(true);
     try {
       if (inLibrary) await api.removeQobuzAlbumFromLibrary(id);
+      else if (spotify) await api.addSpotifyAlbumToLibrary(id);
       else await api.addQobuzAlbumToLibrary(id);
       setReloadKey((k) => k + 1);
     } catch {
@@ -338,16 +360,18 @@ export default function AlbumPage() {
             {id && isLibrary && (
               <RatingStars kind="album" id={id} title={album.title} size="lg" library={isLibrary} />
             )}
-            {id && providerType === 'qobuz' && inLibrary !== null && (
-              <Button
-                size="sm"
-                variant={inLibrary ? 'ghost' : 'accent'}
-                disabled={libraryBusy}
-                onClick={() => void toggleLibrary()}
-              >
-                {inLibrary ? 'In library ✓ · Remove' : '+ Add to library'}
-              </Button>
-            )}
+            {id &&
+              (providerType === 'qobuz' || providerType === 'spotify') &&
+              inLibrary !== null && (
+                <Button
+                  size="sm"
+                  variant={inLibrary ? 'ghost' : 'accent'}
+                  disabled={libraryBusy}
+                  onClick={() => void toggleLibrary()}
+                >
+                  {inLibrary ? 'In library ✓ · Remove' : '+ Add to library'}
+                </Button>
+              )}
           </div>
         </div>
       </div>

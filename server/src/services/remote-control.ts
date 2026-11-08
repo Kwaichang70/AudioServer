@@ -162,7 +162,10 @@ export function listRooms() {
 
 // ─── What to play ────────────────────────────────────────────────
 
-const playable = "COALESCE(t.availability, 'available') NOT IN ('missing', 'unavailable')";
+// What the server can play itself: not missing, and not a Spotify track (those
+// only play through Spotify Connect, see playInRoom).
+const playable =
+  "COALESCE(t.availability, 'available') NOT IN ('missing', 'unavailable') AND COALESCE(t.source, 'local') != 'spotify'";
 
 interface TrackRow {
   id: string;
@@ -214,7 +217,7 @@ function playlistTracks(userId: string, wanted: string): { name: string; tracks:
   const found = matchByName(all, wanted, 'playlist');
   if (found.kind === 'playlist') {
     const tracks = listItems(found.id)
-      .filter((i) => i.availability === 'available')
+      .filter((i) => i.availability === 'available' && i.source !== 'spotify')
       .map((i): TrackInfo => ({
         id: i.id,
         title: i.title,
@@ -247,16 +250,22 @@ function playlistTracks(userId: string, wanted: string): { name: string; tracks:
   return { name: found.name, tracks };
 }
 
-function albumTracks(wanted: string, artist?: string): { name: string; tracks: TrackInfo[] } {
-  const db = getRawDb();
-  let albums = db
-    .prepare('SELECT id, title AS name, artist_name AS artist FROM albums ORDER BY title')
-    .all() as Array<{ id: string; name: string; artist: string }>;
+function findAlbum(wanted: string, artist?: string) {
+  let albums = getRawDb()
+    .prepare(
+      "SELECT id, title AS name, artist_name AS artist, COALESCE(source, 'local') AS source FROM albums ORDER BY title",
+    )
+    .all() as Array<{ id: string; name: string; artist: string; source: string }>;
   if (artist) {
     const a = searchText(artist);
     albums = albums.filter((x) => searchText(x.artist).includes(a));
   }
-  const album = matchByName(albums, wanted, 'album');
+  return matchByName(albums, wanted, 'album');
+}
+
+function albumTracks(wanted: string, artist?: string): { name: string; tracks: TrackInfo[] } {
+  const db = getRawDb();
+  const album = findAlbum(wanted, artist);
   const tracks = (
     db
       .prepare(
@@ -292,6 +301,8 @@ export interface PlayRequest {
   album?: string;
   artist?: string;
   shuffle?: boolean;
+  /** Spotify: start at this track of the album or playlist. */
+  startTrack?: string;
   /** Where to find it: the library (default) or Spotify, played by the speaker itself. */
   source?: 'library' | 'spotify';
 }
@@ -299,7 +310,24 @@ export interface PlayRequest {
 /** Play a playlist, an album or an artist in a room, from the library or Spotify. */
 export async function playInRoom(userId: string, request: PlayRequest, origin: PlaybackOrigin) {
   if (request.source === 'spotify') return playSpotifyInRoom(request);
+  // A Spotify album in the library has no audio here: its speaker plays it
+  // from Spotify, the whole album, as "Play in" does.
+  if (request.album && !request.playlist) {
+    const spotifyAlbum = libraryAlbum(request.album, request.artist);
+    if (spotifyAlbum?.source === 'spotify') {
+      return playSpotifyInRoom({ ...request, album: spotifyAlbum.id, artist: undefined });
+    }
+  }
   return playFromLibrary(userId, request, origin);
+}
+
+function libraryAlbum(wanted: string, artist?: string): { id: string; source: string } | null {
+  try {
+    const found = findAlbum(wanted, artist);
+    return { id: found.id, source: found.source };
+  } catch {
+    return null; // playFromLibrary says what is wrong
+  }
 }
 
 function playFromLibrary(userId: string, request: PlayRequest, origin: PlaybackOrigin) {

@@ -192,6 +192,8 @@ export interface SpotifyPlayRequest {
   album?: string;
   artist?: string;
   shuffle?: boolean;
+  /** Start at this track of the album or playlist (`spotify:…`), e.g. the one clicked. */
+  startTrack?: string;
 }
 
 interface Chosen {
@@ -210,6 +212,16 @@ async function chooseOnSpotify(request: SpotifyPlayRequest): Promise<Chosen> {
       name: found.name,
       contextUri: `spotify:playlist:${rawId(found.id)}`,
       trackCount: found.trackCount,
+    };
+  }
+  // By id: an album from the library or an album page, no search needed.
+  if (request.album?.startsWith('spotify:')) {
+    const album = await spotify().getAlbum(request.album);
+    if (!album) throw new ControlError('not_found', 'Spotify does not know that album.');
+    return {
+      name: `${album.title} (${album.artistName})`,
+      contextUri: `spotify:album:${rawId(album.id)}`,
+      trackCount: album.trackCount,
     };
   }
   if (request.album) {
@@ -282,8 +294,9 @@ async function startOnSpotify(request: SpotifyPlayRequest) {
   const state = zones.sessionFor(zone.id).getState().state;
   if (state !== 'stopped') await stopRoom(zone.id);
 
-  const offset =
-    request.shuffle && chosen.trackCount && chosen.trackCount > 1
+  const offset: number | { uri: string } | undefined = request.startTrack
+    ? { uri: `spotify:track:${rawId(request.startTrack)}` }
+    : request.shuffle && chosen.trackCount && chosen.trackCount > 1
       ? Math.floor(Math.random() * chosen.trackCount)
       : undefined;
   await spotify().connectPlayContext(chosen.contextUri, device.id, offset);

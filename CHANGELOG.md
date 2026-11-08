@@ -4,6 +4,23 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Spotify-albums in je bibliotheek
+
+- Op een Spotify-albumpagina staat **+ Add to library**, zoals bij Qobuz. Het
+  album komt tussen je eigen albums, onder de artiest die je al hebt (bijv.
+  Miles Davis van een cd en van Spotify samen). Hoes en gegevens worden
+  bewaard, dus de bibliotheek vraagt Spotify niets. **In library ✓ · Remove**
+  haalt het eruit; op Spotify blijft het staan.
+- Afspelen in een kamer met een speaker gaat via **Spotify Connect**: de
+  speaker speelt het hele album zelf, vanaf het aangeklikte nummer. Dat geldt
+  ook voor Spotify-albums buiten de bibliotheek, als je de app op een
+  speakerkamer hebt staan. De kamer toont het en Homey/Grok kunnen het
+  bedienen; de app hoeft niet open te blijven.
+- Homey/Grok: "speel album Kind of Blue in de Woonkamer" vindt ook een
+  Spotify-album uit de bibliotheek en speelt het via Spotify Connect.
+- Een wachtrij die de server zelf speelt (artiest, playlist) slaat
+  Spotify-nummers over: die kunnen alleen via Spotify Connect spelen.
+
 ## Kamers tonen wat Spotify er speelt
 
 - Speelt Spotify op de speaker van een kamer (gestart via Homey, Grok of

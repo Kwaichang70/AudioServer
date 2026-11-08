@@ -977,6 +977,16 @@ export const api = {
     action: 'pause' | 'resume' | 'next' | 'previous' | 'stop',
   ): Promise<ApiResponse<unknown>> =>
     fetchApi(`/control/${action}`, { method: 'POST', body: JSON.stringify({ room }) }),
+  /** A Spotify album on a room's speaker, starting at one of its tracks. */
+  playSpotifyAlbumInRoom: (
+    room: string,
+    album: string,
+    startTrack?: string,
+  ): Promise<ApiResponse<{ room: string; playing: string; speaker: string }>> =>
+    fetchApi('/control/play', {
+      method: 'POST',
+      body: JSON.stringify({ room, album, startTrack, source: 'spotify' }),
+    }),
   /** Spotify on a room's speaker through Spotify Connect (the server picks the device). */
   playSpotifyInRoom: (
     room: string,
@@ -1010,6 +1020,17 @@ export const api = {
     fetchApi(`/library/qobuz/tracks/${encodeURIComponent(id.replace(/^qobuz:/, ''))}`, {
       method: 'POST',
     }),
+  getSpotifyLibraryState: (ids: string[]): Promise<ApiResponse<string[]>> =>
+    fetchApi(`/library/spotify/in-library?ids=${ids.map(encodeURIComponent).join(',')}`),
+  addSpotifyAlbumToLibrary: (
+    id: string,
+  ): Promise<
+    ApiResponse<{ albumId: string; title: string; artistName: string; trackCount: number }>
+  > =>
+    fetchApi(`/library/spotify/albums/${encodeURIComponent(id.replace(/^spotify:/, ''))}`, {
+      method: 'POST',
+    }),
+  /** Takes an added Qobuz or Spotify album out of the library. */
   removeQobuzAlbumFromLibrary: (albumId: string): Promise<OkResponse> =>
     fetchApi(`/library/albums/${encodeURIComponent(albumId)}`, { method: 'DELETE' }),
   getQobuzSync: (): Promise<ApiResponse<QobuzSyncStatus>> => fetchApi('/library/qobuz/sync'),
