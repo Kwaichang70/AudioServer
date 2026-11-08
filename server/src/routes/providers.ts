@@ -632,3 +632,15 @@ providersRouter.get(
     }
   }),
 );
+
+providersRouter.get(
+  '/spotify/playlists/:id/tracks',
+  asyncHandler(async (req, res) => {
+    try {
+      const tracks = await spotify.getPlaylistTracks(req.params.id);
+      res.json({ data: tracks, meta: { total: tracks.length } });
+    } catch (err) {
+      sendProviderError(res, err);
+    }
+  }),
+);

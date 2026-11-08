@@ -4,6 +4,18 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Je Spotify-playlists in AudioServer
+
+- Playlists toont onder je eigen playlists een blok **Spotify** met al je
+  Spotify-playlists (met hoes en aantal nummers), zodra Spotify gekoppeld is.
+- Een Spotify-playlist opent als eigen pagina: alleen lezen (Spotify beheert
+  hem), met **Play All** en klikken op een nummer om daarvandaan te spelen.
+  Afspelen gaat zoals elk Spotify-nummer: in de browser of via Spotify Connect
+  op een speaker.
+- Alle playlists, niet alleen de eerste 50 (tot 200), en het aantal nummers
+  klopt ook na Spotify's wijziging van februari 2026.
+- Lange playlists komen helemaal binnen (per 100, tot 1000 nummers).
+
 ## Spotify in een kamer, vanuit de server (Homey, Grok, Jarvis)
 
 - `play` met `source: "spotify"` (in `/api/control/play` en de MCP-tool) speelt

@@ -14,6 +14,7 @@ const AlbumsPage = lazy(() => import('./pages/AlbumsPage.js'));
 const SearchPage = lazy(() => import('./pages/SearchPage.js'));
 const PlaylistsPage = lazy(() => import('./pages/PlaylistsPage.js'));
 const PlaylistPage = lazy(() => import('./pages/PlaylistPage.js'));
+const SpotifyPlaylistPage = lazy(() => import('./pages/SpotifyPlaylistPage.js'));
 const FavoritesPage = lazy(() => import('./pages/FavoritesPage.js'));
 const HistoryPage = lazy(() => import('./pages/HistoryPage.js'));
 const StatsPage = lazy(() => import('./pages/StatsPage.js'));
@@ -79,6 +80,7 @@ export default function App() {
             <Route path="/smart-playlists/:id" element={<SmartPlaylistsPage />} />
             <Route path="/playlists" element={<PlaylistsPage />} />
             <Route path="/playlists/:id" element={<PlaylistPage />} />
+            <Route path="/playlists/spotify/:id" element={<SpotifyPlaylistPage />} />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/queue" element={<QueuePage />} />
             <Route path="/settings" element={<SettingsPage />} />

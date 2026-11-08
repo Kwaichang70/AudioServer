@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import { useToast } from '../components/Toast.js';
+import type { StoredPlaylist } from '../api/types.js';
 
 interface Playlist {
   id: string;
@@ -13,6 +14,8 @@ interface Playlist {
 export default function PlaylistsPage() {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [loading, setLoading] = useState(true);
+  // The user's Spotify playlists, when Spotify is connected (empty otherwise).
+  const [spotifyLists, setSpotifyLists] = useState<StoredPlaylist[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -29,6 +32,16 @@ export default function PlaylistsPage() {
 
   useEffect(() => {
     load();
+    let alive = true;
+    api
+      .getSpotifyPlaylists()
+      .then((res) => {
+        if (alive) setSpotifyLists(res.data);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const handleCreate = async () => {
@@ -146,6 +159,42 @@ export default function PlaylistsPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {spotifyLists.length > 0 && (
+        <section className="mt-10" aria-labelledby="spotify-playlists">
+          <h3 id="spotify-playlists" className="text-lg font-semibold mb-3">
+            Spotify{' '}
+            <span className="text-sm font-normal text-gray-500">({spotifyLists.length})</span>
+          </h3>
+          <div className="space-y-1">
+            {spotifyLists.map((pl) => (
+              <Link
+                key={pl.id}
+                to={`/playlists/spotify/${pl.id.replace(/^spotify:/, '')}`}
+                state={{ name: pl.name, coverUrl: pl.coverUrl, trackCount: pl.trackCount }}
+                className="flex items-center gap-4 px-4 py-2 rounded-lg hover:bg-surface-light transition group"
+              >
+                {pl.coverUrl ? (
+                  <img
+                    src={pl.coverUrl}
+                    alt=""
+                    loading="lazy"
+                    className="w-10 h-10 rounded object-cover shrink-0"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded bg-surface-light shrink-0" aria-hidden />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate group-hover:text-accent transition">
+                    {pl.name}
+                  </p>
+                  <p className="text-xs text-gray-500">{pl.trackCount || 0} tracks</p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
       )}
     </div>
   );

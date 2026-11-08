@@ -49,6 +49,8 @@ interface SpotifyPlaylistResponse {
   name: string;
   description?: string;
   tracks?: { total?: number };
+  /** Spotify's February 2026 change renamed `tracks` to `items` here. */
+  items?: { total?: number };
   images?: SpotifyImageResponse[];
 }
 
@@ -77,6 +79,7 @@ interface SpotifySearchResponse {
 interface SpotifyPlaylistTracksResponse {
   /** `/playlists/{id}/items` (2026) wraps the track as `item`; `/tracks` as `track`. */
   items?: Array<{ track?: SpotifyTrackResponse | null; item?: SpotifyTrackResponse | null }>;
+  total?: number;
 }
 
 export type SpotifyErrorCode =
@@ -649,15 +652,21 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
 
   async getPlaylists(): Promise<Playlist[]> {
     if (!this.auth.isAuthenticated) return [];
+    // 50 per page; up to 200 playlists, which is more than anyone browses.
+    const all: Playlist[] = [];
     try {
-      const data =
-        await this.apiRequest<SpotifyPageResponse<SpotifyPlaylistResponse>>(
-          '/me/playlists?limit=50',
+      for (let offset = 0; offset < 200; offset += 50) {
+        const data = await this.apiRequest<SpotifyPageResponse<SpotifyPlaylistResponse>>(
+          `/me/playlists?limit=50&offset=${offset}`,
         );
-      return (data.items || []).map((playlist) => this.mapPlaylist(playlist));
-    } catch {
-      return [];
+        const page = (data.items || []).filter((p): p is SpotifyPlaylistResponse => Boolean(p?.id));
+        all.push(...page.map((playlist) => this.mapPlaylist(playlist)));
+        if (page.length < 50 || (data.total !== undefined && all.length >= data.total)) break;
+      }
+    } catch (err) {
+      if (all.length === 0) logger.warn(`Spotify playlists failed: ${err}`);
     }
+    return all;
   }
 
   /**
@@ -671,25 +680,44 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
   async getPlaylistTracks(playlistId: string): Promise<Track[]> {
     if (!this.auth.isAuthenticated) return [];
     const spotifyId = playlistId.replace('spotify:', '');
-    const load = (kind: 'items' | 'tracks') =>
-      this.apiRequest<SpotifyPlaylistTracksResponse>(`/playlists/${spotifyId}/${kind}?limit=100`);
-    let data: SpotifyPlaylistTracksResponse;
-    try {
-      data = await load(this.playlistItemsPath);
-    } catch (err) {
-      const status = err instanceof SpotifyProviderError ? err.statusCode : 0;
-      if (this.playlistItemsPath === 'items' && (status === 404 || status === 403)) {
-        logger.info('Spotify: /playlists/{id}/items unavailable, falling back to /tracks');
-        this.playlistItemsPath = 'tracks';
-        data = await load('tracks');
-      } else {
+    const load = (kind: 'items' | 'tracks', offset: number) =>
+      this.apiRequest<SpotifyPlaylistTracksResponse>(
+        `/playlists/${spotifyId}/${kind}?limit=100&offset=${offset}`,
+      );
+    const page = async (offset: number): Promise<SpotifyPlaylistTracksResponse> => {
+      try {
+        return await load(this.playlistItemsPath, offset);
+      } catch (err) {
+        const status = err instanceof SpotifyProviderError ? err.statusCode : 0;
+        if (this.playlistItemsPath === 'items' && (status === 404 || status === 403)) {
+          logger.info('Spotify: /playlists/{id}/items unavailable, falling back to /tracks');
+          this.playlistItemsPath = 'tracks';
+          return load('tracks', offset);
+        }
         throw err;
       }
+    };
+    // 100 per page, up to 1000 tracks; a later page that fails keeps what came.
+    const tracks: Track[] = [];
+    for (let offset = 0; offset < 1000; offset += 100) {
+      let data: SpotifyPlaylistTracksResponse;
+      try {
+        data = await page(offset);
+      } catch (err) {
+        if (offset === 0) throw err;
+        logger.warn(`Spotify playlist ${spotifyId}: page at ${offset} failed: ${err}`);
+        break;
+      }
+      const entries = data.items || [];
+      tracks.push(
+        ...entries
+          .map((entry) => entry.item ?? entry.track)
+          .filter((track): track is SpotifyTrackResponse => Boolean(track?.id))
+          .map((track) => this.mapTrack(track)),
+      );
+      if (entries.length < 100 || (data.total !== undefined && offset + 100 >= data.total)) break;
     }
-    return (data.items || [])
-      .map((entry) => entry.item ?? entry.track)
-      .filter((track): track is SpotifyTrackResponse => Boolean(track))
-      .map((track) => this.mapTrack(track));
+    return tracks;
   }
 
   // ─── Mappers ─────────────────────────────────────────────────
@@ -736,7 +764,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
       id: `spotify:${data.id}`,
       name: data.name,
       description: data.description,
-      trackCount: data.tracks?.total || 0,
+      trackCount: data.items?.total ?? data.tracks?.total ?? 0,
       coverUrl: data.images?.[0]?.url,
       source: 'spotify',
     };

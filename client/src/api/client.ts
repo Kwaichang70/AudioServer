@@ -969,6 +969,10 @@ export const api = {
     fetchApi(`/providers/spotify/albums/${id}`),
   getSpotifyAlbumTracks: (id: string): Promise<ApiResponse<Track[]>> =>
     fetchApi(`/providers/spotify/albums/${id}/tracks`),
+  getSpotifyPlaylists: (): Promise<ApiResponse<StoredPlaylist[]>> =>
+    fetchApi('/providers/spotify/playlists'),
+  getSpotifyPlaylistTracks: (id: string): Promise<ApiResponse<Track[]>> =>
+    fetchApi(`/providers/spotify/playlists/${encodeURIComponent(id)}/tracks`),
   /** R07.1: which of these Qobuz albums are in the library (ids as `qobuz:…`). */
   getQobuzLibraryState: (ids: string[]): Promise<ApiResponse<string[]>> =>
     fetchApi(`/library/qobuz/in-library?ids=${ids.map(encodeURIComponent).join(',')}`),

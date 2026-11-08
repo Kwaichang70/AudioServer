@@ -1,0 +1,134 @@
+import { useEffect, useState } from 'react';
+import { useLocation, useParams } from 'react-router-dom';
+import { api } from '../api/client.js';
+import { useAudioContext } from '../context/AudioContext.js';
+import { formatDuration } from '../utils/format.js';
+import PlayActions, { toTrackInfo } from '../components/PlayActions.js';
+import type { Track } from '@audioserver/shared';
+
+/**
+ * A playlist from the user's Spotify account, read-only: Spotify keeps it,
+ * AudioServer shows and plays it. Playing goes the way every Spotify track
+ * does (the Spotify player in the browser, or Spotify Connect on a speaker).
+ */
+interface Shown {
+  name?: string;
+  coverUrl?: string;
+  trackCount?: number;
+}
+
+export default function SpotifyPlaylistPage() {
+  const { id } = useParams<{ id: string }>();
+  const shown = (useLocation().state ?? {}) as Shown;
+  const [tracks, setTracks] = useState<Track[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const { playAlbum, currentTrack, isPlaying } = useAudioContext();
+
+  useEffect(() => {
+    if (!id) return;
+    let alive = true;
+    setTracks(null);
+    setFailed(false);
+    api
+      .getSpotifyPlaylistTracks(id)
+      .then((res) => {
+        if (alive) setTracks(res.data);
+      })
+      .catch(() => {
+        if (alive) setFailed(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+
+  const infos = (tracks ?? []).map((t) => toTrackInfo(t));
+  const totalMin = Math.floor((tracks ?? []).reduce((sum, t) => sum + (t.duration || 0), 0) / 60);
+
+  return (
+    <div>
+      <div className="mb-8 flex gap-6 items-end">
+        {shown.coverUrl && (
+          <img src={shown.coverUrl} alt="" className="w-32 h-32 rounded-lg object-cover shrink-0" />
+        )}
+        <div className="min-w-0">
+          <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Spotify playlist</p>
+          <h2 className="text-3xl font-bold mb-2 truncate">{shown.name ?? 'Playlist'}</h2>
+          {tracks && (
+            <p className="text-sm text-gray-500">
+              {tracks.length} tracks &middot; {totalMin} min
+              {shown.trackCount !== undefined && shown.trackCount > tracks.length && (
+                <span className="text-gray-600">
+                  {' '}
+                  &middot; the first {tracks.length} of {shown.trackCount}
+                </span>
+              )}
+            </p>
+          )}
+          {infos.length > 0 && (
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={() => playAlbum(infos)}
+                className="px-6 py-2 bg-accent rounded-full hover:bg-accent-hover transition text-sm font-medium"
+              >
+                Play All
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {failed ? (
+        <p className="text-gray-500 text-center py-8">
+          Spotify did not return this playlist. Is Spotify still connected?
+        </p>
+      ) : tracks === null ? (
+        <p className="text-gray-400">Loading...</p>
+      ) : tracks.length === 0 ? (
+        <p className="text-gray-500 text-center py-8">This playlist is empty.</p>
+      ) : (
+        <div>
+          {tracks.map((track, index) => {
+            const isCurrent = currentTrack?.id === track.id;
+            const playFrom = () => playAlbum(infos, index);
+            return (
+              <div
+                key={`${track.id}-${index}`}
+                onClick={playFrom}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    playFrom();
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+                className={`group flex items-center gap-2 py-2 px-1 rounded cursor-pointer hover:bg-surface-light transition ${
+                  isCurrent ? 'text-accent' : ''
+                }`}
+              >
+                <span className="w-6 text-sm text-gray-500 text-right shrink-0">
+                  {isCurrent && isPlaying ? (
+                    <span className="text-accent animate-pulse">&#9654;</span>
+                  ) : (
+                    index + 1
+                  )}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{track.title}</p>
+                  <p className="text-xs text-gray-500 truncate">
+                    {track.artistName} &middot; {track.albumTitle}
+                  </p>
+                </div>
+                <span className="text-sm text-gray-400 shrink-0">
+                  {formatDuration(track.duration)}
+                </span>
+                <PlayActions target={{ kind: 'track', track: infos[index], list: infos, index }} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
