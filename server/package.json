@@ -9,6 +9,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:backup": "node --import tsx/esm src/scripts/db-backup.ts",
     "bench:search": "node --import tsx/esm src/scripts/search-bench.ts",
+    "bench:scan": "node --import tsx/esm src/scripts/scan-bench.ts",
     "db:verify": "node --import tsx/esm src/scripts/db-verify.ts",
     "db:restore": "node --import tsx/esm src/scripts/db-restore.ts",
     "user:password": "node --import tsx/esm src/scripts/user-password.ts",

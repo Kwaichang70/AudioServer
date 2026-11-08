@@ -120,6 +120,15 @@ export async function initDatabase(overridePath?: string) {
   runMigration(sqlite, 'tracks', 'missing_since', 'INTEGER');
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_tracks_fingerprint ON tracks (fingerprint)');
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_tracks_availability ON tracks (availability)');
+  // Plan §6: the scanner looks every file up by its path, and a new file also
+  // by the same path with other slashes (B14). Without these both were a full
+  // table scan per file — quadratic in the size of the library. The
+  // expression must stay identical to the one in scanner.ts
+  // (findEquivalentPath) or SQLite does not use the index.
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_tracks_file_path ON tracks (file_path)');
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS idx_tracks_file_path_slashes ON tracks (REPLACE(file_path, '\\', '/'))",
+  );
   // V07.3: prefix searches on artist and album names use these.
   sqlite.exec(
     'CREATE INDEX IF NOT EXISTS idx_tracks_artist_name ON tracks (artist_name COLLATE NOCASE)',
@@ -450,8 +459,7 @@ function createZones(sqlite: InstanceType<typeof Database>): void {
   // Which device was the household playing on? That session becomes a zone.
   const previous = singleton
     ? (sqlite.prepare('SELECT * FROM playback_state WHERE id = 1').get() as
-        | Record<string, unknown>
-        | undefined)
+        Record<string, unknown> | undefined)
     : undefined;
   const previousDevice =
     typeof previous?.device_id === 'string' && previous.device_id ? previous.device_id : 'browser';

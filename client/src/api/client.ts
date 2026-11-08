@@ -230,6 +230,10 @@ let streamToken: string | null = null;
 let streamTokenExpiresAt = 0;
 let streamTokenInflight: Promise<string> | null = null;
 let streamTokenTimer: ReturnType<typeof setTimeout> | null = null;
+// Bumped by clearStreamToken() (sign-out, account switch). A request started
+// under an older generation may still answer; its token belongs to a session
+// that ended and must not refill the cache (plan §6).
+let streamTokenGeneration = 0;
 
 // withToken() is synchronous (it runs during render), so the cached token must
 // be kept fresh proactively: without this, every cover <img> and local stream
@@ -243,7 +247,12 @@ function scheduleStreamTokenRefresh(delayMs: number): void {
 }
 
 async function fetchStreamToken(): Promise<string> {
+  const generation = streamTokenGeneration;
   const res = await fetchApi<{ data: { token: string; expiresIn: number } }>('/auth/stream-token');
+  if (generation !== streamTokenGeneration) {
+    // Signed out while this was on its way: hand it to nobody's cache.
+    throw new Error('Stream token request outlived its session');
+  }
   streamToken = res.data.token;
   streamTokenExpiresAt = Date.now() + (res.data.expiresIn - 300) * 1000;
   // Renew well before the cached copy goes stale (timers in background tabs
@@ -264,14 +273,17 @@ if (typeof document !== 'undefined') {
 export async function ensureStreamToken(): Promise<string> {
   if (streamToken && Date.now() < streamTokenExpiresAt) return streamToken;
   if (!streamTokenInflight) {
-    streamTokenInflight = fetchStreamToken().finally(() => {
-      streamTokenInflight = null;
+    const request = fetchStreamToken().finally(() => {
+      if (streamTokenInflight === request) streamTokenInflight = null;
     });
+    streamTokenInflight = request;
   }
   return streamTokenInflight;
 }
 
 export function clearStreamToken(): void {
+  streamTokenGeneration++;
+  streamTokenInflight = null; // the next ensureStreamToken() asks afresh
   streamToken = null;
   streamTokenExpiresAt = 0;
   if (streamTokenTimer) {

@@ -485,6 +485,25 @@ non-`off` mode in Settings. The chain bypasses `<audio>.volume` and routes
 through a `GainNode`. Cross-origin sources (Tidal/Spotify CDNs) skip the
 chain because `MediaElementSource` outputs zeros without CORS headers.
 
+## Ownership and recovery
+
+One place for "who owns this state, and what happens when it breaks". Each
+row names the module that is the single owner; nothing else writes it.
+
+| State                      | Owner                                                     | When it breaks                                                                                                                                                                                                                                                                                  |
+| -------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Login session              | `server/src/services/sessions.ts` (`sessions` table)      | A token only counts while its row exists, is not revoked and not expired. Only a `401` logs the client out; a network error or `503` puts `AuthContext` in `unreachable` and it retries every 5 s, on `online` and when the app is reopened (B05). Revoking ends sockets and stream tokens too. |
+| Socket.IO connection       | `server/src/socketio.ts`, `client/src/hooks/useSocket.ts` | The client passes `auth` as a function, so every reconnect sends the current token, not the one from the first connect (B06).                                                                                                                                                                   |
+| Stream tokens              | `server/src/middleware/auth.ts` (signed, session-bound)   | Short-lived and bound to a session: a revoked session's audio and cover URLs stop working.                                                                                                                                                                                                      |
+| Provider OAuth (link flow) | `server/src/services/oauth-transactions.ts`               | One transaction per link attempt, bound to the session that started it, used once (B04). A callback without a matching transaction is refused.                                                                                                                                                  |
+| Provider tokens            | `server/src/services/tokenstore.ts`                       | Stored encrypted (`provider_tokens`); each provider refreshes its own and reports its status on `/api/providers/*/status`.                                                                                                                                                                      |
+| Devices                    | `server/src/devices/manager.ts`                           | A command for a device discovery no longer knows triggers one shared rediscovery; still unknown, it throws `DeviceUnavailableError` instead of reporting success for a command that went nowhere.                                                                                               |
+| What a speaker plays       | `server/src/services/device-monitor.ts`, `playback.ts`    | The queue follows the renderer's TrackURI, not a guess from position; a seek is told apart from a track change (B02). The prepared next URI is revalidated after every queue change (B03).                                                                                                      |
+| Sleep timer                | `server/src/services/sleep-timer.ts`, `server-player.ts`  | Firing stops the zone and tells the speaker itself to stop, not only the queue (B03).                                                                                                                                                                                                           |
+| Provider resolution        | `server/src/services/server-player.ts`                    | Resolving a stream URL is bounded by the same timeout as the device command; a late answer is ignored (B09).                                                                                                                                                                                    |
+| Web app release            | `client/sw/sw.template.js` (`RELEASE_ID`)                 | A release is installed with one `addAll`: complete or not at all, so a dropped connection keeps the old version working (B08).                                                                                                                                                                  |
+| Library rows               | `server/src/services/scanner.ts`                          | A track's id survives moves, re-scans and other slashes; per-user marks move with it (B01, B14). Path lookups are indexed (see `docs/performance.md`).                                                                                                                                          |
+
 ## Deployment shapes
 
 | Where                      | How                                                                                |
@@ -502,11 +521,6 @@ These don't have a fixed answer yet and the codebase has placeholders:
   zone groups (multiple devices with sub-250ms drift) would need an
   NTP-style sync model — likely a master-leader + corrections via
   Socket.IO timestamps.
-- **MusicBrainz enrichment.** Per-album lookup for MBID + genre + label.
-  Background queue with 1 req/s rate limit (MB policy).
 - **Spotify Web API OAuth on HTTP LAN.** Blocked by Spotify's April 2025
   policy — they only accept HTTPS redirect URIs (or `localhost`). Workaround:
   reverse-proxy with TLS (Synology DSM has a Let's Encrypt integration).
-- **OpenAPI spec.** Could be auto-generated from the existing zod schemas
-  via `@asteasolutions/zod-to-openapi`. Would publish `/api/docs` as Swagger
-  UI in non-prod.

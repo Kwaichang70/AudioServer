@@ -391,16 +391,16 @@ function normalizeScanPath(value: string): string {
  * the same track — it keeps its id, favourites and history, and its stored
  * path takes the spelling the scanner uses now — instead of a second row.
  * Only the slash direction counts as "the same"; letter case does not, since
- * Linux paths are case-sensitive.
+ * Linux paths are case-sensitive. The REPLACE expression matches the index
+ * idx_tracks_file_path_slashes (db/index.ts) exactly, so this is a lookup.
  */
+export const EQUIVALENT_PATH_SQL = `SELECT id FROM tracks
+  WHERE COALESCE(source, 'local') = 'local' AND file_path != ?
+    AND REPLACE(file_path, '\\', '/') = ?`;
+
 function findEquivalentPath(filePath: string) {
-  const row = getRawDb()
-    .prepare(
-      `SELECT id FROM tracks
-        WHERE COALESCE(source, 'local') = 'local' AND file_path != ?
-          AND REPLACE(file_path, '\\', '/') = ?`,
-    )
-    .get(filePath, normalizeScanPath(filePath)) as { id: string } | undefined;
+  const row = getRawDb().prepare(EQUIVALENT_PATH_SQL).get(filePath, normalizeScanPath(filePath)) as
+    { id: string } | undefined;
   if (!row) return undefined;
   getRawDb().prepare('UPDATE tracks SET file_path = ? WHERE id = ?').run(filePath, row.id);
   return getDb().select().from(tracks).where(eq(tracks.id, row.id)).get();
@@ -1212,10 +1212,12 @@ async function processFile(
   }
 
   // Update album track count
-  const trackCountResult = db.select().from(tracks).where(eq(tracks.albumId, albumId)).all();
+  const { n: trackCount } = getRawDb()
+    .prepare('SELECT COUNT(*) AS n FROM tracks WHERE album_id = ?')
+    .get(albumId) as { n: number };
   db.update(albums)
     .set({
-      trackCount: trackCountResult.length,
+      trackCount,
       artistName: albumArtistName,
       year: common.year,
       genre: common.genre?.[0],

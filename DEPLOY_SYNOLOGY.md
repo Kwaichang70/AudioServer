@@ -44,9 +44,13 @@ From this repo on Windows PowerShell:
 ```powershell
 git status --short
 git log -1 --oneline
-git archive --format=tar --output C:\tmp\audioserver-qobuz.tar HEAD
-scp C:\tmp\audioserver-qobuz.tar Danny-a@192.168.2.58:/tmp/audioserver-qobuz.tar
+git archive --format=tar --output C:\tmp\audioserver.tar HEAD
+scp -O C:\tmp\audioserver.tar Danny-a@192.168.2.58:/tmp/audioserver.tar
 ```
+
+Note the short commit id `git log -1 --oneline` prints (e.g. `e0ba630`): the
+NAS has no git, so you pass it to the build below and the smoke check
+confirms that this commit is what runs.
 
 If hostname resolution works at home, `Danny-a@Diskstation` is also fine. The IP used previously was `192.168.2.58`.
 
@@ -68,18 +72,46 @@ grep -E '^(QOBUZ_APP_ID|QOBUZ_APP_SECRET|QOBUZ_AUDIO_FORMAT|QOBUZ_USERNAME|QOBUZ
 Extract the committed source archive:
 
 ```bash
-sudo tar -xf /tmp/audioserver-qobuz.tar -C /volume1/docker/AudioServer
+sudo tar -xf /tmp/audioserver.tar -C /volume1/docker/AudioServer
 ```
 
-Rebuild and restart:
+Keep the running image as `previous`, so a rollback is one command and no
+old archive is needed (section 6). Only tag a version that passed its smoke
+check (after a failed deploy, the running image is not the one to keep), and
+skip this on the very first install:
 
 ```bash
-export VCS_REF="$(git rev-parse --short HEAD 2>/dev/null || echo local)"
-export BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-sudo /usr/local/bin/docker-compose -f /volume1/docker/AudioServer/docker-compose.yml up -d --build
+sudo docker tag audioserver_audioserver:latest audioserver_audioserver:previous
 ```
 
+Rebuild and restart, with the commit id from section 2 (`sudo` drops exported
+variables, so they go on the `sudo` line itself):
+
+```bash
+sudo VCS_REF=e0ba630 BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  /usr/local/bin/docker-compose -f /volume1/docker/AudioServer/docker-compose.yml up -d --build
+```
+
+Names: the Synology `docker-compose` (v1) calls the image
+`audioserver_audioserver` and the container `audioserver_audioserver_1`.
+Docker Compose v2 elsewhere uses dashes (`audioserver-audioserver-1`); the
+commands in this runbook and in `docs/backup-restore.md` mean the same
+container.
+
 ## 4. Verify
+
+One command checks what a deploy can break, read-only and without a login:
+ready, schema version, the running commit, the web app with all its files,
+that the library is closed without a session, and the realtime handshake:
+
+```bash
+sh scripts/nas-smoke.sh http://localhost:3001 21 e0ba630
+```
+
+It waits up to 2 minutes for a container that is still starting and ends
+with `All checks passed.` (exit code 0) or lists each `FAIL`. Leave the last
+two arguments out to only print the schema version and build. The details
+below are for when a check fails.
 
 Container state:
 
@@ -161,6 +193,22 @@ Check:
 - Tidal playback shows the preview/full-playback unsupported message instead of pretending full playback works.
 
 ## 6. Rollback
+
+**Quick rollback (same schema).** When the new release did not change the
+schema version (the smoke check printed the same number as before), go back
+to the image kept in section 3:
+
+```bash
+cd /volume1/docker/AudioServer
+sudo docker tag audioserver_audioserver:previous audioserver_audioserver:latest
+sudo /usr/local/bin/docker-compose -f docker-compose.yml up -d --no-build
+sh scripts/nas-smoke.sh http://localhost:3001 21
+```
+
+`--no-build` matters: without it compose rebuilds from the new source that is
+still on disk. Re-extract the previous archive before the next `--build`.
+
+**Full rollback (schema changed, or no `previous` image).**
 
 Before any update, take a backup (this is also step 1 of the update flow in
 [docs/backup-restore.md](docs/backup-restore.md)):
