@@ -54,6 +54,9 @@ export function useInfiniteLoad<T>(
   const [loadingMore, setLoadingMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+  // Why the last load failed, for the page to say so instead of showing an
+  // empty library (U03). Cleared by the next load that works.
+  const [error, setError] = useState<string | null>(null);
 
   const fetchRef = useRef(fetchFn);
   fetchRef.current = fetchFn;
@@ -81,9 +84,11 @@ export function useInfiniteLoad<T>(
         setTotal(res.meta.total);
         setHasMore(pageNum < res.meta.totalPages);
         pageRef.current = pageNum;
-      } catch {
+        setError(null);
+      } catch (err) {
         if (epoch !== epochRef.current) return;
-        // Keep existing items on error
+        // Keep existing items on error, and say what went wrong.
+        setError(err instanceof Error && err.message ? err.message : 'The server did not answer');
       }
 
       setLoading(false);
@@ -110,5 +115,11 @@ export function useInfiniteLoad<T>(
     loadPage(1, false);
   }, [loadPage]);
 
-  return { items, loading, loadingMore, total, hasMore, loadMore, reload };
+  /** Try the failed load again: the next page, or the first. */
+  const retry = useCallback(() => {
+    if (pageRef.current >= 1 && items.length > 0) loadPage(pageRef.current + 1, true);
+    else loadPage(1, false);
+  }, [loadPage, items.length]);
+
+  return { items, loading, loadingMore, total, hasMore, loadMore, reload, error, retry };
 }

@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
 import type { LibraryTrack } from '../api/types.js';
 import { useAudioContext } from '../context/AudioContext.js';
+import LoadError from '../components/LoadError.js';
 import { useAutoLoadMore, useInfiniteLoad } from '../hooks/useInfiniteLoad.js';
 import { useFocus, useReloadOnQuery } from '../hooks/useFocus.js';
 import { FocusBar } from '../components/FocusPanel.js';
@@ -34,7 +35,7 @@ const PAGE_SIZE = 100;
 export default function TracksPage() {
   const focus = useFocus();
   const { playAlbum } = useAudioContext();
-  const { items, loading, loadingMore, total, hasMore, loadMore, reload } =
+  const { items, loading, loadingMore, total, hasMore, loadMore, reload, error, retry } =
     useInfiniteLoad<LibraryTrack>(
       (page, limit) => api.getTracks(page, limit, focus.query),
       PAGE_SIZE,
@@ -61,6 +62,8 @@ export default function TracksPage() {
 
       {loading && items.length === 0 ? (
         <p className="text-gray-400">Loading tracks...</p>
+      ) : error && items.length === 0 ? (
+        <LoadError what="tracks" message={error} onRetry={retry} />
       ) : items.length === 0 ? (
         <p className="text-gray-400 text-center py-20">
           {filtered ? 'No tracks match this Focus.' : 'No tracks found. Scan your library first.'}
@@ -144,6 +147,9 @@ export default function TracksPage() {
         </table>
       )}
 
+      {error && items.length > 0 && (
+        <LoadError compact what="more tracks" message={error} onRetry={retry} />
+      )}
       {hasMore && items.length > 0 && (
         <>
           <div ref={sentinelRef} className="h-10" aria-hidden="true" />

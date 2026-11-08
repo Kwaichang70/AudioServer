@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
+import LoadError from '../components/LoadError.js';
 import { useInfiniteLoad, useAutoLoadMore } from '../hooks/useInfiniteLoad.js';
 import { useGridNavigation } from '../hooks/useGridNavigation.js';
 import AlbumCover from '../components/AlbumCover.js';
@@ -57,6 +58,8 @@ export default function AlbumsPage() {
     hasMore,
     loadMore,
     reload,
+    error,
+    retry,
   } = useInfiniteLoad<Album>(
     (page, limit) => api.getAlbums(page, limit, focus.query),
     DEFAULT_LIBRARY_PAGE_SIZE,
@@ -92,6 +95,8 @@ export default function AlbumsPage() {
 
       {loading && albums.length === 0 ? (
         <p className="text-gray-400">Loading albums...</p>
+      ) : error && albums.length === 0 ? (
+        <LoadError what="albums" message={error} onRetry={retry} />
       ) : albums.length === 0 && filtered ? (
         <p className="text-center py-20 text-gray-400">No albums match this Focus.</p>
       ) : albums.length === 0 ? (
@@ -152,6 +157,9 @@ export default function AlbumsPage() {
             ))}
           </div>
 
+          {error && albums.length > 0 && (
+            <LoadError compact what="more albums" message={error} onRetry={retry} />
+          )}
           {hasMore && (
             <>
               <div ref={sentinelRef} className="h-10" aria-hidden="true" />

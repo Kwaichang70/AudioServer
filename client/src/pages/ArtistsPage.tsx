@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client.js';
+import LoadError from '../components/LoadError.js';
 import { useInfiniteLoad, useAutoLoadMore } from '../hooks/useInfiniteLoad.js';
 import { useGridNavigation } from '../hooks/useGridNavigation.js';
 import {
@@ -73,6 +74,8 @@ export default function ArtistsPage() {
     hasMore,
     loadMore,
     reload,
+    error,
+    retry,
   } = useInfiniteLoad<Artist>(
     (page, limit) => api.getArtists(page, limit, focus.query),
     DEFAULT_LIBRARY_PAGE_SIZE,
@@ -95,6 +98,8 @@ export default function ArtistsPage() {
       />
       {loading && artists.length === 0 ? (
         <p className="text-gray-400">Loading artists...</p>
+      ) : error && artists.length === 0 ? (
+        <LoadError what="artists" message={error} onRetry={retry} />
       ) : artists.length === 0 ? (
         <p className="text-gray-400">
           {filtered ? 'No artists match this Focus.' : 'No artists found. Scan your library first.'}
@@ -129,6 +134,9 @@ export default function ArtistsPage() {
             ))}
           </div>
 
+          {error && artists.length > 0 && (
+            <LoadError compact what="more artists" message={error} onRetry={retry} />
+          )}
           {hasMore && (
             <>
               <div ref={sentinelRef} className="h-10" aria-hidden="true" />

@@ -1,4 +1,5 @@
-import { useState, lazy, Suspense } from 'react';
+import { useRef, useState, lazy, Suspense } from 'react';
+import { useDialogFocus } from '../hooks/useDialogFocus.js';
 import { useNavigate } from 'react-router-dom';
 import { useAudioContext, useProgress } from '../context/AudioContext.js';
 import { api } from '../api/client.js';
@@ -59,7 +60,11 @@ export default function NowPlayingFull({ onClose, initialView = 'upnext' }: Prop
   const { currentTime, duration } = useProgress();
 
   const [showLyrics, setShowLyrics] = useState(initialView === 'lyrics');
+  const [coverFailed, setCoverFailed] = useState(false);
   const radioReason = useRadioReason(currentTrack?.id);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useDialogFocus(dialogRef, closeRef);
 
   if (!currentTrack) return null;
 
@@ -69,9 +74,17 @@ export default function NowPlayingFull({ onClose, initialView = 'upnext' }: Prop
     : api.getTrackCoverUrl(currentTrack.id);
 
   return (
-    <div className="fixed inset-0 z-[100] bg-surface-dark flex flex-col">
+    // A dialog over the app (U02); scrolls as a whole when the screen is too
+    // low for everything, so no action is ever cut off (U01).
+    <div
+      ref={dialogRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Now playing: ${currentTrack.title}`}
+      className="fixed inset-0 z-[100] bg-surface-dark flex flex-col overflow-y-auto overscroll-contain"
+    >
       {/* Background blur */}
-      <div className="absolute inset-0 overflow-hidden">
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <img
           src={coverUrl}
           alt=""
@@ -84,8 +97,9 @@ export default function NowPlayingFull({ onClose, initialView = 'upnext' }: Prop
       </div>
 
       {/* Header */}
-      <div className="relative flex items-center justify-between px-6 py-4">
+      <div className="relative flex items-center justify-between gap-2 px-4 sm:px-6 py-3 sm:py-4">
         <button
+          ref={closeRef}
           onClick={onClose}
           className="text-gray-300 hover:text-white transition"
           title="Close (Esc)"
@@ -93,8 +107,11 @@ export default function NowPlayingFull({ onClose, initialView = 'upnext' }: Prop
         >
           <ChevronDownIcon size={26} />
         </button>
-        <p className="text-xs text-gray-500 uppercase tracking-widest">Now Playing</p>
-        <div className="flex items-center gap-3">
+        <p className="hidden sm:block text-xs text-gray-500 uppercase tracking-widest">
+          Now Playing
+        </p>
+        {/* Wraps instead of pushing Lyrics off a narrow screen (U01). */}
+        <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3 min-w-0">
           <FavoriteTrackButton trackId={currentTrack.id} title={currentTrack.title} size="lg" />
           <RadioToggle size="lg" />
           <MoveToMenu size="lg" />
@@ -111,25 +128,34 @@ export default function NowPlayingFull({ onClose, initialView = 'upnext' }: Prop
       </div>
 
       {/* Main content */}
-      <div className="relative flex-1 flex flex-col md:flex-row items-center justify-center gap-8 md:gap-16 px-6 overflow-hidden">
-        {/* Album art */}
-        <div className="w-64 h-64 sm:w-80 sm:h-80 md:w-96 md:h-96 rounded-lg overflow-hidden shadow-2xl shrink-0">
-          <img
-            src={coverUrl}
-            alt={currentTrack.albumTitle}
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none';
-            }}
-          />
+      <div className="relative flex-1 flex flex-col md:flex-row [@media(orientation:landscape)_and_(max-height:500px)]:flex-row items-center justify-center gap-4 sm:gap-8 md:gap-16 px-4 sm:px-6 py-2">
+        {/* Album art: sized by the screen's height as well as its width, so a
+            phone on its side still shows the track and the controls (U01). */}
+        <div className="w-[min(16rem,38vh)] h-[min(16rem,38vh)] sm:w-[min(20rem,42vh)] sm:h-[min(20rem,42vh)] md:w-[min(24rem,50vh)] md:h-[min(24rem,50vh)] rounded-lg overflow-hidden shadow-2xl shrink-0 bg-surface-light">
+          {coverFailed ? (
+            // The same kind of fallback as the library, not an empty box.
+            <div
+              className="w-full h-full flex items-center justify-center text-6xl text-gray-500"
+              aria-hidden
+            >
+              &#9835;
+            </div>
+          ) : (
+            <img
+              src={coverUrl}
+              alt={currentTrack.albumTitle}
+              className="w-full h-full object-cover"
+              onError={() => setCoverFailed(true)}
+            />
+          )}
         </div>
 
         {/* Track info + queue sidebar */}
-        <div className="flex flex-col items-center md:items-start gap-4 min-w-0 max-w-md">
-          <div className="text-center md:text-left">
-            <h2 className="text-2xl sm:text-3xl font-bold truncate max-w-md">
-              {currentTrack.title}
-            </h2>
+        {/* w-full + min-w-0: long titles and Up Next rows are cut with "…"
+            inside the screen instead of widening the column past it (U01). */}
+        <div className="flex flex-col items-center md:items-start gap-4 w-full md:flex-1 [@media(orientation:landscape)_and_(max-height:500px)]:flex-1 [@media(orientation:landscape)_and_(max-height:500px)]:items-start min-w-0 max-w-md">
+          <div className="w-full min-w-0 text-center md:text-left [@media(orientation:landscape)_and_(max-height:500px)]:text-left">
+            <h2 className="text-xl sm:text-3xl font-bold truncate">{currentTrack.title}</h2>
             <p className="text-lg text-gray-400 truncate">{currentTrack.artistName}</p>
             <p className="text-sm text-gray-500 truncate">{currentTrack.albumTitle}</p>
             {radioReason && (
@@ -174,7 +200,9 @@ export default function NowPlayingFull({ onClose, initialView = 'upnext' }: Prop
               </Suspense>
             </div>
           ) : queue.length > 0 && queueIndex < queue.length - 1 ? (
-            <div className="w-full mt-4">
+            // On a phone held sideways there is no room: the controls come
+            // first, and the queue page is one tap away (U01).
+            <div className="w-full mt-4 [@media(max-height:500px)]:hidden">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs text-gray-500 uppercase tracking-wider">Up Next</p>
                 <button
@@ -191,11 +219,11 @@ export default function NowPlayingFull({ onClose, initialView = 'upnext' }: Prop
                 {queue.slice(queueIndex + 1, queueIndex + 6).map((track, i) => (
                   <div
                     key={`fn-${i}`}
-                    className="flex items-center gap-3 text-sm text-gray-400 py-1"
+                    className="flex items-center gap-3 text-sm text-gray-400 py-1 min-w-0"
                   >
-                    <span className="text-xs text-gray-600 w-4">{queueIndex + i + 2}</span>
-                    <span className="truncate">{track.title}</span>
-                    <span className="text-xs text-gray-600 ml-auto shrink-0">
+                    <span className="text-xs text-gray-600 w-4 shrink-0">{queueIndex + i + 2}</span>
+                    <span className="truncate min-w-0 flex-1">{track.title}</span>
+                    <span className="text-xs text-gray-600 truncate max-w-[45%]">
                       {track.artistName}
                     </span>
                   </div>
@@ -210,7 +238,7 @@ export default function NowPlayingFull({ onClose, initialView = 'upnext' }: Prop
       </div>
 
       {/* Controls */}
-      <div className="relative px-6 pb-8 pt-4">
+      <div className="relative px-4 sm:px-6 pb-6 sm:pb-8 pt-2 sm:pt-4">
         {/* Progress bar / LIVE indicator */}
         {isRadio ? (
           <div className="max-w-2xl mx-auto mb-4 flex items-center justify-center gap-2">
@@ -303,6 +331,8 @@ export default function NowPlayingFull({ onClose, initialView = 'upnext' }: Prop
               step={0.01}
               value={volume}
               onChange={(e) => setVolume(Number(e.target.value))}
+              aria-label="Volume"
+              aria-valuetext={`${Math.round(volume * 100)}%`}
               className="w-28 h-1 accent-accent"
             />
           </div>
@@ -315,6 +345,8 @@ export default function NowPlayingFull({ onClose, initialView = 'upnext' }: Prop
               step={1}
               value={crossfade}
               onChange={(e) => setCrossfade(Number(e.target.value))}
+              aria-label="Crossfade"
+              aria-valuetext={crossfade === 0 ? 'off' : `${crossfade} seconds`}
               className="w-20 h-1 accent-accent"
             />
             <span className="text-xs text-gray-500 w-6">{crossfade}s</span>
