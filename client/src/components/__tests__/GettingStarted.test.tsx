@@ -103,4 +103,26 @@ describe('GettingStarted', () => {
     await waitFor(() => expect(mocks.api.getStats).toHaveBeenCalled());
     expect(screen.queryByTestId('getting-started')).toBeNull();
   });
+
+  it('links each next step straight to its settings tab (U04)', async () => {
+    mocks.api.getStats.mockResolvedValue({ data: { artists: 0, albums: 0, tracks: 0 } });
+    mocks.api.getScanStatus.mockResolvedValue({
+      data: { isScanning: false },
+      lastSuccessfulRun: null,
+    });
+    render(
+      <MemoryRouter>
+        <GettingStarted />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole('link', { name: /^Scan in Settings/ })).toHaveAttribute(
+      'href',
+      '/settings?tab=library',
+    );
+    expect(screen.getByRole('link', { name: /^Connect in Settings/ })).toHaveAttribute(
+      'href',
+      '/settings?tab=providers',
+    );
+  });
 });

@@ -1,4 +1,6 @@
 import { Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext.js';
+import { useToast } from '../components/Toast.js';
 import { api } from '../api/client.js';
 import LoadError from '../components/LoadError.js';
 import { useInfiniteLoad, useAutoLoadMore } from '../hooks/useInfiniteLoad.js';
@@ -72,8 +74,17 @@ export default function AlbumsPage() {
   useReloadOnQuery(focus.query, reload);
   const { containerRef, onKeyDown } = useGridNavigation<HTMLDivElement>(albums.length);
 
+  // U04: a scan is an admin action (the server refuses it otherwise), so only
+  // an admin is offered the button; a failed start says so instead of nothing.
+  const { isAdmin } = useAuth();
+  const { toast } = useToast();
   const startScan = async () => {
-    await api.scanLibrary();
+    try {
+      await api.scanLibrary();
+      toast('Library scan started', 'info');
+    } catch (err) {
+      toast(`Scan failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+    }
     reload();
   };
 
@@ -83,12 +94,14 @@ export default function AlbumsPage() {
         <h2 className="text-2xl font-bold">
           Albums <span className="text-sm font-normal text-gray-500">({total})</span>
         </h2>
-        <button
-          onClick={startScan}
-          className="px-3 py-1 text-sm bg-surface-light border border-white/10 rounded hover:border-accent transition"
-        >
-          Scan Library
-        </button>
+        {isAdmin && (
+          <button
+            onClick={startScan}
+            className="px-3 py-1 text-sm bg-surface-light border border-white/10 rounded hover:border-accent transition"
+          >
+            Scan Library
+          </button>
+        )}
       </div>
 
       <FocusBar focus={focus} sorts={ALBUM_SORTS} playSort={albumPlaySort} />
@@ -102,12 +115,16 @@ export default function AlbumsPage() {
       ) : albums.length === 0 ? (
         <div className="text-center py-20">
           <p className="text-gray-400 mb-4">No albums found in your library.</p>
-          <button
-            onClick={startScan}
-            className="px-4 py-2 bg-accent rounded hover:bg-accent-hover transition"
-          >
-            Scan Library
-          </button>
+          {isAdmin ? (
+            <button
+              onClick={startScan}
+              className="px-4 py-2 bg-accent rounded hover:bg-accent-hover transition"
+            >
+              Scan Library
+            </button>
+          ) : (
+            <p className="text-sm text-gray-500">Ask an administrator to scan the library.</p>
+          )}
         </div>
       ) : (
         <>

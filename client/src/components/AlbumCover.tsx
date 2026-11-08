@@ -46,14 +46,23 @@ export default function AlbumCover({
 
   if (failed || noArt) {
     return (
+      // U04: the stand-in still names the album for a screen reader, and its
+      // text is bright enough to read on the dark gradient (white/40 was ~3:1).
       <div
-        className={`aspect-square rounded bg-gradient-to-br ${gradient} flex flex-col items-center justify-center`}
+        role="img"
+        aria-label={title}
+        className={`aspect-square rounded bg-gradient-to-br ${gradient} flex flex-col items-center justify-center text-white`}
       >
-        <span className={size === 'sm' ? 'text-2xl' : size === 'lg' ? 'text-6xl' : 'text-4xl'}>
+        <span
+          aria-hidden="true"
+          className={size === 'sm' ? 'text-2xl' : size === 'lg' ? 'text-6xl' : 'text-4xl'}
+        >
           {initial}
         </span>
         {size !== 'sm' && artistName && (
-          <span className="text-xs text-white/40 mt-1 px-2 truncate max-w-full">{artistName}</span>
+          <span aria-hidden="true" className="text-xs text-white/80 mt-1 px-2 truncate max-w-full">
+            {artistName}
+          </span>
         )}
       </div>
     );

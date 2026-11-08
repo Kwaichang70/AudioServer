@@ -146,6 +146,7 @@ export default function SearchBar({ compact = false }: Props) {
         role="combobox"
         aria-expanded={showList}
         aria-controls={listId}
+        aria-activedescendant={showList && active >= 0 ? `${listId}-option-${active}` : undefined}
         aria-autocomplete="list"
         aria-label="Search your library"
         placeholder={compact ? 'Search' : 'Search your library…  ( / )'}
@@ -186,10 +187,12 @@ export default function SearchBar({ compact = false }: Props) {
           className="absolute left-0 right-0 top-full z-[110] mt-1 max-h-96 overflow-y-auto rounded-lg border border-white/10 bg-surface py-1 shadow-xl"
         >
           {suggestions.map((s, i) => (
-            <li key={s.key}>
+            <li key={s.key} role="presentation">
               <button
                 type="button"
                 role="option"
+                id={`${listId}-option-${i}`}
+                tabIndex={-1}
                 aria-selected={i === active}
                 onMouseEnter={() => setActive(i)}
                 onClick={() => go(s.to)}

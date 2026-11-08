@@ -4,6 +4,27 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fase 5: interface (U01–U04)
+
+- **U01:** de volledige speler past op een kleine telefoon (320 px) en
+  liggend (667×375): de hoes schaalt mee, knoppen lopen door naar een
+  volgende regel en "Up Next" wijkt bij weinig hoogte. Een hoes die niet
+  laadt toont ♫ in plaats van een gebroken plaatje.
+- **U02 (toetsenbord en schermlezer):** de volledige speler is een echte
+  dialoog: focus erin, Tab blijft erin, Escape sluit en de focus gaat terug.
+  Spatie/Enter/pijltjes op een knop of tab starten niet meer stiekem de
+  speler. Settings-tabs gaan met pijltjes, Home en End. De zoeksuggesties
+  melden aan een schermlezer welke regel actief is. De uitvoerkeuze zet de
+  focus op de gekozen kamer; Escape sluit alleen die lijst.
+- **U03:** meldingen worden voorgelezen (fouten direct, 7 s zichtbaar) en
+  liggen boven de speler. Mislukt het laden van albums, artiesten of nummers,
+  dan zie je "Could not load …" met "Try again" in plaats van een lege pagina.
+- **U04:** "Scan Library" zie je alleen als admin (anderen krijgen "Ask an
+  administrator"), en een mislukte start meldt zich. De stappen in Getting
+  started openen direct de juiste Settings-tab. Een album zonder hoes heeft
+  leesbare tekst en een naam voor schermlezers. Een gekozen speaker die even
+  weg is, heet "Not found" in plaats van "Browser".
+
 ## Fase 4: losse fouten opgelost (B10–B15, watcher, paginering)
 
 - **B15:** genres met `%`, een letterlijke `%26`, accenten of een `/` openen

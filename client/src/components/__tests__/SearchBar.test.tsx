@@ -150,4 +150,17 @@ describe('SearchBar', () => {
 
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
+
+  it('tells a screen reader which suggestion the arrow keys are on (U02)', async () => {
+    renderBar();
+    type('miles');
+    const option = await screen.findByRole('option', { name: /^Artist\s*Miles Davis/ });
+    const input = screen.getByRole('combobox', { name: 'Search your library' });
+    expect(input).not.toHaveAttribute('aria-activedescendant');
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+
+    expect(option.id).toBeTruthy();
+    expect(input).toHaveAttribute('aria-activedescendant', option.id);
+  });
 });

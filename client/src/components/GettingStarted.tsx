@@ -107,7 +107,7 @@ export default function GettingStarted() {
               : lastRun === null
                 ? 'No scan has run yet. Point MUSIC_LIBRARY_PATHS at your music and scan.'
                 : 'The last scan found no music. Check the folder path and file formats.',
-    action: isAdmin ? { to: '/settings', label: 'Scan in Settings' } : undefined,
+    action: isAdmin ? { to: '/settings?tab=library', label: 'Scan in Settings' } : undefined,
   };
 
   const connected = providers
@@ -139,7 +139,7 @@ export default function GettingStarted() {
             : 'Optional. Local music works without them; add Qobuz or Spotify in Settings when you want.',
     action: isAdmin
       ? {
-          to: '/settings',
+          to: '/settings?tab=providers',
           label: connected.length > 0 ? 'Manage in Settings' : 'Connect in Settings',
         }
       : undefined,

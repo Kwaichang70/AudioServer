@@ -100,6 +100,27 @@ export default function SettingsPage() {
   const tabs = TABS.filter((tab) => isAdmin || !tab.admin);
   const current = tabs.find((tab) => tab.id === params.get('tab')) ?? tabs[0];
 
+  const onTabKey = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    // Arrow keys, Home and End move between the tabs (U02); Tab
+    // leaves the list for the panel, as one stop.
+    const keys: Record<string, number> = {
+      ArrowDown: 1,
+      ArrowRight: 1,
+      ArrowUp: -1,
+      ArrowLeft: -1,
+    };
+    const index = tabs.findIndex((tab) => tab.id === current.id);
+    let next: number | null = null;
+    if (e.key in keys) next = (index + keys[e.key] + tabs.length) % tabs.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = tabs.length - 1;
+    if (next === null) return;
+    e.preventDefault();
+    const tab = tabs[next];
+    setParams(tab.id === tabs[0].id ? {} : { tab: tab.id });
+    document.getElementById(`settings-tab-${tab.id}`)?.focus();
+  };
+
   return (
     <div className="mx-auto max-w-4xl md:flex md:gap-8">
       <div className="md:w-44 md:shrink-0">
@@ -121,6 +142,8 @@ export default function SettingsPage() {
                 role="tab"
                 id={`settings-tab-${tab.id}`}
                 aria-selected={active}
+                tabIndex={active ? 0 : -1}
+                onKeyDown={onTabKey}
                 aria-controls="settings-panel"
                 onClick={() => setParams(tab.id === tabs[0].id ? {} : { tab: tab.id })}
                 className={`rounded px-3 py-1.5 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent ${

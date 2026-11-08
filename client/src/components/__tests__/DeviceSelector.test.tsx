@@ -79,4 +79,34 @@ describe('DeviceSelector as a zone picker', () => {
 
     expect(onSelect).toHaveBeenCalledWith('speaker-kitchen');
   });
+
+  it('puts focus on the chosen room and gives it back on Escape (U02)', async () => {
+    const outside = vi.fn();
+    document.addEventListener('keydown', outside);
+    render(<DeviceSelector selectedDeviceId="speaker-kitchen" onSelect={vi.fn()} />);
+    const trigger = screen.getByTitle('Select output device');
+    await waitFor(() => expect(trigger).toHaveAccessibleName('Output device: Kitchen'));
+
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const current = await screen.findByRole('button', { current: true });
+    expect(current).toHaveFocus();
+
+    fireEvent.keyDown(current, { key: 'Escape' });
+
+    expect(screen.queryByRole('group', { name: 'Output devices' })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    expect(outside).not.toHaveBeenCalled(); // the full player behind stays open
+    document.removeEventListener('keydown', outside);
+  });
+
+  it('says a chosen speaker is missing rather than naming the browser (U04)', async () => {
+    render(<DeviceSelector selectedDeviceId="gone-speaker" onSelect={vi.fn()} />);
+
+    await waitFor(() =>
+      expect(screen.getByTitle('Select output device')).toHaveAccessibleName(
+        'Output device: Not found',
+      ),
+    );
+  });
 });

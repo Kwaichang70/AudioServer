@@ -114,14 +114,40 @@ export default function DeviceSelector({ selectedDeviceId, onSelect, compact }: 
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  // Keyboard (U02): opening puts focus on the chosen output, Escape closes
+  // and gives focus back to the button that opened the list.
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const first =
+      listRef.current?.querySelector<HTMLElement>('[aria-current="true"]') ??
+      listRef.current?.querySelector<HTMLElement>('button');
+    first?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation(); // the full player must stay open
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [open]);
+
   const selected = devices.find((d) => d.id === selectedDeviceId);
   const onlineDevices = devices.filter((d) => d.isOnline);
   const offlineDevices = devices.filter((d) => !d.isOnline);
   const selectedSpotify = spotifyDevices.find(
     (d) => `${SPOTIFY_CONNECT_PREFIX}${d.id}` === selectedDeviceId,
   );
+  // A chosen speaker that is (briefly) not in the list keeps saying it is
+  // not there, instead of pretending the browser was chosen (U04).
   const selectedLabel =
-    zoneOf(selectedDeviceId)?.name ?? selected?.name ?? selectedSpotify?.name ?? 'Browser';
+    zoneOf(selectedDeviceId)?.name ??
+    selected?.name ??
+    selectedSpotify?.name ??
+    (selectedDeviceId === 'browser' || devices.length === 0 ? 'Browser' : 'Not found');
   const selectedIcon = selectedSpotify
     ? '\u{1F7E2}'
     : deviceTypeIcons[selected?.type || 'browser'] || '\u{1F50A}';
@@ -129,10 +155,13 @@ export default function DeviceSelector({ selectedDeviceId, onSelect, compact }: 
   return (
     <div className="relative" ref={ref}>
       <button
+        ref={triggerRef}
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1.5 px-2 py-1.5 text-xs rounded bg-surface-dark border border-white/10 hover:border-accent transition"
         title="Select output device"
         aria-label={`Output device: ${selectedLabel}`}
+        aria-haspopup="true"
+        aria-expanded={open}
       >
         <span>{selectedIcon}</span>
         <span className={`${compact ? 'hidden sm:inline ' : ''}max-w-[100px] truncate`}>
@@ -142,7 +171,12 @@ export default function DeviceSelector({ selectedDeviceId, onSelect, compact }: 
       </button>
 
       {open && (
-        <div className="absolute bottom-full right-0 mb-2 w-72 bg-surface border border-white/10 rounded-lg shadow-xl z-50">
+        <div
+          ref={listRef}
+          role="group"
+          aria-label="Output devices"
+          className="absolute bottom-full right-0 mb-2 w-72 bg-surface border border-white/10 rounded-lg shadow-xl z-50"
+        >
           <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
             <p className="text-xs text-gray-500 uppercase tracking-wider">Output Devices</p>
             <button
@@ -161,9 +195,11 @@ export default function DeviceSelector({ selectedDeviceId, onSelect, compact }: 
             {onlineDevices.map((device) => (
               <button
                 key={device.id}
+                aria-current={device.id === selectedDeviceId ? 'true' : undefined}
                 onClick={() => {
                   onSelect(device.id);
                   setOpen(false);
+                  triggerRef.current?.focus();
                 }}
                 className={`w-full text-left px-3 py-2 flex items-center gap-3 transition cursor-pointer
                   ${device.id === selectedDeviceId ? 'bg-accent/20 text-accent' : 'hover:bg-surface-light'}

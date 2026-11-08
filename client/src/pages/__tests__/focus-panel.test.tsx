@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../api/client.js', () => ({ api: mocks.api }));
 vi.mock('../../context/AudioContext.js', () => ({ useAudioContext: () => mocks.audio }));
+vi.mock('../../context/AuthContext.js', () => ({ useAuth: () => ({ isAdmin: true }) }));
 vi.mock('../../components/AlbumCover.js', () => ({
   default: ({ title }: { title: string }) => <div>{title}</div>,
 }));
