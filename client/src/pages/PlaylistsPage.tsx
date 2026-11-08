@@ -71,9 +71,15 @@ export default function PlaylistsPage() {
     const name = file.name.replace(/\.(m3u8?|pls)$/i, '');
     try {
       const res = await api.importPlaylist(name, content);
+      const meta = res.meta as
+        { matched?: number; total?: number; ambiguous?: number; missing?: number } | undefined;
+      // Lines that fit two tracks are left out rather than guessed (B11).
+      const doubts = meta?.ambiguous
+        ? `, ${meta.ambiguous} unclear (several tracks with that file name)`
+        : '';
       toast(
-        `Imported "${name}": ${res.meta?.matched || 0} of ${res.meta?.total || 0} tracks matched`,
-        'success',
+        `Imported "${name}": ${meta?.matched || 0} of ${meta?.total || 0} tracks matched${doubts}`,
+        meta?.ambiguous ? 'info' : 'success',
       );
       load();
     } catch (err) {

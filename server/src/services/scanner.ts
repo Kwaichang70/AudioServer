@@ -1139,6 +1139,14 @@ async function processFile(
     updatedAt: new Date(),
   };
 
+  // The album it was on before, so a track that moved album takes its genres
+  // out of the old album's filters too (B13).
+  const previousAlbumId = targetTrackId
+    ? ((
+        getRawDb().prepare('SELECT album_id FROM tracks WHERE id = ?').get(targetTrackId) as
+          { album_id: string | null } | undefined
+      )?.album_id ?? null)
+    : null;
   if (targetTrackId) {
     db.update(tracks).set(trackData).where(eq(tracks.id, targetTrackId)).run();
   } else {
@@ -1152,6 +1160,7 @@ async function processFile(
   // replaced per track, so a corrected tag takes the old answer with it.
   writeCredits(targetTrackId, credits, (name) => upsertArtist(name));
   writeGenres(targetTrackId, albumId, genres);
+  if (previousAlbumId && previousAlbumId !== albumId) refreshAlbumGenres(previousAlbumId);
 
   // Album-level RG: prefer the value embedded in the file (every track on the
   // same album should carry the identical album_gain tag). We write it every
@@ -1205,10 +1214,15 @@ async function processFile(
   return outcome;
 }
 
+/**
+ * Names from a person tag. ";" separates names; "/" only with a space on at
+ * least one side ("Simon / Garfunkel"), because a slash inside a name is part
+ * of it: AC/DC is one band, not "AC" and "DC" (B13).
+ */
 function normalizePeople(value: string | string[] | undefined): string[] {
   const raw = Array.isArray(value) ? value : value ? [value] : [];
   return raw
-    .flatMap((item) => item.split(/\s*(?:;|\/)\s*/))
+    .flatMap((item) => item.split(/\s*;\s*|\s+\/\s*|\s*\/\s+/))
     .map((item) => item.trim())
     .filter(Boolean);
 }
@@ -1361,13 +1375,27 @@ function writeGenres(trackId: string, albumId: string, genres: string[]): void {
   const insertTrack = db.prepare(
     'INSERT OR IGNORE INTO track_genres (track_id, genre) VALUES (?, ?)',
   );
-  // Album genres accumulate across the album's tracks: a compilation is
-  // several genres, and no single track decides for the album.
-  const insertAlbum = db.prepare(
-    'INSERT OR IGNORE INTO album_genres (album_id, genre) VALUES (?, ?)',
-  );
-  for (const genre of genres) {
-    insertTrack.run(trackId, genre);
-    insertAlbum.run(albumId, genre);
-  }
+  for (const genre of genres) insertTrack.run(trackId, genre);
+  refreshAlbumGenres(albumId);
+}
+
+/**
+ * An album's genres are the genres of its tracks, all of them: a compilation
+ * is several genres, and no single track decides for the album. Recomputed
+ * rather than added to (B13), so retagging every track from Rock to Jazz
+ * also takes Rock out of the album filters. Only local albums: an added
+ * Qobuz album keeps the genre Qobuz gave it (its tracks have none of their own).
+ */
+function refreshAlbumGenres(albumId: string): void {
+  const db = getRawDb();
+  const local = db
+    .prepare("SELECT 1 FROM albums WHERE id = ? AND COALESCE(source, 'local') = 'local'")
+    .get(albumId);
+  if (!local) return;
+  db.prepare('DELETE FROM album_genres WHERE album_id = ?').run(albumId);
+  db.prepare(
+    `INSERT OR IGNORE INTO album_genres (album_id, genre)
+     SELECT DISTINCT t.album_id, tg.genre FROM track_genres tg JOIN tracks t ON t.id = tg.track_id
+      WHERE t.album_id = ?`,
+  ).run(albumId);
 }

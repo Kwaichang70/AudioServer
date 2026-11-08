@@ -39,6 +39,9 @@ interface TrackRow {
  * different path"), and `alt-*.mp3`, a different recording with the same
  * title (only the duration differs).
  */
+/** Tags a test can change between scans (B13: retagging). */
+const tagState = vi.hoisted(() => ({ retagGenre: 'Rock' }));
+
 vi.mock('music-metadata', () => ({
   selectCover: vi.fn(
     (pictures?: Array<{ data: Uint8Array; format: string }>) => pictures?.[0] ?? null,
@@ -119,6 +122,44 @@ vi.mock('music-metadata', () => ({
           movement: 'IV. Adagietto',
           genre: ['Classical'],
           track: { no: 4 },
+        },
+        format,
+      };
+    }
+    // B13: a slash inside a name, and an album whose genre is retagged.
+    if (fileName.startsWith('acdc-')) {
+      return {
+        common: {
+          artist: 'AC/DC',
+          albumartist: 'AC/DC',
+          album: 'Back in Black',
+          title,
+          artists: ['AC/DC'],
+          track: { no: 1 },
+        },
+        format,
+      };
+    }
+    if (fileName.startsWith('duo-')) {
+      return {
+        common: {
+          artist: 'Simon / Garfunkel',
+          album: 'Duo',
+          title,
+          track: { no: 1 },
+        },
+        format,
+      };
+    }
+    if (fileName.startsWith('retag-')) {
+      return {
+        common: {
+          artist: 'Retag Artist',
+          album: 'Retag Album',
+          title,
+          artists: ['Retag Artist'],
+          genre: [tagState.retagGenre],
+          track: { no: Number(fileName.match(/retag-(\d+)/)?.[1] ?? '1') },
         },
         format,
       };
@@ -682,3 +723,60 @@ function getTrackByPath(filePath: string): TrackRow | undefined {
   return getRawDb().prepare('SELECT * FROM tracks WHERE file_path = ?').get(filePath) as
     TrackRow | undefined;
 }
+
+describe('scanner: names and genres stay right (B13)', () => {
+  let tmp: string | null = null;
+
+  beforeEach(async () => {
+    tmp = mkdtempSync(join(tmpdir(), 'audioserver-scanner-b13-'));
+    await initDatabase(join(tmp, 'test.db'));
+  });
+
+  afterEach(() => {
+    tagState.retagGenre = 'Rock';
+    try {
+      getRawDb().close();
+    } catch {
+      // ignore
+    }
+    if (tmp) rmSync(tmp, { recursive: true, force: true });
+    tmp = null;
+  });
+
+  it('keeps AC/DC one artist, and still splits "Simon / Garfunkel"', async () => {
+    const root = join(tmp!, 'music');
+    mkdirSync(root);
+    writeFileSync(join(root, 'acdc-hells-bells.mp3'), 'audio');
+    writeFileSync(join(root, 'duo-song.mp3'), 'audio');
+    await scanLibrary([root], { trigger: 'test' });
+    const names = (
+      getRawDb().prepare('SELECT name FROM artists ORDER BY name').all() as Array<{ name: string }>
+    ).map((r) => r.name);
+    expect(names).toContain('AC/DC');
+    expect(names).not.toContain('AC');
+    expect(names).not.toContain('DC');
+    expect(getTrackByPath(`${root}/acdc-hells-bells.mp3`)!.artist_names).toBe('AC/DC');
+    expect(names).toEqual(expect.arrayContaining(['Simon', 'Garfunkel']));
+  });
+
+  it('takes a genre out of the album filters once no track carries it', async () => {
+    const root = join(tmp!, 'music');
+    mkdirSync(root);
+    writeFileSync(join(root, 'retag-1.mp3'), 'audio');
+    writeFileSync(join(root, 'retag-2.mp3'), 'audio');
+    await scanLibrary([root], { trigger: 'test' });
+    const albumGenres = () =>
+      (
+        getRawDb()
+          .prepare(
+            "SELECT ag.genre FROM album_genres ag JOIN albums a ON a.id = ag.album_id WHERE a.title = 'Retag Album' ORDER BY ag.genre",
+          )
+          .all() as Array<{ genre: string }>
+      ).map((r) => r.genre);
+    expect(albumGenres()).toEqual(['Rock']);
+
+    tagState.retagGenre = 'Jazz';
+    await scanLibrary([root], { force: true, trigger: 'test' });
+    expect(albumGenres()).toEqual(['Jazz']);
+  });
+});

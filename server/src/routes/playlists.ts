@@ -2,10 +2,18 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
 import { getDb, getRawDb } from '../db/index.js';
-import { playlists, playlistTracks, tracks } from '../db/schema.js';
+import { playlists, playlistTracks } from '../db/schema.js';
 import { eq, or } from 'drizzle-orm';
 import { validate } from '../utils/validate.js';
 import { requireOwner } from '../utils/ownership.js';
+import {
+  attachmentHeader,
+  buildIndex,
+  m3uText,
+  matchEntry,
+  parseM3u,
+  type LibraryFile,
+} from '../services/m3u.js';
 import {
   MissingSnapshotError,
   UnknownTrackError,
@@ -260,7 +268,7 @@ playlistsRouter.get('/:id/export', (req, res) => {
   const external = items.filter((i) => i.source !== 'local');
 
   let m3u = '#EXTM3U\n';
-  m3u += `#PLAYLIST:${playlist.name}\n`;
+  m3u += `#PLAYLIST:${m3uText(playlist.name)}\n`;
   if (external.length > 0) {
     m3u +=
       `# ${external.length} item(s) in this playlist do not come from a local file and cannot be\n` +
@@ -269,7 +277,7 @@ playlistsRouter.get('/:id/export', (req, res) => {
   }
 
   for (const item of items) {
-    m3u += `#EXTINF:${Math.round(item.duration || 0)},${item.artistName} - ${item.title}\n`;
+    m3u += `#EXTINF:${Math.round(item.duration || 0)},${m3uText(`${item.artistName} - ${item.title}`)}\n`;
     if (item.source === 'local') {
       m3u += `${item.filePath || item.id}\n`;
     } else {
@@ -278,7 +286,7 @@ playlistsRouter.get('/:id/export', (req, res) => {
   }
 
   res.setHeader('Content-Type', 'audio/mpegurl');
-  res.setHeader('Content-Disposition', `attachment; filename="${playlist.name}.m3u"`);
+  res.setHeader('Content-Disposition', attachmentHeader(playlist.name, '.m3u'));
   // A client that wants to warn before downloading does not have to parse the file.
   res.setHeader('X-Playlist-Export-Skipped', String(external.length));
   res.send(m3u);
@@ -291,39 +299,50 @@ playlistsRouter.post('/import', validate({ body: importSchema }), (req, res) => 
   const { name, content } = req.body;
   const db = getDb();
   const id = uuid();
-  db.insert(playlists).values({ id, name, userId: owner }).run();
-
-  // Parse M3U
-  const lines = (content as string)
-    .split('\n')
-    .map((l: string) => l.trim())
-    .filter((l: string) => l && !l.startsWith('#'));
+  const entries = parseM3u(content as string);
+  // One read of the library for the whole file (B11), not one per line.
+  const index = buildIndex(
+    getRawDb()
+      .prepare(
+        `SELECT id, file_path AS filePath, title, artist_name AS artistName FROM tracks
+          WHERE file_path IS NOT NULL AND COALESCE(source, 'local') = 'local'`,
+      )
+      .all() as LibraryFile[],
+  );
+  const missing: string[] = [];
+  const ambiguous: string[] = [];
   let position = 0;
-
-  for (const line of lines) {
-    // Try to match by file path
-    let track = db.select().from(tracks).where(eq(tracks.filePath, line)).get();
-
-    // Try fuzzy match by filename
-    if (!track) {
-      const filename = line.split('/').pop()?.split('\\').pop() || '';
-      if (filename) {
-        const allTracks = db.select().from(tracks).all();
-        track = allTracks.find((t) => t.filePath?.endsWith(filename));
+  // All of it or nothing: a failure halfway leaves no half playlist.
+  getRawDb().transaction(() => {
+    db.insert(playlists).values({ id, name, userId: owner }).run();
+    for (const entry of entries) {
+      const match = matchEntry(index, entry);
+      if (match.kind === 'matched') {
+        // Adding through the same path as everything else, so an imported
+        // item gets its snapshot too and reads the same after a rescan.
+        addItem(id, { trackId: match.trackId });
+        position++;
+      } else if (match.kind === 'ambiguous') {
+        ambiguous.push(entry.line);
+      } else {
+        missing.push(entry.line);
       }
     }
-
-    if (track) {
-      // Adding through the same path as everything else, so an imported item
-      // gets its snapshot too and reads the same after a rescan.
-      addItem(id, { trackId: track.id });
-      position++;
-    }
-  }
-
-  db.update(playlists).set({ trackCount: position }).where(eq(playlists.id, id)).run();
+    db.update(playlists).set({ trackCount: position }).where(eq(playlists.id, id)).run();
+  })();
   const created = db.select().from(playlists).where(eq(playlists.id, id)).get();
-  res.status(201).json({ data: created, meta: { matched: position, total: lines.length } });
+  res.status(201).json({
+    data: created,
+    meta: {
+      matched: position,
+      total: entries.length,
+      missing: missing.length,
+      ambiguous: ambiguous.length,
+      // A sample for the person who wants to fix the file.
+      missingLines: missing.slice(0, 50),
+      ambiguousLines: ambiguous.slice(0, 50),
+    },
+  });
 });
 
 /**
