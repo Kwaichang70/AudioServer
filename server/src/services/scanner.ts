@@ -385,6 +385,27 @@ function normalizeScanPath(value: string): string {
   return value.replace(/\\/g, '/').replace(/\/+$/, '');
 }
 
+/**
+ * The same file stored with other slashes (B14): "C:\\Music\\a.flac" and
+ * "C:/Music/a.flac", or a library root that was re-entered differently. It is
+ * the same track — it keeps its id, favourites and history, and its stored
+ * path takes the spelling the scanner uses now — instead of a second row.
+ * Only the slash direction counts as "the same"; letter case does not, since
+ * Linux paths are case-sensitive.
+ */
+function findEquivalentPath(filePath: string) {
+  const row = getRawDb()
+    .prepare(
+      `SELECT id FROM tracks
+        WHERE COALESCE(source, 'local') = 'local' AND file_path != ?
+          AND REPLACE(file_path, '\\', '/') = ?`,
+    )
+    .get(filePath, normalizeScanPath(filePath)) as { id: string } | undefined;
+  if (!row) return undefined;
+  getRawDb().prepare('UPDATE tracks SET file_path = ? WHERE id = ?').run(filePath, row.id);
+  return getDb().select().from(tracks).where(eq(tracks.id, row.id)).get();
+}
+
 function isPathUnderRoot(filePath: string, normalizedRoot: string): boolean {
   const normalizedFile = normalizeScanPath(filePath);
   return normalizedFile === normalizedRoot || normalizedFile.startsWith(`${normalizedRoot}/`);
@@ -421,7 +442,9 @@ async function scanDirectory(dir: string, seenFiles: Set<string>): Promise<Direc
       // Is the file already known at this path, and did it change? Size and
       // mtime together decide (V06.1); a scan-version bump or a forced scan
       // re-reads it regardless.
-      const existing = getDb().select().from(tracks).where(eq(tracks.filePath, filePath)).get();
+      const existing =
+        getDb().select().from(tracks).where(eq(tracks.filePath, filePath)).get() ??
+        findEquivalentPath(filePath);
       if (existing) {
         const wasMissing = existing.availability === 'missing';
         const unchanged =

@@ -1,3 +1,4 @@
+import { parsePagination } from '../utils/pagination.js';
 import { Router } from 'express';
 import { getDb, getRawDb } from '../db/index.js';
 import { favorites, tracks, albums, artists, radioStations } from '../db/schema.js';
@@ -251,9 +252,8 @@ historyRouter.get('/favorites/tracks', (req, res) => {
 historyRouter.get('/tracks', (req, res) => {
   const owner = requireOwner(req, res);
   if (!owner) return;
-  const page = Math.max(1, parseInt(req.query.page as string) || 1);
-  const limit = Math.min(100, parseInt(req.query.limit as string) || 50);
-  const offset = (page - 1) * limit;
+  // At least 1: SQLite reads LIMIT -1 as "no limit" (§6).
+  const { page, limit, offset } = parsePagination(req, 50, 100);
 
   const db = getDb();
   const result = db.all(sql`

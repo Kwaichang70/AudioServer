@@ -582,7 +582,7 @@ libraryRouter.post('/qobuz/sync/:id', (req, res) => {
 
 // Recently added albums
 libraryRouter.get('/albums/recent', (req, res) => {
-  const limit = Math.min(50, parseInt(req.query.limit as string) || 20);
+  const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 20));
   const db = getDb();
   const rows = db.select().from(albums).orderBy(desc(albums.createdAt)).limit(limit).all();
   const data = addAlbumCoverAvailability(rows);
@@ -934,7 +934,7 @@ libraryRouter.get(
 
 libraryRouter.get('/search', (req, res) => {
   const query = ((req.query.q as string) || '').trim();
-  const limit = Math.min(50, parseInt(req.query.limit as string) || 20);
+  const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 20));
   if (!query) return res.json({ data: { artists: [], albums: [], tracks: [] } });
   const quality =
     req.query.quality === 'lossless' || req.query.quality === 'hires'

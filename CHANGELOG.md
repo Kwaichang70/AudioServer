@@ -4,6 +4,33 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fase 4: losse fouten opgelost (B10–B15, watcher, paginering)
+
+- **B15:** genres met `%`, een letterlijke `%26`, accenten of een `/` openen
+  hun eigen pagina; `100%` gaf een foutscherm.
+- **B10:** Radio 538 en Radio Veronica spelen weer direct uit de lijst
+  Featured; opgeslagen favorieten en wachtrijen blijven werken.
+- **B12:** een nieuw wachtwoord mag maximaal 72 bytes zijn (bcrypt leest niet
+  verder); je krijgt een duidelijke melding. Bestaande langere wachtwoorden
+  blijven gewoon inloggen.
+- **B13:** AC/DC blijft één artiest ("Simon / Garfunkel" met spaties wordt nog
+  wel gesplitst). Albumgenres volgen de nummers: hertag je alles van Rock naar
+  Jazz, dan verdwijnt Rock uit de filters. Voor al ingelezen muziek:
+  Settings → Library → volledige herscan.
+- **B11:** M3U-import kiest nooit meer een verkeerd nummer ("song.flac" is
+  niet "other-song.flac"); bij twee albums met "01.flac" beslissen de map of
+  de #EXTINF-regel, en anders wordt de regel overgeslagen en gemeld. De import
+  leest de bibliotheek één keer en is één geheel. Export werkt met elke
+  playlistnaam (emoji, Japans, aanhalingstekens).
+- **B14:** hetzelfde bestand met andere slashes (`\` of `/`, of een anders
+  ingevoerde bibliotheekmap) blijft één nummer, met zijn favorieten en
+  geschiedenis.
+- **Watcher:** reageert ook op verplaatste mappen en nieuwe hoesjes, niet op
+  Synology's `@eaDir` en de prullenbak; een wijziging tijdens een scan krijgt
+  daarna nog één scan.
+- **Paginering en radio:** `limit=-1` gaf de hele geschiedenis; de
+  zoekcache van de radio is begrensd en de zendergids heeft een time-out.
+
 ## Fase 3: inlog en updates zijn bestand tegen storingen (B05–B08)
 
 - **B05:** herstart de NAS, of is je telefoon even offline, dan blijf je

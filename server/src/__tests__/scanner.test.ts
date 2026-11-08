@@ -779,4 +779,32 @@ describe('scanner: names and genres stay right (B13)', () => {
     await scanLibrary([root], { force: true, trigger: 'test' });
     expect(albumGenres()).toEqual(['Jazz']);
   });
+
+  it('B14: the same file stored with backslashes stays one track', async () => {
+    const root = join(tmp!, 'music');
+    mkdirSync(root);
+    writeFileSync(join(root, 'acdc-thunder.mp3'), 'audio');
+    await scanLibrary([root], { trigger: 'test' });
+    const first = getTrackByPath(`${root}/acdc-thunder.mp3`)!;
+    // As a Windows install, or a root typed with backslashes, would have stored it.
+    const windowsSpelling = `${root}/acdc-thunder.mp3`.replace(/\//g, '\\');
+    getRawDb()
+      .prepare('UPDATE tracks SET file_path = ? WHERE id = ?')
+      .run(windowsSpelling, first.id);
+    getRawDb()
+      .prepare("INSERT INTO favorites (item_type, item_id, user_id) VALUES ('track', ?, 'u1')")
+      .run(first.id);
+
+    const again = await scanLibrary([root], { trigger: 'test' });
+    expect(again.newTracks).toBe(0);
+    // Recognised as the same path, not guessed as a moved file by its fingerprint.
+    expect(again.relinkedTracks).toBe(0);
+    const rows = getRawDb()
+      .prepare("SELECT id, file_path FROM tracks WHERE title = 'acdc-thunder'")
+      .all() as Array<{ id: string; file_path: string }>;
+    expect(rows).toEqual([{ id: first.id, file_path: `${root}/acdc-thunder.mp3` }]);
+    expect(
+      getRawDb().prepare('SELECT 1 FROM favorites WHERE item_id = ?').get(first.id),
+    ).toBeTruthy();
+  });
 });
