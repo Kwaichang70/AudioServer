@@ -11,6 +11,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { z } from 'zod';
 import { SERVER_ORIGIN, StaleRevisionError, type PlaybackService } from '../services/playback.js';
 import { zones, ZoneTakenError } from '../services/zones.js';
+import { spotifyRoomStatus } from '../services/spotify-rooms.js';
 import type { PlaybackOrigin, PlaybackSnapshot } from '../types/socket-events.js';
 import {
   isServerManagedDevice,
@@ -236,6 +237,9 @@ playbackRouter.get('/zones', (_req, res) => {
         volume: snapshot.state.volume,
         leveling: getLeveling(zone.id),
         ...groupInfo(zone),
+        // A room whose speaker plays Spotify (started from Homey, Grok or a
+        // playlist page): what Spotify plays there, instead of a stopped queue.
+        spotify: spotifyRoomStatus(zone.id),
       };
     }),
   });

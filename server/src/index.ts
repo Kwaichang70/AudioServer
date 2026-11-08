@@ -13,6 +13,7 @@ import { libraryRouter } from './routes/library.js';
 import { devicesRouter } from './routes/devices.js';
 import { playbackRouter } from './routes/playback.js';
 import { controlRouter } from './routes/control.js';
+import { onSpotifyRoomsChanged } from './services/spotify-rooms.js';
 import { mcpRouter, noOAuthDiscovery } from './routes/mcp.js';
 import { historyRouter } from './routes/history.js';
 import { authRouter } from './routes/auth.js';
@@ -264,6 +265,7 @@ async function main() {
   startQobuzSync();
   // Sonos groups (R09.1): grouping in the Sonos app shows up here within a minute.
   startSonosGroupWatch(() => getIO().emit('zones:changed', zones.list()));
+  onSpotifyRoomsChanged(() => getIO().emit('zones:changed', zones.list()));
   // A queue survives a restart; whether the speaker is still playing it is
   // checked, not assumed (V04.3). Runs after listen() so readiness is not
   // delayed by a slow renderer.

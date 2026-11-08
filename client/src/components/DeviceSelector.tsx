@@ -61,6 +61,10 @@ export default function DeviceSelector({ selectedDeviceId, onSelect, compact }: 
   const zoneLine = (deviceId: string): string | null => {
     const zone = zoneOf(deviceId);
     if (!zone) return null;
+    if (zone.spotify) {
+      const title = zone.spotify.track?.title ?? zone.spotify.playing;
+      return `${zone.name} \u00B7 Spotify ${zone.spotify.state} \u00B7 ${title}`;
+    }
     if (zone.queueLength === 0) return `${zone.name} \u00B7 empty queue`;
     const what = zone.track?.title ? `\u00B7 ${zone.track.title}` : '';
     const state = zone.state === 'playing' ? 'playing' : zone.state;

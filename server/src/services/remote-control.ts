@@ -15,6 +15,7 @@ import {
   playSpotifyInRoom,
   spotifyControl,
   spotifyNowPlaying,
+  spotifyRoomStatus,
 } from './spotify-rooms.js';
 
 /**
@@ -127,6 +128,20 @@ export function resolveRoom(room: string | undefined): Zone {
 
 export function listRooms() {
   return zones.list().map((zone) => {
+    const sp = spotifyRoomStatus(zone.id);
+    if (sp) {
+      return {
+        id: zone.id,
+        name: zone.name,
+        speaker: true,
+        state: sp.state,
+        track: sp.track
+          ? { title: sp.track.title, artist: sp.track.artistName, album: sp.track.albumTitle }
+          : null,
+        source: 'spotify' as const,
+        playing: sp.playing,
+      };
+    }
     const state = zones.sessionFor(zone.id).getState();
     return {
       id: zone.id,

@@ -207,8 +207,9 @@ export default function ZonesSection() {
                     </p>
                     <p className="text-xs text-gray-500 truncate">
                       {deviceName(zone.deviceId)}
-                      {` · ${zone.state}`}
-                      {zone.track ? ` · ${zone.track.title}` : ''}
+                      {zone.spotify
+                        ? ` · Spotify ${zone.spotify.state} · ${zone.spotify.track?.title ?? zone.spotify.playing}`
+                        : `${` · ${zone.state}`}${zone.track ? ` · ${zone.track.title}` : ''}`}
                     </p>
                     {isSpeaker(zone.deviceId) && (
                       <select

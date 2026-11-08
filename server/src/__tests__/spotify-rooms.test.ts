@@ -8,7 +8,11 @@ import type { SpotifyConnectDevice, SpotifyPlaybackState } from '../providers/sp
 import { deviceManager } from '../devices/manager.js';
 import { zones } from '../services/zones.js';
 import { stopServerPlayback } from '../services/server-player.js';
-import { pickConnectDevice } from '../services/spotify-rooms.js';
+import {
+  onSpotifyRoomsChanged,
+  pickConnectDevice,
+  refreshSpotifyRooms,
+} from '../services/spotify-rooms.js';
 
 /**
  * Spotify in a room, started by the server (step 8): "play my Spotify playlist
@@ -268,6 +272,72 @@ describe('Spotify in a room', () => {
     calls.length = 0;
     await control('post', '/pause').send({ room: 'Woonkamer' });
     expect(calls).toEqual([]);
+  });
+
+  it('shows the room as playing Spotify, with the track once Spotify reports it', async () => {
+    const notified = vi.fn();
+    onSpotifyRoomsChanged(notified);
+    await control('post', '/play').send({
+      room: 'Woonkamer',
+      playlist: 'Zondag Jazz',
+      source: 'spotify',
+    });
+    const zoneOf = async () =>
+      (await request(app).get('/api/playback/zones')).body.data.find(
+        (z: { id: string }) => z.id === living,
+      );
+    expect((await zoneOf()).spotify).toEqual({
+      state: 'playing',
+      track: null,
+      speaker: 'Woonkamer',
+      playing: 'Zondag Jazz',
+    });
+    await refreshSpotifyRooms();
+    expect((await zoneOf()).spotify.track).toEqual({
+      title: 'Blue in Green',
+      artistName: 'Miles Davis',
+      albumTitle: 'Kind of Blue',
+    });
+    expect(notified).toHaveBeenCalled();
+    const rooms = (await control('get', '/rooms')).body.data;
+    expect(rooms.find((r: { name: string }) => r.name === 'Woonkamer')).toMatchObject({
+      source: 'spotify',
+      state: 'playing',
+      track: { title: 'Blue in Green' },
+    });
+
+    // Spotify moved to the phone: the room is no longer a Spotify room.
+    notified.mockClear();
+    playback = { ...playback!, device: dev('phone', "Danny's iPhone") };
+    await refreshSpotifyRooms();
+    expect((await zoneOf()).spotify).toBeNull();
+    expect(notified).toHaveBeenCalledTimes(1);
+    onSpotifyRoomsChanged(() => {});
+  });
+
+  it('lets the previous room go when Spotify starts in another', async () => {
+    const hifi = (
+      await request(app)
+        .post('/api/playback/zones')
+        .send({ name: 'CocktailAudio X45', deviceId: 'dlna:cocktail' })
+    ).body.data.id;
+    await control('post', '/play').send({
+      room: 'Woonkamer',
+      playlist: 'Zondag Jazz',
+      source: 'spotify',
+    });
+    await control('post', '/play').send({
+      room: 'CocktailAudio X45',
+      playlist: 'Zondag Jazz',
+      source: 'spotify',
+    });
+    const all = (await request(app).get('/api/playback/zones')).body.data;
+    expect(all.find((z: { id: string }) => z.id === living).spotify).toBeNull();
+    expect(all.find((z: { id: string }) => z.id === hifi).spotify.speaker).toBe(
+      'CocktailAudio X45',
+    );
+    await control('post', '/stop').send({ room: 'CocktailAudio X45' });
+    stopServerPlayback(hifi);
   });
 
   it('says which Spotify devices exist when the speaker is not among them', async () => {

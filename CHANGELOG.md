@@ -4,6 +4,20 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Kamers tonen wat Spotify er speelt
+
+- Speelt Spotify op de speaker van een kamer (gestart via Homey, Grok of
+  "Play in"), dan tonen de kamerkiezer en Settings → Rooms "Spotify playing ·
+  <nummer>" in plaats van een gestopte wachtrij.
+- In de app staat boven de speler een balkje voor de kamer die je bedient: wat
+  Spotify daar speelt (met hoes), met vorige, pauze/afspelen en volgende.
+- De server kijkt elke 15 s bij Spotify, en kort na elk commando. Gaat Spotify
+  naar een ander apparaat, dan laat de kamer het los. Spotify speelt per
+  account op één apparaat, dus start je Spotify in een tweede kamer, dan stopt
+  de eerste.
+- Ook `list_rooms` (Grok/Jarvis) en `/api/control/rooms` tonen Spotify per
+  kamer.
+
 ## Je Spotify-playlists in AudioServer
 
 - Een Spotify-playlist speel je ook af met **Play in <kamer>**: de speaker

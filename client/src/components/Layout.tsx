@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Outlet, NavLink, Link, useLocation, useNavigate } from 'react-router-dom';
 import NowPlayingBar from './NowPlayingBar.js';
+import SpotifyRoomStrip from './player/SpotifyRoomStrip.js';
 import { AudioProvider } from '../context/AudioContext.js';
 import { KeyboardShortcuts } from './KeyboardShortcuts.js';
 import { useAuth } from '../context/AuthContext.js';
@@ -207,6 +208,7 @@ export default function Layout() {
           </div>
         </div>
 
+        <SpotifyRoomStrip />
         <NowPlayingBar
           onExpandClick={() => setFullscreen('upnext')}
           onLyricsClick={() => setFullscreen('lyrics')}

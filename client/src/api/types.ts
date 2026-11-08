@@ -326,6 +326,16 @@ export interface ZoneOverview extends ZoneSummary {
   groupMembers?: string[];
   /** Volume leveling on the speaker path (R10.2). */
   leveling?: ZoneLeveling;
+  /** Spotify plays on this room's speaker (started by Homey, Grok or a playlist page). */
+  spotify?: SpotifyRoomStatus | null;
+}
+
+export interface SpotifyRoomStatus {
+  state: 'playing' | 'paused';
+  track: { title: string; artistName: string; albumTitle: string; coverUrl?: string } | null;
+  speaker: string;
+  /** What was started there: the playlist, album or artist name. */
+  playing: string;
 }
 
 /** auto = only what the NAS converts anyway; track/album = always (not bit-perfect). */

@@ -1,5 +1,9 @@
 import { providers } from '../providers/registry.js';
-import { SpotifyProviderError, type SpotifyConnectDevice } from '../providers/spotify.js';
+import {
+  SpotifyProviderError,
+  type SpotifyConnectDevice,
+  type SpotifyPlaybackState,
+} from '../providers/spotify.js';
 import { deviceManager } from '../devices/manager.js';
 import { zones, type Zone } from './zones.js';
 import { stopRoom } from './server-player.js';
@@ -30,6 +34,91 @@ interface SpotifyRoom {
 }
 
 const spotifyRooms = new Map<string, SpotifyRoom>();
+
+/** What the app shows for a room Spotify plays in (refreshed by the watch below). */
+export interface SpotifyRoomStatus {
+  state: 'playing' | 'paused';
+  track: { title: string; artistName: string; albumTitle: string; coverUrl?: string } | null;
+  speaker: string;
+  playing: string;
+}
+
+const statusCache = new Map<string, SpotifyRoomStatus>();
+let notify: () => void = () => {};
+let watch: NodeJS.Timeout | null = null;
+const WATCH_MS = 15_000;
+
+/** Called when a room starts or stops playing Spotify, or its track changes. */
+export function onSpotifyRoomsChanged(fn: () => void): void {
+  notify = fn;
+}
+
+export function spotifyRoomStatus(zoneId: string): SpotifyRoomStatus | null {
+  return statusCache.get(zoneId) ?? null;
+}
+
+function drop(zoneId: string): void {
+  spotifyRooms.delete(zoneId);
+  if (statusCache.delete(zoneId)) notify();
+  if (spotifyRooms.size === 0) stopWatch();
+}
+
+function statusOf(state: SpotifyPlaybackState, room: SpotifyRoom): SpotifyRoomStatus {
+  const item = state.item;
+  return {
+    state: state.is_playing ? 'playing' : 'paused',
+    track: item
+      ? {
+          title: item.name,
+          artistName: item.artists?.[0]?.name ?? '',
+          albumTitle: item.album?.name ?? '',
+          coverUrl: item.album?.images?.[0]?.url,
+        }
+      : null,
+    speaker: room.deviceName,
+    playing: room.playing,
+  };
+}
+
+/**
+ * Ask Spotify once what plays, and update every Spotify room from it. One
+ * account plays on one device at a time, so a room whose device is no longer
+ * the active one has stopped playing Spotify. Silence from Spotify (nothing
+ * active, or a rate-limit pause) changes nothing.
+ */
+export async function refreshSpotifyRooms(): Promise<void> {
+  if (spotifyRooms.size === 0) return stopWatch();
+  const state = await spotify()
+    .getPlaybackState()
+    .catch(() => null);
+  if (!state) return;
+  let changed = false;
+  for (const [zoneId, room] of [...spotifyRooms]) {
+    if (state.device?.id !== room.deviceId) {
+      spotifyRooms.delete(zoneId);
+      changed = statusCache.delete(zoneId) || changed;
+      continue;
+    }
+    const next = statusOf(state, room);
+    if (JSON.stringify(next) !== JSON.stringify(statusCache.get(zoneId))) {
+      statusCache.set(zoneId, next);
+      changed = true;
+    }
+  }
+  if (spotifyRooms.size === 0) stopWatch();
+  if (changed) notify();
+}
+
+function startWatch(): void {
+  if (watch) return;
+  watch = setInterval(() => void refreshSpotifyRooms(), WATCH_MS);
+  watch.unref?.();
+}
+
+function stopWatch(): void {
+  if (watch) clearInterval(watch);
+  watch = null;
+}
 
 const spotify = () => providers.spotify;
 
@@ -203,7 +292,20 @@ async function startOnSpotify(request: SpotifyPlayRequest) {
   } catch (err) {
     logger.debug(`Spotify shuffle on ${device.name}: ${err}`);
   }
-  spotifyRooms.set(zone.id, { deviceId: device.id, deviceName: device.name, playing: chosen.name });
+  // Spotify plays on one device per account: any other room has just stopped.
+  for (const other of [...spotifyRooms.keys()]) if (other !== zone.id) drop(other);
+  const room = { deviceId: device.id, deviceName: device.name, playing: chosen.name };
+  spotifyRooms.set(zone.id, room);
+  statusCache.set(zone.id, {
+    state: 'playing',
+    track: null,
+    speaker: device.name,
+    playing: chosen.name,
+  });
+  notify();
+  startWatch();
+  // The first track is known a moment after the speaker starts.
+  setTimeout(() => void refreshSpotifyRooms(), 3000).unref?.();
   logger.info(`Control: Spotify "${chosen.name}" in "${zone.name}" on ${device.name}`);
   return {
     room: zone.name,
@@ -216,7 +318,7 @@ async function startOnSpotify(request: SpotifyPlayRequest) {
 
 /** The room no longer plays Spotify (AudioServer took it back). */
 export function forgetSpotifyRoom(zoneId: string): void {
-  spotifyRooms.delete(zoneId);
+  drop(zoneId);
 }
 
 /**
@@ -228,7 +330,7 @@ export async function activeSpotifyDevice(zoneId: string): Promise<SpotifyRoom |
   if (!room || !spotify().auth.isAuthenticated) return null;
   const state = await spotify().getPlaybackState();
   if (state?.device?.id !== room.deviceId) {
-    if (state) spotifyRooms.delete(zoneId);
+    if (state) drop(zoneId);
     return state ? null : room;
   }
   return room;
@@ -256,10 +358,18 @@ export async function spotifyNowPlaying(zoneId: string) {
   };
 }
 
+/** After a command, look again soon, so the app shows the new state quickly. */
+const soon = <T>(done: Promise<T>): Promise<T> =>
+  done.then((value) => {
+    setTimeout(() => void refreshSpotifyRooms(), 1500).unref?.();
+    return value;
+  });
+
 export const spotifyControl = {
-  pause: (room: SpotifyRoom) => spotify().connectPause(room.deviceId),
-  resume: (room: SpotifyRoom) => spotify().connectResume(room.deviceId),
-  next: (room: SpotifyRoom) => spotify().connectNext(room.deviceId),
-  previous: (room: SpotifyRoom) => spotify().connectPrevious(room.deviceId),
-  volume: (room: SpotifyRoom, level: number) => spotify().connectSetVolume(level, room.deviceId),
+  pause: (room: SpotifyRoom) => soon(spotify().connectPause(room.deviceId)),
+  resume: (room: SpotifyRoom) => soon(spotify().connectResume(room.deviceId)),
+  next: (room: SpotifyRoom) => soon(spotify().connectNext(room.deviceId)),
+  previous: (room: SpotifyRoom) => soon(spotify().connectPrevious(room.deviceId)),
+  volume: (room: SpotifyRoom, level: number) =>
+    soon(spotify().connectSetVolume(level, room.deviceId)),
 };

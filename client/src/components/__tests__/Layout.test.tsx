@@ -15,6 +15,7 @@ vi.mock('../../context/AudioContext.js', () => ({
   AudioProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 vi.mock('../NowPlayingBar.js', () => ({ default: () => <div data-testid="player-bar" /> }));
+vi.mock('../player/SpotifyRoomStrip.js', () => ({ default: () => null }));
 vi.mock('../AppStatusBanners.js', () => ({ default: () => null }));
 vi.mock('../KeyboardShortcuts.js', () => ({ KeyboardShortcuts: () => null }));
 vi.mock('../SearchBar.js', () => ({ default: () => <div data-testid="search-bar" /> }));
