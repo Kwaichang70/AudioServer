@@ -29,7 +29,9 @@ export default function MoveToMenu({ size = 'sm' }: { size?: 'sm' | 'lg' }) {
   const close = useCallback(() => setOpen(false), []);
 
   const targets = zones.filter((z) => z.id !== zoneId && serverPlayable(z) && standsAlone(z));
-  if (!currentTrack || targets.length === 0) return null;
+  // Spotify on this room's speaker moves too: Spotify hands it over itself.
+  const spotifyHere = !!zones.find((z) => z.id === zoneId)?.spotify;
+  if ((!currentTrack && !spotifyHere) || targets.length === 0) return null;
 
   const move = async (zone: ZoneOverview) => {
     setBusy(true);

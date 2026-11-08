@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   audio: {
     zoneId: 'z-wk' as string | null,
     refreshZones: vi.fn(),
+    moveToZone: vi.fn(),
+    currentTrack: null,
     zones: [] as unknown[],
   },
   toast: vi.fn(),
@@ -69,5 +71,22 @@ describe('SpotifyRoomStrip', () => {
     render(<SpotifyRoomStrip />);
     expect(screen.getByRole('region')).toHaveTextContent('Zondag Jazz');
     expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument();
+  });
+
+  it('moves Spotify to another room, also with nothing in the own queue', async () => {
+    mocks.audio.moveToZone.mockResolvedValue({ note: 'Spotify continues on Keuken.' });
+    mocks.audio.zones = [
+      room({ state: 'playing', track: null, speaker: 'Woonkamer', playing: 'Zondag Jazz' }),
+      { id: 'z-k', name: 'Keuken', deviceId: 'sonos:k', state: 'stopped', groupedWith: null },
+    ];
+    render(<SpotifyRoomStrip />);
+    fireEvent.click(screen.getByRole('button', { name: 'Move to…' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Keuken/ }));
+    await waitFor(() =>
+      expect(mocks.audio.moveToZone).toHaveBeenCalledWith(expect.objectContaining({ id: 'z-k' })),
+    );
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith('Spotify continues on Keuken.', 'info'),
+    );
   });
 });

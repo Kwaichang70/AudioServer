@@ -52,8 +52,8 @@ speelt het zelf via **Spotify Connect**: de muziek gaat niet via de NAS.
 - Pauzeren, verder, volgende/vorige, volume en "wat speelt er" gaan daarna naar
   Spotify. Stoppen pauzeert Spotify.
 - Shuffle begint bij een willekeurig nummer en zet shuffle aan in Spotify.
-- Niet mogelijk: "Move to…" van Spotify-muziek naar een andere kamer (doe dat
-  in de Spotify-app).
+- "Move to…" (en `move_music` via Grok) verhuist Spotify naar een andere kamer;
+  Spotify geeft het zelf door, met positie.
 
 ## Voorbeeld: Homey Pro, zondagochtend
 

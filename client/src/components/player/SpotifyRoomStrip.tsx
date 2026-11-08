@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../../api/client.js';
 import { useAudioContext } from '../../context/AudioContext.js';
 import { useToast } from '../Toast.js';
+import MoveToMenu from './MoveToMenu.js';
 
 /**
  * When Spotify plays on the speaker of the room this tab steers — started by
@@ -72,6 +73,7 @@ export default function SpotifyRoomStrip() {
       <button className={button} disabled={busy} onClick={() => run('next')} aria-label="Next">
         &#9197;
       </button>
+      <MoveToMenu />
     </section>
   );
 }

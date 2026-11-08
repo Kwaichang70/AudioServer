@@ -1,3 +1,6 @@
+import { moveSpotifyRoom } from './spotify-rooms.js';
+import { ControlError } from './remote-control.js';
+import { SpotifyProviderError } from '../providers/spotify.js';
 import { zones, type Zone } from './zones.js';
 import type { TrackInfo } from './playback.js';
 import type { PlaybackOrigin } from '../types/socket-events.js';
@@ -122,6 +125,28 @@ export async function transferZone(
       'target_grouped',
       `“${to.name}” plays along with “${leader.name}”; take it out of the group first.`,
     );
+  }
+
+  // Spotify on the source speaker: Spotify itself hands it to the target's
+  // speaker, queue and position included.
+  let spotifyMove: Awaited<ReturnType<typeof moveSpotifyRoom>>;
+  try {
+    spotifyMove = await moveSpotifyRoom(from, to);
+  } catch (err) {
+    if (err instanceof ControlError || err instanceof SpotifyProviderError) {
+      throw new TransferError('target_not_server_playable', err.message);
+    }
+    throw err;
+  }
+  if (spotifyMove) {
+    return {
+      from,
+      to,
+      trackId: spotifyMove.trackId,
+      position: spotifyMove.position,
+      resumedAtPosition: true,
+      note: `Spotify continues on ${spotifyMove.speaker}.`,
+    };
   }
 
   const source = zones.sessionFor(from.id);

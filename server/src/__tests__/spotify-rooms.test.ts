@@ -340,6 +340,47 @@ describe('Spotify in a room', () => {
     stopServerPlayback(hifi);
   });
 
+  it('moves Spotify to another room: Spotify hands over, the rooms follow', async () => {
+    const hifi = (
+      await request(app)
+        .post('/api/playback/zones')
+        .send({ name: 'CocktailAudio X45', deviceId: 'dlna:cocktail' })
+    ).body.data.id;
+    const transfer = vi.spyOn(spotify, 'connectTransferPlayback').mockImplementation(async (d) => {
+      calls.push(`transfer ${d}`);
+      playback = { ...playback!, device: dev(d, 'CocktailAudio X45') };
+    });
+    await control('post', '/play').send({
+      room: 'Woonkamer',
+      playlist: 'Zondag Jazz',
+      source: 'spotify',
+    });
+    const res = await request(app)
+      .post('/api/playback/transfer')
+      .set('X-Client-Id', 'spotify-test')
+      .set('X-Zone-Id', living)
+      .send({ toZoneId: hifi });
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({
+      trackId: 'spotify:x',
+      position: 61,
+      resumedAtPosition: true,
+      note: 'Spotify continues on CocktailAudio X45.',
+    });
+    expect(transfer).toHaveBeenCalledWith('cocktail');
+    const all = (await request(app).get('/api/playback/zones')).body.data;
+    expect(all.find((z: { id: string }) => z.id === living).spotify).toBeNull();
+    expect(all.find((z: { id: string }) => z.id === hifi).spotify).toMatchObject({
+      speaker: 'CocktailAudio X45',
+      playing: 'Zondag Jazz',
+      track: { title: 'Blue in Green' },
+    });
+    calls.length = 0;
+    await control('post', '/pause').send({ room: 'CocktailAudio X45' });
+    expect(calls).toEqual(['pause cocktail']);
+    stopServerPlayback(hifi);
+  });
+
   it('says which Spotify devices exist when the speaker is not among them', async () => {
     const kitchen = (
       await request(app)

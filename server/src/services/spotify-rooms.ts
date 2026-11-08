@@ -373,3 +373,41 @@ export const spotifyControl = {
   volume: (room: SpotifyRoom, level: number) =>
     soon(spotify().connectSetVolume(level, room.deviceId)),
 };
+
+/**
+ * Move Spotify from one room's speaker to another's ("Move to…"): Spotify
+ * hands its playback over itself, with the queue and the position. Null when
+ * the room does not play Spotify, so the caller moves AudioServer's own queue.
+ */
+export async function moveSpotifyRoom(
+  from: Zone,
+  to: Zone,
+): Promise<{ trackId: string; position: number; speaker: string } | null> {
+  const room = await activeSpotifyDevice(from.id);
+  if (!room) return null;
+  const device = await connectDeviceFor(to);
+  const state = zones.sessionFor(to.id).getState().state;
+  if (state !== 'stopped') await stopRoom(to.id);
+  const before = await spotify()
+    .getPlaybackState()
+    .catch(() => null);
+  await spotify().connectTransferPlayback(device.id);
+  drop(from.id);
+  const moved = { deviceId: device.id, deviceName: device.name, playing: room.playing };
+  spotifyRooms.set(to.id, moved);
+  statusCache.set(to.id, {
+    ...(before ? statusOf(before, moved) : { track: null }),
+    state: 'playing',
+    speaker: device.name,
+    playing: room.playing,
+  });
+  notify();
+  startWatch();
+  setTimeout(() => void refreshSpotifyRooms(), 3000).unref?.();
+  logger.info(`Spotify moved from "${from.name}" to "${to.name}" (${device.name})`);
+  return {
+    trackId: before?.item ? `spotify:${before.item.id}` : 'spotify',
+    position: Math.round((before?.progress_ms ?? 0) / 1000),
+    speaker: device.name,
+  };
+}

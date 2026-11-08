@@ -17,6 +17,9 @@ the kind of change, not semver — there are no releases yet.
   de eerste.
 - Ook `list_rooms` (Grok/Jarvis) en `/api/control/rooms` tonen Spotify per
   kamer.
+- **Move to…** werkt nu ook voor Spotify: Spotify geeft het afspelen zelf door
+  aan de speaker van de andere kamer, met wachtrij en positie. Dat kan via het
+  balkje, de speler, `move_music` (Grok) en `/api/playback/transfer`.
 
 ## Je Spotify-playlists in AudioServer
 
@@ -55,8 +58,6 @@ the kind of change, not semver — there are no releases yet.
   pauze, verder, volgende/vorige, volume en "wat speelt er" naar Spotify, zolang
   Spotify daar nog speelt.
 - De playlistlijst (control en MCP) toont ook je Spotify-playlists.
-- Grens: "Move to…" werkt niet voor Spotify-muziek; de kamer in de app toont
-  Spotify nog niet als "speelt".
 
 ## Wachtwoord vergeten: herstellen op de NAS
 
