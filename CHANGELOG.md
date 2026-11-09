@@ -4,6 +4,26 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fase 7: hygiëne (verbeterplan november, H01–H03)
+
+- **`.env.synology` niet meer in git:** het bestand stond sinds maart in de
+  (publieke) repo, met een `JWT_SECRET` van 26 tekens en de adressen van de
+  speakers. Dat secret kan niet het secret op de NAS zijn: in productie weigert
+  de server alles korter dan 32 tekens. Het bestand blijft lokaal staan; in git
+  staat nu `.env.synology.example` met lege waarden. `.gitignore` negeert
+  `.env.*` (behalve de voorbeelden) en `*.tar`; `.dockerignore` ook.
+- **CI-workflow blijft:** `.github/workflows/ci.yml` was in de werkmap
+  verwijderd zonder commit of uitleg, terwijl de CI op GitHub groen draait.
+  Teruggezet zoals in HEAD.
+- **Opgeruimd:** `NEXT_STEPS.md` (het werk erin, de scanner bij een offline
+  NAS, was al gedaan en getest) en een oud `audioserver-qobuz.tar` in de root.
+- **Tests op Windows:** de gedeelde testhelper probeert het verwijderen van zijn
+  tijdelijke database een paar keer opnieuw. Onder belasting hield Windows het
+  net gesloten bestand vast (`EPERM`) en faalde een suite nadat al zijn tests
+  waren geslaagd.
+- **Gecontroleerd na `npm ci`:** lint, typecheck, server (94 bestanden, 717
+  tests) en client (67 bestanden, 342 tests) groen op Windows.
+
 ## Fase 6: meten en afronden
 
 - **Bibliotheekscan veel sneller:** gemeten met 50.000 nummers

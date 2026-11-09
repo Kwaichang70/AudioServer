@@ -123,7 +123,10 @@ export async function createTestApp(options: TestAppOptions = {}) {
       } catch {
         // ignore — db may not be open
       }
-      rmSync(tmp, { recursive: true, force: true });
+      // Windows can hold the just-closed database file for a moment under
+      // load (indexer, antivirus): EPERM/EBUSY. Retry instead of failing the
+      // suite after all its tests passed.
+      rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     },
   };
 }

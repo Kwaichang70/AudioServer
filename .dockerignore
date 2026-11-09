@@ -8,3 +8,5 @@ data
 *.db
 .git
 .claude
+.env.*
+*.tar
