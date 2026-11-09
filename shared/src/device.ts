@@ -27,13 +27,28 @@ export interface DeviceController {
   discover(): Promise<OutputDevice[]>;
 
   // Transport controls
-  play(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void>;
+  /**
+   * Start a stream. `signal` aborts the requests still on their way when the
+   * caller gave up (its own time limit ran out), so a late attempt does not
+   * keep sending commands next to the caller's retry (P06).
+   */
+  play(
+    deviceId: string,
+    streamUrl: string,
+    metadata?: TrackMetadata,
+    signal?: AbortSignal,
+  ): Promise<void>;
   pause(deviceId: string): Promise<void>;
   resume(deviceId: string): Promise<void>;
   stop(deviceId: string): Promise<void>;
   next(deviceId: string): Promise<void>;
   previous(deviceId: string): Promise<void>;
-  setNextUri?(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void>;
+  setNextUri?(
+    deviceId: string,
+    streamUrl: string,
+    metadata?: TrackMetadata,
+    signal?: AbortSignal,
+  ): Promise<void>;
   /**
    * Jump to `position` seconds inside the current track (R01.1). Optional:
    * a renderer may not implement it, and `output-capabilities` asks the

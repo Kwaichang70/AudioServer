@@ -6,6 +6,8 @@ import type {
   DevicePlaybackStatus,
   TrackMetadata,
 } from '@audioserver/shared';
+import { requestSignal } from './upnp.js';
+import { DiscoveryRoster } from './retention.js';
 
 interface VolumioDevice {
   id: string;
@@ -65,8 +67,7 @@ export function parseVolumioAnswers(records: MdnsRecord[]): VolumioAnnouncement[
   const out = new Map<string, VolumioAnnouncement>();
   for (const instance of instances) {
     const srv = records.find((r) => r.type === 'SRV' && r.name === instance)?.data as
-      | { port?: number; target?: string }
-      | undefined;
+      { port?: number; target?: string } | undefined;
     if (!srv?.target) continue;
     const address = records.find(
       (r) => r.type === 'A' && lower(r.name) === lower(srv.target!),
@@ -132,9 +133,12 @@ export function configureVolumioDiscovery(fn: typeof browseMdns | null): void {
 export class VolumioController implements DeviceController {
   readonly deviceType = 'volumio' as const;
   private devices = new Map<string, VolumioDevice>();
+  private readonly roster = new DiscoveryRoster<VolumioDevice>();
 
   async discover(): Promise<OutputDevice[]> {
-    this.devices.clear();
+    // Collected apart and merged at the end: one missed round does not
+    // forget a player (P01).
+    const found = new Map<string, VolumioDevice>();
 
     // Probe known Volumio addresses from env
     const hosts = (process.env.VOLUMIO_DEVICES || '')
@@ -156,7 +160,7 @@ export class VolumioController implements DeviceController {
           const id = `volumio-${host}`;
           const name = `Volumio (${host})`;
 
-          this.devices.set(id, { id, name, host, port: parseInt(port), isOnline: true });
+          found.set(id, { id, name, host, port: parseInt(port), isOnline: true });
           logger.info(`Volumio found: ${name} at ${host}:${port}`);
         } catch {
           // Not reachable
@@ -164,8 +168,9 @@ export class VolumioController implements DeviceController {
       }),
     );
 
-    if (process.env.VOLUMIO_MDNS !== 'false') await this.discoverMdns();
+    if (process.env.VOLUMIO_MDNS !== 'false') await this.discoverMdns(found);
 
+    this.devices = this.roster.merge(this.devices, found);
     return this.getDeviceList();
   }
 
@@ -176,7 +181,7 @@ export class VolumioController implements DeviceController {
    * twice. Each is asked for its state before it is listed, like the
    * configured ones.
    */
-  private async discoverMdns(): Promise<void> {
+  private async discoverMdns(into: Map<string, VolumioDevice>): Promise<void> {
     let found: VolumioAnnouncement[] = [];
     try {
       found = parseVolumioAnswers(await browse(3000));
@@ -187,7 +192,7 @@ export class VolumioController implements DeviceController {
     await Promise.allSettled(
       found.map(async ({ host, port, name }) => {
         const id = `volumio-${host}`;
-        if (this.devices.has(id)) return;
+        if (into.has(id)) return;
         try {
           const res = await fetch(`http://${host}:${port}/api/v1/getState`, {
             signal: AbortSignal.timeout(3000),
@@ -196,7 +201,7 @@ export class VolumioController implements DeviceController {
           const state = (await res.json()) as VolumioStateResponse;
           if (typeof state.volume !== 'number') return;
           const label = name ? `${name} (Volumio)` : `Volumio (${host})`;
-          this.devices.set(id, { id, name: label, host, port, isOnline: true });
+          into.set(id, { id, name: label, host, port, isOnline: true });
           logger.info(`Volumio announced itself: ${label} at ${host}:${port}`);
         } catch {
           // Announced but not answering: not listed.
@@ -225,7 +230,17 @@ export class VolumioController implements DeviceController {
     return `http://${device.host}:${device.port}`;
   }
 
-  async play(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void> {
+  /** One REST command, bounded like every request to a speaker (P05). */
+  private async command(device: VolumioDevice, query: string): Promise<void> {
+    await fetch(`${this.baseUrl(device)}/api/v1/commands/?${query}`, { signal: requestSignal() });
+  }
+
+  async play(
+    deviceId: string,
+    streamUrl: string,
+    metadata?: TrackMetadata,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const device = this.getDevice(deviceId);
     const base = this.baseUrl(device);
 
@@ -242,6 +257,7 @@ export class VolumioController implements DeviceController {
           type: 'webradio',
         },
       }),
+      signal: requestSignal(signal),
     });
 
     if (!res.ok) throw new Error(`Volumio play failed: ${await res.text()}`);
@@ -250,17 +266,17 @@ export class VolumioController implements DeviceController {
 
   async pause(deviceId: string): Promise<void> {
     const device = this.getDevice(deviceId);
-    await fetch(`${this.baseUrl(device)}/api/v1/commands/?cmd=pause`);
+    await this.command(device, 'cmd=pause');
   }
 
   async resume(deviceId: string): Promise<void> {
     const device = this.getDevice(deviceId);
-    await fetch(`${this.baseUrl(device)}/api/v1/commands/?cmd=play`);
+    await this.command(device, 'cmd=play');
   }
 
   async stop(deviceId: string): Promise<void> {
     const device = this.getDevice(deviceId);
-    await fetch(`${this.baseUrl(device)}/api/v1/commands/?cmd=stop`);
+    await this.command(device, 'cmd=stop');
   }
 
   /**
@@ -271,29 +287,32 @@ export class VolumioController implements DeviceController {
     const device = this.getDevice(deviceId);
     const res = await fetch(
       `${this.baseUrl(device)}/api/v1/commands/?cmd=seek&position=${Math.max(0, Math.floor(position))}`,
+      { signal: requestSignal() },
     );
     if (!res.ok) throw new Error(`${device.name} refused seek (HTTP ${res.status})`);
   }
 
   async next(deviceId: string): Promise<void> {
     const device = this.getDevice(deviceId);
-    await fetch(`${this.baseUrl(device)}/api/v1/commands/?cmd=next`);
+    await this.command(device, 'cmd=next');
   }
 
   async previous(deviceId: string): Promise<void> {
     const device = this.getDevice(deviceId);
-    await fetch(`${this.baseUrl(device)}/api/v1/commands/?cmd=prev`);
+    await this.command(device, 'cmd=prev');
   }
 
   async setVolume(deviceId: string, volume: number): Promise<void> {
     const device = this.getDevice(deviceId);
-    await fetch(`${this.baseUrl(device)}/api/v1/commands/?cmd=volume&volume=${Math.round(volume)}`);
+    await this.command(device, `cmd=volume&volume=${Math.round(volume)}`);
   }
 
   async getVolume(deviceId: string): Promise<number> {
     const device = this.getDevice(deviceId);
     try {
-      const res = await fetch(`${this.baseUrl(device)}/api/v1/getState`);
+      const res = await fetch(`${this.baseUrl(device)}/api/v1/getState`, {
+        signal: requestSignal(),
+      });
       const state = (await res.json()) as VolumioStateResponse;
       return state.volume ?? 50;
     } catch {
@@ -303,7 +322,9 @@ export class VolumioController implements DeviceController {
 
   async getPlaybackState(deviceId: string): Promise<DevicePlaybackStatus> {
     const device = this.getDevice(deviceId);
-    const res = await fetch(`${this.baseUrl(device)}/api/v1/getState`);
+    const res = await fetch(`${this.baseUrl(device)}/api/v1/getState`, {
+      signal: requestSignal(),
+    });
     if (!res.ok) throw new Error(`Volumio status failed with HTTP ${res.status}`);
     const state = (await res.json()) as VolumioStateResponse;
     return {

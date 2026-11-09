@@ -4,6 +4,60 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fase 8: speakers blijven in de pas met de wachtrij (P01–P13)
+
+- **Een speaker die één zoekronde mist, blijft bekend.** Zoekantwoorden van
+  speakers (SSDP, mDNS) gaan soms verloren. De server vergat zo'n speaker
+  meteen en meldde hem daarna als "gestopt" terwijl hij doorspeelde: midden in
+  een nummer stopte de app, aan het eind sprong de wachtrij een nummer over.
+  Nu staat hij als offline in de lijst en verdwijnt hij pas na drie gemiste
+  rondes op rij. Een opdracht aan een onbekende speaker meldt een fout in
+  plaats van te doen alsof hij lukte.
+- **Titels en albums op Sonos en de Cocktail Audio.** De gegevens bij een
+  nummer (DIDL-Lite) werden dubbel omgezet: Sonos kreeg tekst in plaats van
+  XML, DLNA voor het volgende nummer ook, en bij DLNA brak het huidige nummer
+  op elke `&` (in elke stream-URL met `?t=…&zone=…`). Een speaker die dat
+  controleerde, weigerde het volgende nummer vooraf, en dan stond naadloos
+  afspelen voor die speaker uit. Dit is een waarschijnlijke oorzaak van wat
+  op echte hardware nog niet klopte; **nog te testen op je Sonos en Cocktail
+  Audio**: zie je titel en album, en gaan overgangen naadloos?
+- **Naadloos blijft aan na een wijziging in de wachtrij.** Een trage
+  overdracht van "het volgende nummer" die al door een nieuwere was vervangen,
+  wiste bij een late fout de nieuwe en zette naadloos afspelen tien minuten
+  uit. Daarna speelde soms een nummer twee keer.
+- **Herstart tijdens een overgang.** Ging de speaker tijdens een herstart van
+  de NAS zelf door naar het volgende nummer, dan liep de wachtrij één nummer
+  achter en kwam dat nummer daarna nog eens. De server kijkt nu welk nummer de
+  speaker speelt (voor nummers uit de eigen bibliotheek) en loopt mee.
+- **Elke vraag aan een speaker heeft een tijdslimiet** (10 s per opdracht,
+  3 s voor een apparaatbeschrijving). Een poging die te lang duurt, wordt
+  afgebroken in plaats van alleen opgegeven, zodat een tweede poging niet
+  naast de eerste op dezelfde speaker draait. Er is nog één herhaallaag in
+  plaats van twee.
+- **Zoeken naar speakers** gebeurt voor DLNA, Sonos en Volumio tegelijk
+  (ongeveer 5 s in plaats van 12) en na een herstart één keer voor alle
+  kamers samen in plaats van per kamer.
+- **Twee kamers tegelijk** houden elk hun eigen luistersessie: geschiedenis
+  en scrobbles van de ene kamer gaan niet meer naar het nummer van de andere.
+  Een Sonos die in een groep meespeelt, opent geen sessie voor zijn eigen,
+  oude nummer.
+- **Minder verkeer naar telefoons:** de positie van een speaker gaat alleen
+  naar de tabs die die speaker volgen, niet elke paar seconden naar iedereen.
+  De gezondheidscheck meldt een verdwenen of teruggekeerde speaker één keer in
+  plaats van elke minuut, en loopt nooit dubbel.
+- **Kamers:** een kamer kan niet meer de speaker van een andere kamer
+  aansturen (antwoord 409 met de juiste kamer). Een verwijderde kamer stopt
+  zijn speaker en laat geen slaaptimer of radio achter. Pauze en hervatten
+  via de afspeel-API bereiken ook de speaker. Muziek naar een andere kamer
+  verplaatsen stopt de oude speaker één keer, en springt niet naar een
+  positie als in de nieuwe kamer intussen iets anders is gekozen.
+- **Gecontroleerd:** lint, typecheck, server (98 bestanden, 742 tests, 25
+  nieuw) en client (67 bestanden, 342 tests) groen. Elke nieuwe test faalt op
+  de code van vóór deze fase. Niet getest op echte speakers.
+- **Niet gedaan:** de wachtrij gaat bij elke wijziging nog volledig naar alle
+  tabs. Kleinere berichten vragen een aanpassing in de app zelf en horen bij
+  fase 11 (C02).
+
 ## Fase 7: hygiëne (verbeterplan november, H01–H03)
 
 - **`.env.synology` niet meer in git:** het bestand stond sinds maart in de

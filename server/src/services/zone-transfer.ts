@@ -179,11 +179,12 @@ export async function transferZone(
   const itemId = target.getCurrentItemId();
   if (itemId) target.playItem(itemId, origin, to.deviceId);
 
-  // Then the old room stops and lets go of its speaker. The session going
-  // idle does not reach the device, so the speaker is told to stop too; a
-  // browser room is silenced by its own tab.
-  source.stop(origin);
+  // Then the old room stops and lets go of its speaker, and the speaker is
+  // told to stop below; a browser room is silenced by its own tab. Letting
+  // go first means the session's onIdle hook leaves the speaker alone, so it
+  // gets one stop, not two (P13).
   stopServerPlayback(from.id);
+  source.stop(origin);
   if (radio.enabled) setRadio(from.id, false, null, userId);
   let stopFailed = false;
   if (isServerManagedDevice(from.deviceId)) {
@@ -220,6 +221,12 @@ export async function transferZone(
       result,
       `“${to.name}” cannot jump inside a track; it plays from the beginning of the track.`,
     );
+    return result;
+  }
+  // Somebody chose other music in the new room while it was starting: the
+  // position belongs to the moved track, not to whatever plays now (P13).
+  if (target.getCurrentItemId() !== itemId) {
+    addNote(result, `“${to.name}” is playing something else now; the position was not applied.`);
     return result;
   }
   try {

@@ -3,6 +3,7 @@ import { getRawDb } from '../db/index.js';
 import { logger } from '../logger.js';
 import { scrobbler, type ScrobbleTrack } from './scrobbler.js';
 import type { ListeningObserver, TrackInfo } from './playback.js';
+import { DEFAULT_ZONE_ID } from '../db/index.js';
 
 /**
  * Listening sessions (V05.2 / V05.3).
@@ -23,6 +24,10 @@ import type { ListeningObserver, TrackInfo } from './playback.js';
  * Qualification follows Last.fm's rule: the track is longer than 30 s and
  * at least half of it, or four minutes, was heard, whichever comes first.
  * Without a known length, four minutes.
+ *
+ * One open session per zone (P07). With a single one for the whole house, a
+ * track starting in the kitchen ended the living room's listen, and the
+ * living room's heartbeats then credited the kitchen's track.
  */
 
 export const HEARTBEAT_CAP_MS = 45_000;
@@ -42,6 +47,8 @@ export interface ListeningTrack {
 }
 
 export interface ListeningContext {
+  /** The room this listen happens in; the default zone when not said. */
+  zoneId?: string | null;
   queueItemId?: string | null;
   deviceId?: string | null;
   userId?: string | null;
@@ -74,8 +81,12 @@ let policy: ListeningPolicy = {
   scrobbleSpotify: process.env.SCROBBLE_SPOTIFY === 'true',
 };
 
-let active: ActiveSession | null = null;
+const active = new Map<string, ActiveSession>();
 let clock: () => number = () => Date.now();
+
+function keyOf(zoneId: string | null | undefined): string {
+  return zoneId || DEFAULT_ZONE_ID;
+}
 
 export function setListeningPolicy(overrides: Partial<ListeningPolicy>): void {
   policy = { ...policy, ...overrides };
@@ -169,7 +180,9 @@ function finish(session: ActiveSession, status: 'ended' | 'failed', at: number):
  */
 export function startSession(track: ListeningTrack, ctx: ListeningContext = {}): string {
   const at = clock();
-  if (active) finish(active, 'ended', at);
+  const key = keyOf(ctx.zoneId);
+  const previous = active.get(key);
+  if (previous) finish(previous, 'ended', at);
   const session: ActiveSession = {
     id: randomUUID(),
     track: { ...track, artistName: track.artistName ?? '', title: track.title ?? '' },
@@ -207,7 +220,7 @@ export function startSession(track: ListeningTrack, ctx: ListeningContext = {}):
   } catch (err) {
     logger.warn(`Listening: could not open session for "${track.title}": ${err}`);
   }
-  active = session;
+  active.set(key, session);
   if (scrobbleable(session)) {
     scrobbler.nowPlaying(toScrobbleTrack(session.track), session.userId).catch(() => {});
   }
@@ -223,60 +236,67 @@ export function startSession(track: ListeningTrack, ctx: ListeningContext = {}):
 export function transport(
   state: 'playing' | 'paused' | 'stopped',
   current?: { track: ListeningTrack; ctx?: ListeningContext } | null,
+  zoneId?: string | null,
 ): void {
   const at = clock();
-  if (!active) {
+  const key = keyOf(zoneId ?? current?.ctx?.zoneId);
+  const session = active.get(key);
+  if (!session) {
     if (state === 'playing' && current)
-      startSession(current.track, { ...current.ctx, playing: true });
+      startSession(current.track, { ...current.ctx, zoneId: key, playing: true });
     return;
   }
   if (state === 'playing') {
-    if (active.lastTickMs === null) active.lastTickMs = at;
-    else accrue(active, at);
-    persistProgress(active);
+    if (session.lastTickMs === null) session.lastTickMs = at;
+    else accrue(session, at);
+    persistProgress(session);
     return;
   }
-  accrue(active, at);
-  active.lastTickMs = null;
+  accrue(session, at);
+  session.lastTickMs = null;
   if (state === 'stopped') {
-    finish(active, 'ended', at);
-    active = null;
+    finish(session, 'ended', at);
+    active.delete(key);
   } else {
-    persistProgress(active, true);
+    persistProgress(session, true);
   }
 }
 
 /** Confirmation that audio is (still) playing. Credits the time since the last confirmation. */
-export function heartbeat(): void {
-  if (!active) return;
+export function heartbeat(zoneId?: string | null): void {
+  const session = active.get(keyOf(zoneId));
+  if (!session) return;
   const at = clock();
-  if (active.lastTickMs === null) active.lastTickMs = at;
-  else accrue(active, at);
-  persistProgress(active);
+  if (session.lastTickMs === null) session.lastTickMs = at;
+  else accrue(session, at);
+  persistProgress(session);
 }
 
 /** Playback failed: the session ends unqualified, whatever was heard before. */
-export function fail(): void {
-  if (!active) return;
-  finish(active, 'failed', clock());
-  active = null;
+export function fail(zoneId?: string | null): void {
+  const key = keyOf(zoneId);
+  const session = active.get(key);
+  if (!session) return;
+  finish(session, 'failed', clock());
+  active.delete(key);
 }
 
-export function getActiveSession(): {
+export function getActiveSession(zoneId?: string | null): {
   id: string;
   trackId: string;
   listenedMs: number;
   playing: boolean;
 } | null {
-  if (!active) return null;
+  const session = active.get(keyOf(zoneId));
+  if (!session) return null;
   const at = clock();
   const pending =
-    active.lastTickMs === null ? 0 : Math.min(at - active.lastTickMs, HEARTBEAT_CAP_MS);
+    session.lastTickMs === null ? 0 : Math.min(at - session.lastTickMs, HEARTBEAT_CAP_MS);
   return {
-    id: active.id,
-    trackId: active.track.id,
-    listenedMs: Math.round(active.listenedMs + pending),
-    playing: active.lastTickMs !== null,
+    id: session.id,
+    trackId: session.track.id,
+    listenedMs: Math.round(session.listenedMs + pending),
+    playing: session.lastTickMs !== null,
   };
 }
 
@@ -373,16 +393,20 @@ export const playbackListeningObserver: ListeningObserver = {
   trackStarted(track, ctx) {
     startSession(toListeningTrack(track), ctx);
   },
-  transport(state, current) {
-    transport(state, current ? { track: toListeningTrack(current.track), ctx: current.ctx } : null);
+  transport(state, current, zoneId) {
+    transport(
+      state,
+      current ? { track: toListeningTrack(current.track), ctx: current.ctx } : null,
+      zoneId,
+    );
   },
-  heartbeat,
-  failed: fail,
+  heartbeat: (zoneId) => heartbeat(zoneId),
+  failed: (zoneId) => fail(zoneId),
 };
 
 /** Test hook. */
 export function resetListeningForTests(): void {
-  active = null;
+  active.clear();
   clock = () => Date.now();
   policy = { scrobbleSpotify: process.env.SCROBBLE_SPOTIFY === 'true' };
 }

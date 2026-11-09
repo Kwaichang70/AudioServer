@@ -15,6 +15,7 @@ import { isClientConnected } from '../socketio.js';
 import { noteNextUriFailed, supportsNextUri } from './output-capabilities.js';
 import { recordTransition } from './transitions.js';
 import { logger } from '../logger.js';
+import { withTimeout } from '../utils/with-timeout.js';
 
 /**
  * Server-driven playback ("NAS conducts the music"), V04.
@@ -34,12 +35,19 @@ import { logger } from '../logger.js';
 export type UnplayablePolicy = 'skip' | 'stop';
 
 export interface ServerPlayerDeps {
-  play: (deviceId: string, url: string, metadata: ResolvedStream['metadata']) => Promise<void>;
+  /** `signal` fires when the attempt timed out, so the speaker gets no more commands (P06). */
+  play: (
+    deviceId: string,
+    url: string,
+    metadata: ResolvedStream['metadata'],
+    signal?: AbortSignal,
+  ) => Promise<void>;
   /** Hand the next track over before this one ends (V11.3). */
   setNextUri: (
     deviceId: string,
     url: string,
     metadata: ResolvedStream['metadata'],
+    signal?: AbortSignal,
   ) => Promise<void>;
   /** Make the device forget the next track it was handed (the queue changed, B03). */
   clearNextUri: (deviceId: string) => Promise<void>;
@@ -58,7 +66,8 @@ export interface ServerPlayerDeps {
   }) => void;
   resolve: (track: TrackInfo, output?: OutputTarget) => Promise<ResolvedStream>;
   isClientConnected: (clientId: string | null) => boolean;
-  getDeviceState: (deviceId: string) => Promise<{ state: string }>;
+  /** `trackUri`: the URL the speaker plays now, when it says (B02, P03). */
+  getDeviceState: (deviceId: string) => Promise<{ state: string; trackUri?: string }>;
   /** Tell a speaker to stop: the session going idle never reaches it. */
   stopDevice: (deviceId: string) => Promise<void>;
   discover: () => Promise<unknown>;
@@ -72,8 +81,11 @@ export interface ServerPlayerDeps {
 const envPolicy = process.env.PLAYBACK_UNPLAYABLE_POLICY === 'stop' ? 'stop' : 'skip';
 
 let deps: ServerPlayerDeps = {
-  play: (deviceId, url, metadata) => deviceManager.play(deviceId, url, metadata),
-  setNextUri: (deviceId, url, metadata) => deviceManager.setNextUri(deviceId, url, metadata),
+  // No retry inside the manager: dispatch() retries itself with a fresh URL (P06).
+  play: (deviceId, url, metadata, signal) =>
+    deviceManager.play(deviceId, url, metadata, { signal, retry: false }),
+  setNextUri: (deviceId, url, metadata, signal) =>
+    deviceManager.setNextUri(deviceId, url, metadata, signal),
   clearNextUri: (deviceId) => deviceManager.setNextUri(deviceId, ''),
   supportsNextUri,
   noteNextUriFailed,
@@ -200,8 +212,10 @@ export function stopServerPlayback(zoneId: string = DEFAULT_ZONE_ID): void {
 export async function stopRoom(zoneId: string): Promise<void> {
   const session = sessionOf(zoneId);
   const deviceId = session.getState().deviceId;
-  session.stop();
+  // Let go first: stop() fires the onIdle hook, which would otherwise stop
+  // the speaker too, and the speaker got the stop twice (P13).
   stopServerPlayback(zoneId);
+  session.stop();
   if (deviceId && isServerManagedDevice(deviceId)) {
     try {
       await deps.stopDevice(deviceId);
@@ -209,22 +223,6 @@ export async function stopRoom(zoneId: string): Promise<void> {
       logger.warn(`ServerPlayer[${zoneId}]: ${deviceId} did not stop: ${err}`);
     }
   }
-}
-
-function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms}ms`)), ms);
-    promise.then(
-      (v) => {
-        clearTimeout(timer);
-        resolve(v);
-      },
-      (e) => {
-        clearTimeout(timer);
-        reject(e);
-      },
-    );
-  });
 }
 
 /**
@@ -261,10 +259,14 @@ export async function dispatch(
         `finding a stream for "${track.title}"`,
       );
       if (stale()) return;
+      // A timed-out attempt is aborted, not just abandoned: otherwise its
+      // Stop/SetURI/Play kept arriving at the speaker next to attempt 2 (P06).
+      const attemptControl = new AbortController();
       await withTimeout(
-        deps.play(deviceId, resolved.url, resolved.metadata),
+        deps.play(deviceId, resolved.url, resolved.metadata, attemptControl.signal),
         deps.timeoutMs,
         `dispatch to ${deviceId}`,
+        () => attemptControl.abort(),
       );
       if (stale()) return;
       zone.consecutiveSkips = 0;
@@ -324,10 +326,12 @@ async function armNext(deviceId: string, zoneId: string): Promise<void> {
       `finding a stream for "${next.track.title}"`,
     );
     if (zone.activeDeviceId !== deviceId || seq !== zone.armSeq) return;
+    const armControl = new AbortController();
     await withTimeout(
-      deps.setNextUri(deviceId, resolved.url, resolved.metadata),
+      deps.setNextUri(deviceId, resolved.url, resolved.metadata, armControl.signal),
       deps.timeoutMs,
       `handing "${next.track.title}" to ${deviceId} in advance`,
+      () => armControl.abort(),
     );
     if (seq !== zone.armSeq) return; // a newer hand-over is under way
     zone.armed = { itemId: next.itemId, trackId: next.track.id, at: Date.now(), url: resolved.url };
@@ -337,6 +341,14 @@ async function armNext(deviceId: string, zoneId: string): Promise<void> {
     // The queue changed while this was on its way: hand over the right one.
     if (sessionOf(zoneId).peekNext()?.itemId !== next.itemId) revalidateNext(zoneId);
   } catch (err) {
+    // A hand-over that a newer one already replaced (the queue changed while
+    // this one was on its way) has nothing to say any more: clearing
+    // `armed` here would erase the newer, live hand-over, and noting a
+    // failure would switch gapless off for this speaker for no reason (P02).
+    if (seq !== zone.armSeq || zone.activeDeviceId !== deviceId) {
+      logger.debug(`ServerPlayer[${zoneId}]: an outdated hand-over failed late: ${err}`);
+      return;
+    }
     zone.armed = null;
     if (err instanceof DeviceUnavailableError || /finding a stream/.test(String(err))) {
       logger.warn(`ServerPlayer[${zoneId}]: nothing handed over in advance: ${err}`);
@@ -509,22 +521,27 @@ export function onDeviceUnreachable(deviceId: string, errors: number): void {
  */
 export async function reconcileAfterRestart(
   zoneId: string = DEFAULT_ZONE_ID,
+  options: { discovered?: boolean } = {},
 ): Promise<'not-managed' | 'device-playing' | 'resumed' | 'stopped'> {
   const zone = zoneState(zoneId);
   const session = sessionOf(zoneId);
   const info = session.getPersistedSessionInfo();
   if (!info.serverManaged || !isServerManagedDevice(info.deviceId)) return 'not-managed';
 
-  try {
-    await deps.discover();
-  } catch (err) {
-    logger.warn(`ServerPlayer: device discovery after restart failed: ${err}`);
+  if (!options.discovered) {
+    try {
+      await deps.discover();
+    } catch (err) {
+      logger.warn(`ServerPlayer: device discovery after restart failed: ${err}`);
+    }
   }
 
   let deviceState = 'unknown';
+  let trackUri: string | undefined;
   try {
-    deviceState = (await withTimeout(deps.getDeviceState(info.deviceId), 5000, 'device status'))
-      .state;
+    const status = await withTimeout(deps.getDeviceState(info.deviceId), 5000, 'device status');
+    deviceState = status.state;
+    trackUri = status.trackUri;
   } catch (err) {
     logger.warn(`ServerPlayer: ${info.deviceId} did not answer after restart: ${err}`);
   }
@@ -543,6 +560,7 @@ export async function reconcileAfterRestart(
       message: 'Reconciled after restart: device was still playing',
     });
     logger.info(`ServerPlayer: ${info.deviceId} still playing after restart; resuming control`);
+    followDeviceAfterRestart(zoneId, info.deviceId, info.trackId, trackUri);
     return 'device-playing';
   }
 
@@ -566,11 +584,73 @@ export async function reconcileAfterRestart(
   return 'stopped';
 }
 
+/**
+ * The speaker kept playing while the server was down (a SIGTERM leaves it
+ * playing on purpose) and may have crossed into the track it had been
+ * handed in advance. The queue on disk then still points at the finished
+ * track, and the next end of track would dispatch the one just heard again
+ * (P03). When the URL the speaker reports names the next queue item, the
+ * queue follows it once, the way a gapless hand-over is followed — nothing
+ * is sent to the speaker.
+ */
+function followDeviceAfterRestart(
+  zoneId: string,
+  deviceId: string,
+  persistedTrackId: string | null,
+  trackUri: string | undefined,
+): void {
+  if (!trackUri) return;
+  if (persistedTrackId && uriNamesTrack(trackUri, persistedTrackId)) return;
+  const session = sessionOf(zoneId);
+  const next = session.peekNext();
+  if (!next || !uriNamesTrack(trackUri, next.track.id)) return;
+  const zone = zoneState(zoneId);
+  zone.armed = { itemId: next.itemId, trackId: next.track.id, at: Date.now(), url: trackUri };
+  logger.info(
+    `ServerPlayer[${zoneId}]: ${deviceId} moved on to "${next.track.title}" while the server was down; the queue follows`,
+  );
+  session.deviceAdvanced();
+}
+
+/**
+ * Does a URL a speaker reports play this track? Only a library stream names
+ * its track (`/api/library/tracks/<id>/stream`, converted or not); for any
+ * other source the answer is "cannot tell", which leaves the queue alone.
+ */
+export function uriNamesTrack(uri: string, trackId: string): boolean {
+  let path: string;
+  try {
+    path = new URL(uri).pathname;
+  } catch {
+    return false;
+  }
+  const segment = /^\/api\/library\/tracks\/([^/]+)\/stream$/.exec(path)?.[1];
+  if (!segment) return false;
+  try {
+    return decodeURIComponent(segment) === trackId;
+  } catch {
+    return false;
+  }
+}
+
 /** Every zone reconciles its own speaker after a restart (V10). */
 export async function reconcileAllZones(): Promise<void> {
+  // One search for every room: per zone, a three-room house spent half a
+  // minute discovering the same speakers at boot (P10).
+  const managed = zones.list().some((zone) => {
+    const info = sessionOf(zone.id).getPersistedSessionInfo();
+    return info.serverManaged && isServerManagedDevice(info.deviceId);
+  });
+  if (managed) {
+    try {
+      await deps.discover();
+    } catch (err) {
+      logger.warn(`ServerPlayer: device discovery after restart failed: ${err}`);
+    }
+  }
   for (const zone of zones.list()) {
     try {
-      const outcome = await reconcileAfterRestart(zone.id);
+      const outcome = await reconcileAfterRestart(zone.id, { discovered: true });
       if (outcome !== 'not-managed') {
         logger.info(`ServerPlayer: zone "${zone.name}" after restart: ${outcome}`);
       }

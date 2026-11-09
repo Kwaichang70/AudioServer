@@ -9,6 +9,14 @@ import type {
   DevicePlaybackStatus,
   TrackMetadata,
 } from '@audioserver/shared';
+import {
+  buildDidlLite,
+  DESCRIPTION_TIMEOUT_MS,
+  escapeXml,
+  mimeTypeOf,
+  requestSignal,
+} from './upnp.js';
+import { DiscoveryRoster } from './retention.js';
 
 interface DlnaDevice {
   id: string;
@@ -22,10 +30,6 @@ interface DlnaDevice {
   location: string;
   isOnline: boolean;
 }
-
-type DlnaTrackMetadata = TrackMetadata & {
-  mimeType?: string;
-};
 
 /** One bounded GET; a renderer that does not answer must not hang a request. */
 async function fetchText(url: string, timeoutMs = 5000): Promise<string> {
@@ -73,30 +77,32 @@ export function formatRelTime(position: number): string {
 export class DlnaController implements DeviceController {
   readonly deviceType = 'dlna' as const;
   private devices = new Map<string, DlnaDevice>();
-  private ssdpClient: InstanceType<typeof SsdpClient> | null = null;
+  private readonly roster = new DiscoveryRoster<DlnaDevice>();
 
   async discover(): Promise<OutputDevice[]> {
-    this.devices.clear();
+    // Collected apart and merged at the end: the known devices stay usable
+    // while the search runs, and one missed round does not forget them (P01).
+    const found = new Map<string, DlnaDevice>();
 
     // Method 1: SSDP multicast discovery
-    await this.ssdpDiscover();
+    await this.ssdpDiscover(found);
 
     // Method 2: Direct HTTP probing of known/configured devices
-    await this.probeKnownDevices();
+    await this.probeKnownDevices(found);
 
+    this.devices = this.roster.merge(this.devices, found);
     return this.getDeviceList();
   }
 
-  private async ssdpDiscover(): Promise<void> {
+  private async ssdpDiscover(found: Map<string, DlnaDevice>): Promise<void> {
     return new Promise((resolve) => {
       try {
         const client = new SsdpClient();
-        this.ssdpClient = client;
 
         client.on('response', async (headers, _statusCode, rinfo) => {
           if (!headers.LOCATION) return;
           try {
-            await this.parseDeviceDescription(String(headers.LOCATION), rinfo.address);
+            await this.parseDeviceDescription(String(headers.LOCATION), rinfo.address, found);
           } catch {
             // Not a valid MediaRenderer
           }
@@ -115,7 +121,7 @@ export class DlnaController implements DeviceController {
     });
   }
 
-  private async probeKnownDevices(): Promise<void> {
+  private async probeKnownDevices(found: Map<string, DlnaDevice>): Promise<void> {
     // Probe common UPnP ports on known/recently-seen devices
     // Also probe addresses from DLNA_DEVICES env var (comma-separated host:port)
     const probeTargets: string[] = [];
@@ -139,7 +145,7 @@ export class DlnaController implements DeviceController {
         try {
           const descUrl = await this.findDescriptionUrl(host, parseInt(port));
           if (descUrl) {
-            await this.parseDeviceDescription(descUrl, host);
+            await this.parseDeviceDescription(descUrl, host, found);
           }
         } catch {
           // Device not reachable on this port
@@ -175,9 +181,16 @@ export class DlnaController implements DeviceController {
     return null;
   }
 
-  private async parseDeviceDescription(location: string, host: string): Promise<void> {
+  private async parseDeviceDescription(
+    location: string,
+    host: string,
+    into: Map<string, DlnaDevice>,
+  ): Promise<void> {
     try {
-      const res = await fetch(location);
+      // Every UPnP device on the host network answers the search; one that
+      // accepts the connection and never sends its description must not hold
+      // discovery open (P10).
+      const res = await fetch(location, { signal: AbortSignal.timeout(DESCRIPTION_TIMEOUT_MS) });
       const xml = await res.text();
       const parsed = await parseStringPromise(xml);
 
@@ -236,7 +249,7 @@ export class DlnaController implements DeviceController {
       };
 
       const id = udn.replace('uuid:', '');
-      this.devices.set(id, {
+      into.set(id, {
         id,
         name: friendlyName,
         host,
@@ -269,24 +282,37 @@ export class DlnaController implements DeviceController {
     return device;
   }
 
-  async play(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void> {
+  async play(
+    deviceId: string,
+    streamUrl: string,
+    metadata?: TrackMetadata,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const device = this.getDevice(deviceId);
-    const didl = this.buildDidlMetadata(streamUrl, metadata);
+    const didl = this.didlFor(streamUrl, metadata);
 
     // Stop current playback
     try {
-      await this.sendAction(device.controlUrl, 'Stop', { InstanceID: '0' });
-      await this.waitForState(device.controlUrl, 'STOPPED', 3000);
+      await this.sendAction(device.controlUrl, 'Stop', { InstanceID: '0' }, signal);
+      await this.waitForState(device.controlUrl, 'STOPPED', 3000, signal);
     } catch {
       /* ignore — may already be stopped */
     }
+    // The caller gave up while we waited: sending SetURI/Play now would run
+    // next to its retry on the same speaker (P06).
+    signal?.throwIfAborted();
 
     // Set new URI
-    const setResult = await this.sendAction(device.controlUrl, 'SetAVTransportURI', {
-      InstanceID: '0',
-      CurrentURI: streamUrl,
-      CurrentURIMetaData: didl,
-    });
+    const setResult = await this.sendAction(
+      device.controlUrl,
+      'SetAVTransportURI',
+      {
+        InstanceID: '0',
+        CurrentURI: streamUrl,
+        CurrentURIMetaData: didl,
+      },
+      signal,
+    );
 
     if (setResult.includes('Fault')) {
       logger.error(`DLNA SetURI fault on ${device.name}: ${setResult.substring(0, 200)}`);
@@ -295,16 +321,18 @@ export class DlnaController implements DeviceController {
 
     // Wait a moment for device to buffer
     await new Promise((r) => setTimeout(r, 500));
+    signal?.throwIfAborted();
 
     // Play
-    await this.sendAction(device.controlUrl, 'Play', { InstanceID: '0', Speed: '1' });
+    await this.sendAction(device.controlUrl, 'Play', { InstanceID: '0', Speed: '1' }, signal);
 
     // Verify it's playing (retry once if not)
-    const playing = await this.waitForState(device.controlUrl, 'PLAYING', 5000);
+    const playing = await this.waitForState(device.controlUrl, 'PLAYING', 5000, signal);
     if (!playing) {
+      signal?.throwIfAborted();
       logger.warn(`DLNA: ${device.name} not PLAYING after first attempt, retrying...`);
-      await this.sendAction(device.controlUrl, 'Play', { InstanceID: '0', Speed: '1' });
-      await this.waitForState(device.controlUrl, 'PLAYING', 3000);
+      await this.sendAction(device.controlUrl, 'Play', { InstanceID: '0', Speed: '1' }, signal);
+      await this.waitForState(device.controlUrl, 'PLAYING', 3000, signal);
     }
 
     logger.info(`DLNA play: ${metadata?.title || 'track'} → ${device.name}`);
@@ -315,11 +343,18 @@ export class DlnaController implements DeviceController {
     controlUrl: string,
     expected: string,
     timeoutMs: number,
+    signal?: AbortSignal,
   ): Promise<boolean> {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
+      if (signal?.aborted) return false;
       try {
-        const info = await this.sendAction(controlUrl, 'GetTransportInfo', { InstanceID: '0' });
+        const info = await this.sendAction(
+          controlUrl,
+          'GetTransportInfo',
+          { InstanceID: '0' },
+          signal,
+        );
         if (info.includes(expected)) return true;
       } catch {
         /* ignore */
@@ -350,15 +385,25 @@ export class DlnaController implements DeviceController {
    * swallowed: the caller decides between a gapless handover and dispatching
    * the next track itself.
    */
-  async setNextUri(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void> {
+  async setNextUri(
+    deviceId: string,
+    streamUrl: string,
+    metadata?: TrackMetadata,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const device = this.getDevice(deviceId);
     // An empty URL clears what was handed over (the queue changed).
-    const didl = streamUrl ? this.buildDidlMetadata(streamUrl, metadata) : '';
-    await this.sendAction(device.controlUrl, 'SetNextAVTransportURI', {
-      InstanceID: '0',
-      NextURI: streamUrl,
-      NextURIMetaData: didl,
-    });
+    const didl = streamUrl ? this.didlFor(streamUrl, metadata) : '';
+    await this.sendAction(
+      device.controlUrl,
+      'SetNextAVTransportURI',
+      {
+        InstanceID: '0',
+        NextURI: streamUrl,
+        NextURIMetaData: didl,
+      },
+      signal,
+    );
     logger.info(`DLNA setNextUri: ${metadata?.title || 'track'} → ${device.name}`);
   }
 
@@ -488,13 +533,11 @@ export class DlnaController implements DeviceController {
     controlUrl: string,
     action: string,
     args: Record<string, string>,
+    signal?: AbortSignal,
   ): Promise<string> {
+    // Every argument is text, DIDL-Lite included: escaped exactly once (P04).
     const argsXml = Object.entries(args)
-      .map(([k, v]) => {
-        // Don't escape CurrentURIMetaData — it's already XML-escaped DIDL
-        const val = k === 'CurrentURIMetaData' ? v : this.escapeXml(v);
-        return `<${k}>${val}</${k}>`;
-      })
+      .map(([k, v]) => `<${k}>${escapeXml(v)}</${k}>`)
       .join('');
 
     const body = `<?xml version="1.0" encoding="utf-8"?>
@@ -513,6 +556,7 @@ export class DlnaController implements DeviceController {
         SOAPAction: `"urn:schemas-upnp-org:service:AVTransport:1#${action}"`,
       },
       body,
+      signal: requestSignal(signal),
     });
 
     if (!res.ok) throw new Error(`DLNA ${action} failed with HTTP ${res.status}`);
@@ -529,7 +573,7 @@ export class DlnaController implements DeviceController {
     const renderUrl = device.controlUrl.replace(/AVTransport/gi, 'RenderingControl');
 
     const argsXml = Object.entries(args)
-      .map(([k, v]) => `<${k}>${this.escapeXml(v)}</${k}>`)
+      .map(([k, v]) => `<${k}>${escapeXml(v)}</${k}>`)
       .join('');
 
     const body = `<?xml version="1.0" encoding="utf-8"?>
@@ -548,29 +592,14 @@ export class DlnaController implements DeviceController {
         SOAPAction: `"urn:schemas-upnp-org:service:RenderingControl:1#${action}"`,
       },
       body,
+      signal: requestSignal(),
     });
 
     return res.text();
   }
 
-  private buildDidlMetadata(uri: string, meta?: TrackMetadata): string {
-    const title = meta?.title || 'Unknown';
-    const artist = meta?.artist || 'Unknown';
-    const album = meta?.album || 'Unknown';
-    const mime = (meta as DlnaTrackMetadata | undefined)?.mimeType || 'audio/mpeg';
-    const coverUrl = meta?.coverUrl || '';
-    const coverTag = coverUrl
-      ? `&lt;upnp:albumArtURI&gt;${this.escapeXml(coverUrl)}&lt;/upnp:albumArtURI&gt;`
-      : '';
-
-    return `&lt;DIDL-Lite xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot; xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot;&gt;&lt;item id=&quot;1&quot; parentID=&quot;0&quot; restricted=&quot;true&quot;&gt;&lt;dc:title&gt;${this.escapeXml(title)}&lt;/dc:title&gt;&lt;dc:creator&gt;${this.escapeXml(artist)}&lt;/dc:creator&gt;&lt;upnp:artist&gt;${this.escapeXml(artist)}&lt;/upnp:artist&gt;&lt;upnp:album&gt;${this.escapeXml(album)}&lt;/upnp:album&gt;${coverTag}&lt;upnp:class&gt;object.item.audioItem.musicTrack&lt;/upnp:class&gt;&lt;res protocolInfo=&quot;http-get:*:${mime}:*&quot;&gt;${this.escapeXml(uri)}&lt;/res&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;`;
-  }
-
-  private escapeXml(s: string): string {
-    return s
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+  /** DLNA renderers want a protocolInfo; MP3 is the guess when nobody said. */
+  private didlFor(uri: string, meta?: TrackMetadata): string {
+    return buildDidlLite(uri, meta, mimeTypeOf(meta) ?? 'audio/mpeg');
   }
 }

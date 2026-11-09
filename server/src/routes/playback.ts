@@ -16,9 +16,11 @@ import type { PlaybackOrigin, PlaybackSnapshot } from '../types/socket-events.js
 import {
   isServerManagedDevice,
   startServerPlayback,
+  stopRoom,
   stopServerPlayback,
   revalidateNext,
 } from '../services/server-player.js';
+import { logger } from '../logger.js';
 import { validate } from '../utils/validate.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { getIO } from '../socketio.js';
@@ -207,6 +209,44 @@ function runCommand(
   }
 }
 
+/**
+ * A speaker belongs to one room (P09). A request for this room that names a
+ * speaker another room owns would bind this session to it: both rooms then
+ * drive one speaker, and its status only ever reaches the owner, so this
+ * room never hears that a track ended. Answer 409 with the owner instead.
+ * A speaker no room owns can still be played from here, as before.
+ */
+function claimedByOtherZone(
+  res: Response,
+  session: PlaybackService,
+  deviceId: string | null | undefined,
+): boolean {
+  if (!deviceId || !isServerManagedDevice(deviceId)) return false;
+  const owner = zones.forDevice(deviceId);
+  if (!owner || owner.id === session.getZoneId()) return false;
+  res.status(409).json({
+    error: 'DeviceInOtherZone',
+    message: `${deviceId} plays in “${owner.name}”; steer that room, or move the music there.`,
+    data: { zoneId: owner.id },
+  });
+  return true;
+}
+
+/**
+ * The speaker follows a pause or resume sent to the session (P12). Without
+ * it, a pause through this route only stopped the clock: the speaker played
+ * on and the next status sample turned the session back to "playing". Not
+ * awaited — the speaker's answer must not hold up the reply, and a failure
+ * shows in the next status sample anyway.
+ */
+function followOnSpeaker(session: PlaybackService, action: 'pause' | 'resume'): void {
+  const deviceId = session.getState().deviceId;
+  if (!deviceId || !isServerManagedDevice(deviceId)) return;
+  const command =
+    action === 'pause' ? deviceManager.pause(deviceId) : deviceManager.resume(deviceId);
+  command.catch((err) => logger.warn(`Playback: ${action} on ${deviceId} failed: ${err}`));
+}
+
 /** After a play-type command, hand server-driven devices to the server player. */
 function syncServerPlayer(req: Request, deviceId: string | undefined, zoneId: string) {
   if (!deviceId) return;
@@ -327,24 +367,33 @@ playbackRouter.put(
   },
 );
 
-playbackRouter.delete('/zones/:id', requireAdmin, (req: Request, res: Response) => {
-  const zone = zones.get(String(req.params.id));
-  if (!zone) {
-    res.status(404).json({ error: 'NotFound', message: 'That zone does not exist' });
-    return;
-  }
-  if (zone.isDefault) {
-    res.status(400).json({
-      error: 'BadRequest',
-      message: 'The browser zone is where clients without a room land; it cannot be removed',
-    });
-    return;
-  }
-  stopServerPlayback(zone.id);
-  zones.remove(zone.id);
-  res.json({ data: { ok: true } });
-  broadcastZones();
-});
+playbackRouter.delete(
+  '/zones/:id',
+  requireAdmin,
+  asyncHandler(async (req: Request, res: Response) => {
+    const zone = zones.get(String(req.params.id));
+    if (!zone) {
+      res.status(404).json({ error: 'NotFound', message: 'That zone does not exist' });
+      return;
+    }
+    if (zone.isDefault) {
+      res.status(400).json({
+        error: 'BadRequest',
+        message: 'The browser zone is where clients without a room land; it cannot be removed',
+      });
+      return;
+    }
+    // The room goes quiet for real and leaves nothing behind (P11): its
+    // speaker is told to stop, and a sleep timer or radio left running would
+    // later have woken a session for a room that no longer exists.
+    cancelSleepTimer(zone.id);
+    setRadio(zone.id, false, null, ownerOf(req));
+    await stopRoom(zone.id);
+    zones.remove(zone.id);
+    res.json({ data: { ok: true } });
+    broadcastZones();
+  }),
+);
 
 // ─── Audio path and transitions (V11) ────────────────────────────
 
@@ -524,6 +573,7 @@ playbackRouter.post(
     const origin = originOf(req);
     const session = sessionOf(req, res);
     if (!session) return;
+    if (claimedByOtherZone(res, session, req.body.deviceId)) return;
     // A queue you choose yourself — not the one "Start radio" just picked —
     // means radio, if on, follows what plays from now on (R08.1).
     const radio = getRadioState(session.getZoneId());
@@ -629,6 +679,7 @@ playbackRouter.post(
   (req, res) => {
     const session = sessionOf(req, res);
     if (!session) return;
+    if (claimedByOtherZone(res, session, req.body.deviceId)) return;
     const track = session.playItem(req.body.itemId, originOf(req), req.body.deviceId);
     if (!track) {
       res.status(404).json({
@@ -681,6 +732,7 @@ playbackRouter.post(
   (req, res) => {
     const session = sessionOf(req, res);
     if (!session) return;
+    if (claimedByOtherZone(res, session, req.body.deviceId)) return;
     if (req.body.track) {
       session.play(
         withMetadata(req.body.track),
@@ -690,6 +742,7 @@ playbackRouter.post(
       );
     } else {
       session.resume(originOf(req));
+      followOnSpeaker(session, 'resume');
     }
     res.json({ data: session.getState() });
   },
@@ -729,6 +782,7 @@ playbackRouter.post('/pause', (req, res) => {
   const session = sessionOf(req, res);
   if (!session) return;
   session.pause(originOf(req));
+  followOnSpeaker(session, 'pause');
   res.json({ data: session.getState() });
 });
 

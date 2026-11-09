@@ -192,6 +192,25 @@ Beslismomenten:
 - `npm ci` gedraaid. Lint en typecheck groen; server 94/94 bestanden (717 tests), client 67/67 (342 tests), beide met `--maxWorkers=2`.
 - **Afwijking:** de eerste serverrun gaf één `EPERM` bij het opruimen van een tijdelijke database in `discovery-mix.test.ts`, terwijl alle tests slaagden; los drie keer groen. Opgelost in de gedeelde helper `server/src/__tests__/helpers/testApp.ts` met `maxRetries`. De 42 andere `rmSync`-opruimregels in tests hebben dat nog niet: meegenomen in T03.
 
+### Fase 8 — 9 november 2026
+
+- **P01:** controllers verzamelen een zoekronde apart en voegen die samen via `devices/retention.ts`; een speaker die een ronde mist blijft bekend (offline) tot drie gemiste rondes op rij. `getPlaybackState` voor een onbekende speaker gooit `DeviceUnavailableError`; `pause`/`resume`/`stop`/`setVolume` zoeken eerst één keer opnieuw en gooien dan. Browser en `spotify-connect:` blijven stil.
+- **P02:** de `catch` van `armNext` doet niets meer als een nieuwere overdracht de oude al verving.
+- **P03:** `reconcileAfterRestart` leest de `trackUri` van de speaker; noemt die het volgende item (alleen bibliotheekstreams, `uriNamesTrack`), dan volgt de wachtrij via het bestaande "al overgedragen"-pad, zonder opnieuw te versturen.
+- **P04:** één `buildDidlLite` in `devices/upnp.ts` levert ruwe XML; Sonos en DLNA escapen elk SOAP-argument precies één keer. **Afwijking:** ook de huidige-trackmetadata van DLNA bleek stuk (een `&` uit de stream-URL maakte de DIDL ongeldig); de test toont dat voor beide controllers.
+- **P05:** elke fetch naar een speaker heeft `AbortSignal.timeout` (10 s SOAP, 3 s beschrijving). De gezondheidscheck loopt niet dubbel, vraagt alle speakers tegelijk met een tijdslimiet en meldt alleen een verandering.
+- **P06:** `withTimeout` (nu één kopie in `utils/with-timeout.ts`, gebruikt door server-player en monitor) breekt de poging af; het signaal gaat door de manager tot in de DLNA-stappen. De manager herhaalt niet meer zelf als de server-player dat al doet.
+- **P07:** één open luistersessie per zone; de observer geeft de zone mee. Een Sonos-groepslid (`x-rincon:`) wordt niet als spelend in zijn eigen kamer genomen.
+- **P08:** `device:playback-update` gaat naar de `device:<id>`-room. **Niet gedaan:** wachtrij-delta's; die vragen clientwerk en zijn verplaatst naar fase 11 (bij C02).
+- **P09:** 409 `DeviceInOtherZone` als een request voor een kamer de speaker van een andere kamer noemt; een speaker zonder kamer kan nog steeds vanuit de standaardzone spelen.
+- **P10:** discovery parallel, één gedeelde lopende zoektocht, en na een herstart één keer voor alle zones. **Afwijking:** P10 stond niet in de fasetabel maar hoort bij P01; meegenomen.
+- **P11:** de zone-verwijderroute stopt de kamer (ook de speaker), zet de slaaptimer en radio uit.
+- **P12:** `/playback/pause` en `/playback/play` zonder track sturen de speaker mee (niet afgewacht). De app zelf pauzeert speakers al rechtstreeks; dit gaat over andere aanroepers van de API.
+- **P13:** `stopRoom` en `transferZone` laten de speaker eerst los, zodat de `onIdle`-hook hem niet nog eens stopt; vóór de seek controleert de overdracht of het verplaatste nummer nog speelt.
+- **Niet gedaan in deze fase:** `playback.ts` opsplitsen en de SOAP-envelop van Sonos en DLNA samenvoegen (alleen DIDL, escape en time-outs zijn gedeeld). De dode `next`/`previous` en `state-machine`-randen staan er nog.
+- **Controle:** lint en typecheck groen; server 98/98 bestanden (742 tests, waarvan 25 nieuw), client 67/67 (342). Elke nieuwe test is ook gedraaid tegen de code van HEAD en faalt daar (op één na, die het ongewijzigde gedrag zonder zone bevestigt).
+- **Open, op hardware (Danny):** de NAS-acceptatie uit fase 2 en hiervan: titel en album zichtbaar op Sonos en Cocktail Audio; twintig overgangen zonder dubbele dispatch met naadloos aan; een speaker die even van het netwerk is, wordt niet als gestopt gemeld.
+
 ## 9. Wijzigingsgrens van dit onderzoek
 
 Alleen dit document is toegevoegd. Geen `npm ci`, geen `git checkout` van de CI-workflow, geen rotatie van secrets, geen codewijziging. De onderzoeksbronnen: de vijf auditrapporten (speakerlaag, datalaag, beveiliging/providers, client, tooling) en eigen controles van de hoogste bevindingen; alle regelnummers verwijzen naar commit `a794b14`.

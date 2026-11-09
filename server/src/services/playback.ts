@@ -144,22 +144,25 @@ export interface PersistedSessionInfo {
  * Listening observer (V05): told when a track starts, when transport changes,
  * when audio is confirmed to be flowing and when playback failed. The
  * listening-session service implements it; injected so this module keeps
- * its dependency-free position.
+ * its dependency-free position. Every call names its zone: two rooms play
+ * two listens at the same time (P07).
  */
+export interface ListeningContextInfo {
+  zoneId: string;
+  queueItemId: string | null;
+  deviceId: string;
+  userId: string | null;
+}
+
 export interface ListeningObserver {
-  trackStarted(
-    track: TrackInfo,
-    ctx: { queueItemId: string | null; deviceId: string; userId: string | null; playing: boolean },
-  ): void;
+  trackStarted(track: TrackInfo, ctx: ListeningContextInfo & { playing: boolean }): void;
   transport(
     state: 'playing' | 'paused' | 'stopped',
-    current: {
-      track: TrackInfo;
-      ctx: { queueItemId: string | null; deviceId: string; userId: string | null };
-    } | null,
+    current: { track: TrackInfo; ctx: ListeningContextInfo } | null,
+    zoneId: string,
   ): void;
-  heartbeat(): void;
-  failed(): void;
+  heartbeat(zoneId: string): void;
+  failed(zoneId: string): void;
 }
 
 export interface PlaybackEventSink {
@@ -252,8 +255,9 @@ export class PlaybackService {
     this.listening = observer;
   }
 
-  private listeningCtx(): { queueItemId: string | null; deviceId: string; userId: string | null } {
+  private listeningCtx(): ListeningContextInfo {
     return {
+      zoneId: this.zoneId,
       queueItemId: this.state.queueItemId,
       deviceId: this.state.deviceId,
       userId: this.state.ownerUserId,
@@ -264,6 +268,7 @@ export class PlaybackService {
     this.listening?.transport(
       state,
       this.currentTrack ? { track: this.currentTrack, ctx: this.listeningCtx() } : null,
+      this.zoneId,
     );
   }
 
@@ -508,7 +513,7 @@ export class PlaybackService {
       this.persistState();
     }
     this.emitState(SERVER_ORIGIN);
-    this.listening?.failed();
+    this.listening?.failed(this.zoneId);
   }
 
   getSnapshot(): PlaybackSnapshot {
@@ -584,7 +589,7 @@ export class PlaybackService {
     // the clock, 'stopped' closes the session.
     if (updates.state !== undefined) this.notifyTransport(updates.state);
     else if (this.state.state === 'playing' && updates.position !== undefined) {
-      this.listening?.heartbeat();
+      this.listening?.heartbeat(this.zoneId);
     }
     if (wasState !== this.state.state) this.bump();
     this.persistState();

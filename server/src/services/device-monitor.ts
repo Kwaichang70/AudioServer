@@ -2,6 +2,7 @@ import { deviceManager } from '../devices/manager.js';
 import { zones } from './zones.js';
 import { getIO } from '../socketio.js';
 import { logger } from '../logger.js';
+import { withTimeout } from '../utils/with-timeout.js';
 import type { DevicePlaybackStatus, OutputDevice } from '@audioserver/shared';
 import type {
   DevicePlaybackUpdate,
@@ -14,6 +15,8 @@ interface DeviceMonitorIo {
     event: EventName,
     ...args: Parameters<ServerToClientEvents[EventName]>
   ) => boolean | void;
+  /** Socket.IO rooms; a fake without them gets every event on `emit`. */
+  to?: (room: string) => Pick<DeviceMonitorIo, 'emit'>;
 }
 
 interface PlaybackStateSync {
@@ -106,6 +109,9 @@ export class DeviceMonitor {
   // counters to 0/0 in the same breath as it reports "stopped", so the only
   // evidence that the track finished is what it told us just before.
   private playingPeaks = new Map<string, { position: number; duration: number; at: number }>();
+  /** What the last health check found per device, so only a change is announced (P05). */
+  private reachable = new Map<string, boolean>();
+  private healthCheckRunning = false;
 
   constructor(private deps: DeviceMonitorDependencies = defaultDependencies) {}
 
@@ -164,30 +170,48 @@ export class DeviceMonitor {
   startHealthChecks(): void {
     if (this.healthCheckInterval) return;
 
-    this.healthCheckInterval = setInterval(async () => {
-      try {
-        const devices = await this.deps.getDevices();
-        const io = this.deps.getIO();
+    this.healthCheckInterval = setInterval(() => void this.checkHealth(), 60_000);
+  }
 
-        for (const device of devices) {
-          if (device.type === 'browser') continue;
-
-          const wasOnline = device.isOnline;
+  /**
+   * Ask every known speaker once whether it answers (P05). One run at a
+   * time: a half-dead speaker made runs pile up every minute. Each question
+   * is bounded, all are asked at once, and only a change is announced — the
+   * old check compared against "online since discovery", so a dead speaker
+   * was reported lost every minute and a returning one never came back.
+   */
+  async checkHealth(): Promise<void> {
+    if (this.healthCheckRunning) return;
+    this.healthCheckRunning = true;
+    try {
+      const devices = (await this.deps.getDevices()).filter((d) => d.type !== 'browser');
+      const io = this.deps.getIO();
+      const timeout = this.deps.pollTimeoutMs ?? 5000;
+      await Promise.all(
+        devices.map(async (device) => {
+          const was = this.reachable.get(device.id) ?? device.isOnline;
+          let now: boolean;
           try {
-            await this.deps.getPlaybackState(device.id);
-            if (!wasOnline) {
-              io.emit('device:discovered', { id: device.id, name: device.name, type: device.type });
-              this.deps.logger.info(`Device back online: ${device.name}`);
-            }
+            await withTimeout(this.deps.getPlaybackState(device.id), timeout, 'device status');
+            now = true;
           } catch {
-            if (wasOnline) {
-              io.emit('device:lost', { id: device.id, name: device.name });
-              this.deps.logger.info(`Device offline: ${device.name}`);
-            }
+            now = false;
           }
-        }
-      } catch {}
-    }, 60_000);
+          this.reachable.set(device.id, now);
+          if (now && !was) {
+            io.emit('device:discovered', { id: device.id, name: device.name, type: device.type });
+            this.deps.logger.info(`Device back online: ${device.name}`);
+          } else if (!now && was) {
+            io.emit('device:lost', { id: device.id, name: device.name });
+            this.deps.logger.info(`Device offline: ${device.name}`);
+          }
+        }),
+      );
+    } catch {
+      // Discovery itself failed; the next minute tries again.
+    } finally {
+      this.healthCheckRunning = false;
+    }
   }
 
   stopAll(): void {
@@ -214,7 +238,11 @@ export class DeviceMonitor {
     if (this.inFlight.has(deviceId)) return;
     this.inFlight.add(deviceId);
     try {
-      await withTimeout(this.pollDeviceOnce(deviceId), this.deps.pollTimeoutMs ?? 5000);
+      await withTimeout(
+        this.pollDeviceOnce(deviceId),
+        this.deps.pollTimeoutMs ?? 5000,
+        'device status',
+      );
       this.consecutiveErrors.set(deviceId, 0);
     } catch {
       // Pinned devices (server-driven playback) tolerate transient failures
@@ -278,7 +306,11 @@ export class DeviceMonitor {
     }
 
     this.lastStates.set(deviceId, update);
-    this.deps.getIO().emit('device:playback-update', update);
+    // Only to the tabs that watch this speaker (they joined `device:<id>`
+    // when subscribing). Broadcasting sent every speaker's position, every
+    // few seconds, to every phone in the house (P08).
+    const io = this.deps.getIO();
+    (io.to ? io.to(`device:${deviceId}`) : io).emit('device:playback-update', update);
     this.syncPlaybackState(update, last);
   }
 
@@ -288,6 +320,13 @@ export class DeviceMonitor {
     // pause/advance the household session that plays on another device.
     const active = this.deps.playback.getActiveDeviceId?.();
     if (active !== undefined && active !== update.deviceId) return;
+
+    // A Sonos that plays along in another player's group reports PLAYING for
+    // the group's stream (`x-rincon:<leader>`), not for anything in its own
+    // room's queue. Taking that as "this room plays" opened a listening
+    // session for whatever its own queue last held (P07). The leader's room
+    // carries the music; this one only shows its status.
+    if (update.trackUri?.startsWith('x-rincon:')) return;
 
     if (update.state === 'playing') {
       // A position that falls back to the start while the device keeps
@@ -395,22 +434,6 @@ export class DeviceMonitor {
 }
 
 export const deviceMonitor = new DeviceMonitor();
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`device status timed out after ${ms}ms`)), ms);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (err) => {
-        clearTimeout(timer);
-        reject(err);
-      },
-    );
-  });
-}
 
 function normalizeDeviceState(state: DevicePlaybackStatus['state']): DevicePlaybackUpdate['state'] {
   if (state === 'paused') return 'paused';

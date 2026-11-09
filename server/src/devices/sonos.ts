@@ -4,6 +4,14 @@ import xml2js from 'xml2js';
 const { parseStringPromise } = xml2js;
 import { logger } from '../logger.js';
 import { formatRelTime, parseSinkProtocolInfo, parseTrackUri } from './dlna.js';
+import {
+  buildDidlLite,
+  DESCRIPTION_TIMEOUT_MS,
+  escapeXml,
+  mimeTypeOf,
+  requestSignal,
+} from './upnp.js';
+import { DiscoveryRoster } from './retention.js';
 import type {
   DeviceController,
   OutputDevice,
@@ -35,9 +43,12 @@ interface SonosZoneGroupInfo {
 export class SonosController implements DeviceController {
   readonly deviceType = 'sonos' as const;
   private devices = new Map<string, SonosDevice>();
+  private readonly roster = new DiscoveryRoster<SonosDevice>();
 
   async discover(): Promise<OutputDevice[]> {
-    this.devices.clear();
+    // Collected apart and merged at the end: the known players stay usable
+    // while the search runs, and one missed round does not forget them (P01).
+    const found = new Map<string, SonosDevice>();
 
     return new Promise((resolve) => {
       const client = new SsdpClient();
@@ -49,7 +60,7 @@ export class SonosController implements DeviceController {
         if (!server.includes('Sonos') && !String(headers.LOCATION).includes(':1400/')) return;
 
         try {
-          await this.parseSonosDevice(headers.LOCATION);
+          await this.parseSonosDevice(headers.LOCATION, found);
         } catch {
           // Not a Sonos device
         }
@@ -60,14 +71,15 @@ export class SonosController implements DeviceController {
 
       setTimeout(async () => {
         client.stop();
-        await this.enrichZoneGroups();
+        await this.enrichZoneGroups(found);
+        this.devices = this.roster.merge(this.devices, found);
         resolve(this.getDeviceList());
       }, 5000);
     });
   }
 
-  private async parseSonosDevice(location: string): Promise<void> {
-    const res = await fetch(location);
+  private async parseSonosDevice(location: string, into: Map<string, SonosDevice>): Promise<void> {
+    const res = await fetch(location, { signal: AbortSignal.timeout(DESCRIPTION_TIMEOUT_MS) });
     const xml = await res.text();
     const parsed = await parseStringPromise(xml);
 
@@ -90,7 +102,7 @@ export class SonosController implements DeviceController {
     const url = new URL(location);
     const id = udn.replace('uuid:', '') || `sonos-${url.hostname}`;
 
-    this.devices.set(id, {
+    into.set(id, {
       id,
       name: `${name} (${modelName})`,
       host: url.hostname,
@@ -114,8 +126,8 @@ export class SonosController implements DeviceController {
     }));
   }
 
-  private async enrichZoneGroups(): Promise<void> {
-    for (const device of this.devices.values()) {
+  private async enrichZoneGroups(devices: Map<string, SonosDevice> = this.devices): Promise<void> {
+    for (const device of devices.values()) {
       try {
         const res = await fetch(`${this.baseUrl(device)}/status/topology`, {
           signal: AbortSignal.timeout(3000),
@@ -123,9 +135,9 @@ export class SonosController implements DeviceController {
         if (!res.ok) continue;
         const topology = await parseSonosZoneGroups(await res.text());
         for (const [deviceId, group] of topology) {
-          const known = this.devices.get(deviceId);
+          const known = devices.get(deviceId);
           if (!known) continue;
-          this.devices.set(deviceId, { ...known, ...group });
+          devices.set(deviceId, { ...known, ...group });
         }
         if (topology.size > 0) return;
       } catch {
@@ -200,22 +212,41 @@ export class SonosController implements DeviceController {
     return `http://${device.host}:${device.port}`;
   }
 
-  async play(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void> {
+  async play(
+    deviceId: string,
+    streamUrl: string,
+    metadata?: TrackMetadata,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const device = this.getDevice(deviceId);
     const base = this.baseUrl(device);
 
     // Set URI
-    await this.soapAction(base, 'AVTransport', 'SetAVTransportURI', {
-      InstanceID: '0',
-      CurrentURI: streamUrl,
-      CurrentURIMetaData: metadata ? this.buildDidl(streamUrl, metadata) : '',
-    });
+    await this.soapAction(
+      base,
+      'AVTransport',
+      'SetAVTransportURI',
+      {
+        InstanceID: '0',
+        CurrentURI: streamUrl,
+        CurrentURIMetaData: metadata ? this.didlFor(streamUrl, metadata) : '',
+      },
+      signal,
+    );
+    // The caller gave up meanwhile: no Play next to its retry (P06).
+    signal?.throwIfAborted();
 
     // Play
-    await this.soapAction(base, 'AVTransport', 'Play', {
-      InstanceID: '0',
-      Speed: '1',
-    });
+    await this.soapAction(
+      base,
+      'AVTransport',
+      'Play',
+      {
+        InstanceID: '0',
+        Speed: '1',
+      },
+      signal,
+    );
   }
 
   async pause(deviceId: string): Promise<void> {
@@ -241,13 +272,24 @@ export class SonosController implements DeviceController {
    * SetNextAVTransportURI; a failure is reported so the caller can fall back
    * to dispatching the next track itself when the track ends.
    */
-  async setNextUri(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void> {
+  async setNextUri(
+    deviceId: string,
+    streamUrl: string,
+    metadata?: TrackMetadata,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const device = this.getDevice(deviceId);
-    await this.soapAction(this.baseUrl(device), 'AVTransport', 'SetNextAVTransportURI', {
-      InstanceID: '0',
-      NextURI: streamUrl,
-      NextURIMetaData: metadata ? this.buildDidl(streamUrl, metadata) : '',
-    });
+    await this.soapAction(
+      this.baseUrl(device),
+      'AVTransport',
+      'SetNextAVTransportURI',
+      {
+        InstanceID: '0',
+        NextURI: streamUrl,
+        NextURIMetaData: metadata && streamUrl ? this.didlFor(streamUrl, metadata) : '',
+      },
+      signal,
+    );
     logger.info(`Sonos setNextUri: ${metadata?.title || 'track'} → ${device.name}`);
   }
 
@@ -371,9 +413,11 @@ export class SonosController implements DeviceController {
     service: string,
     action: string,
     args: Record<string, string>,
+    signal?: AbortSignal,
   ): Promise<string> {
+    // Every argument is text, DIDL-Lite included: escaped exactly once (P04).
     const argsXml = Object.entries(args)
-      .map(([k, v]) => `<${k}>${this.escapeXml(v)}</${k}>`)
+      .map(([k, v]) => `<${k}>${escapeXml(v)}</${k}>`)
       .join('');
 
     const serviceUrn = `urn:schemas-upnp-org:service:${service}:1`;
@@ -402,6 +446,7 @@ export class SonosController implements DeviceController {
         SOAPAction: `"${serviceUrn}#${action}"`,
       },
       body,
+      signal: requestSignal(signal),
     });
 
     if (!res.ok) throw new Error(`Sonos ${action} failed with HTTP ${res.status}`);
@@ -409,16 +454,9 @@ export class SonosController implements DeviceController {
     return res.text();
   }
 
-  private buildDidl(uri: string, meta: TrackMetadata): string {
-    return `&lt;DIDL-Lite xmlns=&quot;urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/&quot; xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot; xmlns:upnp=&quot;urn:schemas-upnp-org:metadata-1-0/upnp/&quot;&gt;&lt;item&gt;&lt;dc:title&gt;${this.escapeXml(meta.title)}&lt;/dc:title&gt;&lt;upnp:artist&gt;${this.escapeXml(meta.artist)}&lt;/upnp:artist&gt;&lt;upnp:album&gt;${this.escapeXml(meta.album)}&lt;/upnp:album&gt;&lt;res&gt;${this.escapeXml(uri)}&lt;/res&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;`;
-  }
-
-  private escapeXml(s: string): string {
-    return s
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+  /** Sonos needs no protocolInfo; it is only given when the resolver knew the format. */
+  private didlFor(uri: string, meta: TrackMetadata): string {
+    return buildDidlLite(uri, meta, mimeTypeOf(meta));
   }
 }
 

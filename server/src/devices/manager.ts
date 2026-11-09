@@ -23,17 +23,48 @@ export class DeviceUnavailableError extends Error {
   }
 }
 
+/** Options for starting a stream on a speaker. */
+export interface PlayOptions {
+  /** Aborts the attempt when the caller gave up on it (P06). */
+  signal?: AbortSignal;
+  /**
+   * Try once more after a failure (default true, for a tab that asks once).
+   * The server player retries itself with a fresh URL, so it passes false:
+   * two retry layers on one speaker sent overlapping Stop/SetURI/Play.
+   */
+  retry?: boolean;
+}
+
+/** Outputs the device manager does not drive: the tab plays, or Spotify does. */
+function isUnmanaged(deviceId: string): boolean {
+  return deviceId === 'browser' || deviceId.startsWith('spotify-connect:');
+}
+
+const IDLE_STATUS: DevicePlaybackStatus = {
+  state: 'stopped',
+  position: 0,
+  duration: 0,
+  volume: 50,
+};
+
 export class DeviceManager {
-  private controllers: DeviceController[] = [];
+  private controllers: DeviceController[];
   private cachedDevices: OutputDevice[] = [];
   private lastDiscovery = 0;
   private readonly CACHE_TTL = 300_000; // 5 minutes
   private readonly stateMachine = new DeviceStateMachine();
+  /** The discovery under way, shared by everyone who asks meanwhile (P10). */
+  private discovery: Promise<OutputDevice[]> | null = null;
+  /** Tests hand in their own controllers; those always run, also under NODE_ENV=test. */
+  private readonly injected: boolean;
 
-  constructor() {
-    this.controllers.push(new VolumioController());
-    this.controllers.push(new DlnaController());
-    this.controllers.push(new SonosController());
+  constructor(controllers?: DeviceController[]) {
+    this.injected = controllers !== undefined;
+    this.controllers = controllers ?? [
+      new VolumioController(),
+      new DlnaController(),
+      new SonosController(),
+    ];
   }
 
   async getDevices(forceRefresh = false): Promise<OutputDevice[]> {
@@ -45,39 +76,55 @@ export class DeviceManager {
     ) {
       return this.withSessionState(this.cachedDevices);
     }
+    this.discovery ??= this.discoverAll().finally(() => {
+      this.discovery = null;
+    });
+    return this.withSessionState(await this.discovery);
+  }
 
-    logger.info('Discovering devices...');
+  /**
+   * Ask every controller at once (P10): one after the other took DLNA 4 s +
+   * Sonos 5 s + mDNS 3 s. Each controller keeps what it knew until its own
+   * answer is in, so commands keep working while a search runs (P01).
+   */
+  private async discoverAll(): Promise<OutputDevice[]> {
     const browser: OutputDevice = {
       id: 'browser',
       name: 'This Browser',
       type: 'browser',
       isOnline: true,
     };
-
     const discovered: OutputDevice[] = [browser];
 
     if (
+      !this.injected &&
       process.env.NODE_ENV === 'test' &&
       process.env.AUDIOSERVER_DISCOVER_DEVICES_IN_TESTS !== 'true'
     ) {
       this.cachedDevices = discovered;
-      this.lastDiscovery = now;
-      return this.withSessionState(discovered);
+      this.lastDiscovery = Date.now();
+      return discovered;
     }
 
-    for (const controller of this.controllers) {
-      try {
-        const devices = await controller.discover();
-        discovered.push(...devices);
-        logger.info(`${controller.deviceType}: found ${devices.length} device(s)`);
-      } catch (err) {
-        logger.warn(`${controller.deviceType} discovery failed: ${err}`);
+    logger.info('Discovering devices...');
+    const results = await Promise.allSettled(this.controllers.map((c) => c.discover()));
+    results.forEach((result, i) => {
+      const type = this.controllers[i].deviceType;
+      if (result.status === 'fulfilled') {
+        discovered.push(...result.value);
+        const silent = result.value.filter((d) => !d.isOnline).length;
+        logger.info(
+          `${type}: found ${result.value.length - silent} device(s)` +
+            (silent > 0 ? `, ${silent} known but silent this round` : ''),
+        );
+      } else {
+        logger.warn(`${type} discovery failed: ${result.reason}`);
       }
-    }
+    });
 
     this.cachedDevices = discovered;
-    this.lastDiscovery = now;
-    return this.withSessionState(discovered);
+    this.lastDiscovery = Date.now();
+    return discovered;
   }
 
   private getController(deviceType: string): DeviceController | undefined {
@@ -100,44 +147,51 @@ export class DeviceManager {
   }
 
   /**
-   * A device the server must send a track to. Not known (yet) — after a
-   * restart, or it dropped off the network — means one fresh discovery, then
-   * a clear failure: reporting success for a command that went nowhere made
-   * the server believe a speaker played that never got the track.
+   * A device the server must send a command to. Not known (yet) — after a
+   * restart, or it dropped off the network — means one fresh discovery
+   * (shared with any search already under way), then a clear failure:
+   * reporting success for a command that went nowhere made the server
+   * believe a speaker played that never got the track, or stopped while it
+   * played on (P01).
    */
   private async requireDevice(deviceId: string): Promise<OutputDevice | null> {
-    if (deviceId === 'browser') return null;
+    if (isUnmanaged(deviceId)) return null;
     let device = this.findCachedDevice(deviceId);
     if (!device) {
-      this.rediscovery ??= this.getDevices(true).finally(() => {
-        this.rediscovery = null;
-      });
-      await this.rediscovery;
+      await this.getDevices(true);
       device = this.findCachedDevice(deviceId);
     }
     if (!device) throw new DeviceUnavailableError(deviceId);
     return device.type === 'browser' ? null : device;
   }
 
-  private rediscovery: Promise<OutputDevice[]> | null = null;
-
-  async play(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void> {
+  async play(
+    deviceId: string,
+    streamUrl: string,
+    metadata?: TrackMetadata,
+    options: PlayOptions = {},
+  ): Promise<void> {
     const device = await this.requireDevice(deviceId);
     if (!device) return;
     const controller = this.getController(device.type);
     if (!controller) throw new Error(`No controller for device type: ${device.type}`);
+    const { signal, retry = true } = options;
 
     this.stateMachine.transition(deviceId, 'loading', { track: metadata });
     try {
-      await controller.play(deviceId, streamUrl, metadata);
+      await controller.play(deviceId, streamUrl, metadata, signal);
       this.stateMachine.transition(deviceId, 'playing', { track: metadata });
     } catch (err) {
+      if (!retry || signal?.aborted) {
+        this.stateMachine.transition(deviceId, 'error', { error: err, track: metadata });
+        throw err;
+      }
       // Retry once
       logger.warn(`Device play failed on ${device.name}, retrying: ${err}`);
       try {
         await new Promise((r) => setTimeout(r, 1000));
         this.stateMachine.transition(deviceId, 'loading', { track: metadata });
-        await controller.play(deviceId, streamUrl, metadata);
+        await controller.play(deviceId, streamUrl, metadata, signal);
         this.stateMachine.transition(deviceId, 'playing', { track: metadata });
       } catch (retryErr) {
         logger.error(`Device play retry failed on ${device.name}: ${retryErr}`);
@@ -147,7 +201,12 @@ export class DeviceManager {
     }
   }
 
-  async setNextUri(deviceId: string, streamUrl: string, metadata?: TrackMetadata): Promise<void> {
+  async setNextUri(
+    deviceId: string,
+    streamUrl: string,
+    metadata?: TrackMetadata,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const device = await this.requireDevice(deviceId);
     if (!device) return;
     const controller = this.getController(device.type);
@@ -157,7 +216,7 @@ export class DeviceManager {
     if (!controller?.setNextUri) {
       throw new Error(`${device.name} does not take the next track in advance`);
     }
-    await controller.setNextUri(deviceId, streamUrl, metadata);
+    await controller.setNextUri(deviceId, streamUrl, metadata, signal);
   }
 
   /**
@@ -179,8 +238,8 @@ export class DeviceManager {
   }
 
   async pause(deviceId: string): Promise<void> {
-    const device = this.findCachedDevice(deviceId);
-    if (!device || device.type === 'browser') return;
+    const device = await this.requireDevice(deviceId);
+    if (!device) return;
     const controller = this.getController(device.type);
     if (controller) {
       await controller.pause(deviceId);
@@ -189,8 +248,8 @@ export class DeviceManager {
   }
 
   async resume(deviceId: string): Promise<void> {
-    const device = this.findCachedDevice(deviceId);
-    if (!device || device.type === 'browser') return;
+    const device = await this.requireDevice(deviceId);
+    if (!device) return;
     const controller = this.getController(device.type);
     if (controller) {
       await controller.resume(deviceId);
@@ -199,8 +258,8 @@ export class DeviceManager {
   }
 
   async stop(deviceId: string): Promise<void> {
-    const device = this.findCachedDevice(deviceId);
-    if (!device || device.type === 'browser') return;
+    const device = await this.requireDevice(deviceId);
+    if (!device) return;
     const controller = this.getController(device.type);
     if (controller) {
       await controller.stop(deviceId);
@@ -209,24 +268,29 @@ export class DeviceManager {
   }
 
   async setVolume(deviceId: string, volume: number): Promise<void> {
-    const device = this.findCachedDevice(deviceId);
-    if (!device || device.type === 'browser') return;
+    const device = await this.requireDevice(deviceId);
+    if (!device) return;
     const controller = this.getController(device.type);
     if (controller) await controller.setVolume(deviceId, volume);
   }
 
+  /**
+   * What the speaker reports. A speaker the server does not know is an
+   * error, not "stopped" (P01): a made-up "stopped" for a speaker that plays
+   * on closed its listening session, and near the end of a track advanced
+   * the queue and skipped one. The status poll runs every few seconds, so
+   * this does not search the network itself; the monitor counts failures.
+   */
   async getPlaybackState(deviceId: string): Promise<DevicePlaybackStatus> {
+    if (isUnmanaged(deviceId)) return { ...IDLE_STATUS };
     const device = this.findCachedDevice(deviceId);
-    if (!device || device.type === 'browser') {
-      return { state: 'stopped', position: 0, duration: 0, volume: 50 };
-    }
+    if (!device) throw new DeviceUnavailableError(deviceId);
+    if (device.type === 'browser') return { ...IDLE_STATUS };
     const controller = this.getController(device.type);
-    if (controller) {
-      const status = await controller.getPlaybackState(deviceId);
-      const session = this.stateMachine.reconcilePlaybackState(deviceId, status.state);
-      return { ...status, deviceState: session.state, lastError: session.lastError };
-    }
-    return { state: 'stopped', position: 0, duration: 0, volume: 50 };
+    if (!controller) throw new Error(`No controller for device type: ${device.type}`);
+    const status = await controller.getPlaybackState(deviceId);
+    const session = this.stateMachine.reconcilePlaybackState(deviceId, status.state);
+    return { ...status, deviceState: session.state, lastError: session.lastError };
   }
 
   private withSessionState(devices: OutputDevice[]): OutputDevice[] {
