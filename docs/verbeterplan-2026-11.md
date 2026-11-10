@@ -230,6 +230,15 @@ Beslismomenten:
 - **Controle:** lint en typecheck groen; server 99/99 bestanden (764 tests, 22 nieuw), client 67/67 (342). 18 van de 22 nieuwe tests falen op de code van HEAD; de overige vier testen nieuwe hulpfuncties of gedrag dat gelijk moest blijven.
 - **Open (Danny):** librespot naar een speaker testen op de NAS; na een week zonder `CSP report`-regels in het log `reportOnly: false` zetten.
 
+### Na de deploy — 10 november 2026
+
+- Fase 7–9 (`74b2641`) staan op de NAS. Lokale bibliotheek op de Sonos Studeerkamer werkt (Danny). Spotify op die Sonos niet: Spotify antwoordt `403 restricted device`; dat is een beperking van Spotify, niet van fase 8.
+- `spotify_restricted_device` als eigen foutcode met een bruikbare melding.
+- Librespot: `connectTranscoder` + `ensureTranscoder` (één ffmpeg per sessie, uit de pipe gehaald vóór hij stopt, foutafhandeling op elke stream), `--cache <datamap>/librespot` en `--disable-audio-cache`.
+- Client: volume van een Spotify-nummer gaat alleen nog via Spotify als het doel een `spotify-connect:`-apparaat is.
+- **Weerlegd:** de herstart van de server om 15:11:43 komt niet door een onafgehandelde schrijffout naar de gestopte ffmpeg (nagebootst in `node:22-slim`: het proces blijft leven). Oorzaak open; crashregels van de NAS nodig. Ook open: waarom de app de Sonos niet naar `/api/librespot/stream` stuurde (geen `Stream client connected` in het log).
+- Controle: server 100/100 bestanden (766 tests), client 67/67 (342).
+
 ## 9. Wijzigingsgrens van dit onderzoek
 
 Alleen dit document is toegevoegd. Geen `npm ci`, geen `git checkout` van de CI-workflow, geen rotatie van secrets, geen codewijziging. De onderzoeksbronnen: de vijf auditrapporten (speakerlaag, datalaag, beveiliging/providers, client, tooling) en eigen controles van de hoogste bevindingen; alle regelnummers verwijzen naar commit `a794b14`.

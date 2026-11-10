@@ -4,6 +4,29 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Na de deploy van fase 7–9: Spotify op een Sonos (10 november)
+
+- **Uit de praktijk:** de Sonos in de Studeerkamer speelt muziek uit de eigen
+  bibliotheek, maar Spotify weigert opdrachten voor die speaker van buiten de
+  Spotify-app ("restricted device"). De app zegt dat nu zo, met wat je wel
+  kunt doen, in plaats van de tekst over Premium.
+- **Spotify via de eigen ontvanger (librespot):** er draait nu één omzetter
+  naar MP3 voor de hele sessie. Eerst werd die bij elk nummer gestopt en
+  opnieuw gestart, waardoor de verbinding met de speaker bij elk nummer werd
+  verbroken en een album na één nummer stil zou vallen.
+- **De ontvanger onthoudt je Spotify-koppeling** (in de datamap, naast de
+  database). Je kiest "AudioServer" één keer in de Spotify-app; na een
+  herstart van de NAS hoeft dat niet opnieuw.
+- **Volume:** bij een Spotify-nummer op een eigen speaker regelt de schuif
+  het volume van de speaker zelf. Eerst ging elke beweging als mislukte
+  opdracht naar Spotify.
+- **Niet opgelost, nog onbekend:** waarom de server om 15:11:43 opnieuw
+  startte tijdens het afspelen. Het vermoeden (een schrijffout naar de
+  gestopte omzetter) is nagebootst onder Linux en klopte niet. Daarvoor zijn
+  de regels rond "Uncaught exception" uit het log van de NAS nodig.
+- **Gecontroleerd:** lint, typecheck, server (100 bestanden, 766 tests) en
+  client (67 bestanden, 342 tests) groen. Niet getest op de NAS.
+
 ## Fase 9: beveiliging en streamingdiensten (S01–S12)
 
 - **Radiozenders kunnen niet meer worden omgeleid.** Wie een zender als

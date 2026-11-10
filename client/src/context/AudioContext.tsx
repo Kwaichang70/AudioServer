@@ -1113,7 +1113,13 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       // External device or Spotify Connect: update optimistic UI state,
       // don't touch the browser audio element (its volume is unrelated).
       setDeviceVolume(v);
-      if (isSpotify) {
+      // Only a Spotify Connect target picked as such is steered through
+      // Spotify. A speaker of our own (Sonos, DLNA, Volumio) has its own
+      // volume, whatever plays on it: Spotify refuses commands for a
+      // "restricted" speaker and has no active device at all when the music
+      // arrives through AudioServer's receiver, so every tick of the slider
+      // was a failed request to Spotify.
+      if (isSpotify && deviceId.startsWith('spotify-connect:')) {
         api.spotifyConnectVolume(Math.round(v * 100)).catch(() => {});
       } else {
         api.deviceVolume(deviceId, Math.round(v * 100)).catch(() => {});

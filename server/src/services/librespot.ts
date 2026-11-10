@@ -1,4 +1,8 @@
 import { spawn, type ChildProcess } from 'child_process';
+import { mkdirSync } from 'fs';
+import { dirname, join, resolve } from 'path';
+import type { Readable } from 'stream';
+import { config } from '../config.js';
 import { logger } from '../logger.js';
 
 /**
@@ -123,7 +127,14 @@ export async function startLibrespot(username: string, password: string): Promis
       '320',
       '--initial-volume',
       '80',
+      // No audio files on disk; only the login below is kept.
+      '--disable-audio-cache',
     ];
+    // Remember who picked "AudioServer" in the Spotify app. Without it the
+    // receiver was unknown to Spotify again after every restart, until
+    // somebody chose it in the app once more.
+    const cacheDir = librespotCacheDir();
+    if (cacheDir) args.push('--cache', cacheDir);
     if (username && password) {
       args.push('--username', username, '--password', password);
     }
@@ -135,6 +146,9 @@ export async function startLibrespot(username: string, password: string): Promis
 
     state.process = proc;
     state.isRunning = true;
+    proc.stdout?.on('error', (err) =>
+      logger.warn(`Librespot: audio output failed: ${err.message}`),
+    );
 
     proc.stderr?.on('data', (data: Buffer) => {
       const msg = data.toString().trim();
@@ -144,14 +158,18 @@ export async function startLibrespot(username: string, password: string): Promis
         logger.info(`Librespot: ${msg}`);
       }
 
-      // Detect track changes from librespot stderr
+      // Detect track changes from librespot stderr. The transcoder is
+      // started once and kept: librespot's PCM is one continuous stream, so
+      // the speaker holds one connection across tracks. Restarting it per
+      // track cut that connection at every track change, so an album fell
+      // silent after its first track, and left the PCM piped into the
+      // transcoder that had just been killed.
       if (msg.includes('Loading <') || msg.includes('Track "')) {
         state.isStreaming = true;
-        startFfmpegTranscode(proc);
+        ensureTranscoder(proc);
       }
       if (msg.includes('Player::Stopped') || msg.includes('Stopped')) {
         state.isStreaming = false;
-        stopFfmpegTranscode();
       }
     });
 
@@ -168,6 +186,7 @@ export async function startLibrespot(username: string, password: string): Promis
       state.isRunning = false;
     });
 
+    ensureTranscoder(proc);
     logger.info('Librespot: Started as Spotify Connect receiver "AudioServer"');
     return true;
   } catch (err) {
@@ -176,76 +195,139 @@ export async function startLibrespot(username: string, password: string): Promis
   }
 }
 
-function startFfmpegTranscode(librespotProc: ChildProcess) {
-  stopFfmpegTranscode(); // Kill existing
+/** Where librespot keeps its Spotify login: next to the database, so it survives an update. */
+function librespotCacheDir(): string | null {
+  try {
+    const dir = join(dirname(resolve(config.databasePath)), 'librespot');
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  } catch (err) {
+    logger.warn(`Librespot: no cache folder, the Spotify login will not be remembered: ${err}`);
+    return null;
+  }
+}
 
-  // Transcode PCM (44100Hz, 16-bit, stereo) to MP3
-  const ffmpeg = spawn(
+function spawnFfmpeg(): ChildProcess {
+  // PCM (44100 Hz, 16 bit, stereo) from stdin → MP3 320 on stdout.
+  return spawn(
     'ffmpeg',
     [
       '-f',
-      's16le', // Input format: signed 16-bit little-endian
+      's16le',
       '-ar',
-      '44100', // Sample rate
+      '44100',
       '-ac',
-      '2', // Stereo
+      '2',
       '-i',
-      'pipe:0', // Read from stdin
+      'pipe:0',
       '-codec:a',
       'libmp3lame',
       '-b:a',
-      '320k', // Output bitrate
+      '320k',
       '-f',
-      'mp3', // Output format
-      'pipe:1', // Write to stdout
+      'mp3',
+      'pipe:1',
     ],
-    {
-      stdio: ['pipe', 'pipe', 'pipe'],
+    { stdio: ['pipe', 'pipe', 'pipe'] },
+  );
+}
+
+/**
+ * Feed `source` into a transcoder and hand its output to `onChunk`.
+ *
+ * Every stream involved gets an error handler and the transcoder is taken
+ * out of the pipe as soon as it is gone, so audio that still arrives is
+ * never written into a dead process. Returns a function that takes the
+ * transcoder out again.
+ */
+export function connectTranscoder(
+  source: Readable,
+  transcoder: ChildProcess,
+  onChunk: (chunk: Buffer) => void,
+  onGone: (reason: string) => void = () => {},
+): () => void {
+  const stdin = transcoder.stdin;
+  let detached = false;
+  const detach = (): void => {
+    if (detached) return;
+    detached = true;
+    if (stdin) source.unpipe(stdin);
+  };
+  const gone = (reason: string): void => {
+    if (detached) return;
+    detach();
+    onGone(reason);
+  };
+  stdin?.on('error', (err) => gone(`its input closed: ${err.message}`));
+  transcoder.stdout?.on('error', (err) => gone(`its output failed: ${err.message}`));
+  transcoder.on('error', (err) => gone(`it could not run: ${err.message}`));
+  transcoder.on('close', () => gone('it exited'));
+  transcoder.stdout?.on('data', onChunk);
+  if (stdin) source.pipe(stdin);
+  return detach;
+}
+
+let detachTranscoder: (() => void) | null = null;
+
+/** Start the transcoder when it is not running; a running one is left alone. */
+function ensureTranscoder(librespotProc: ChildProcess): void {
+  if (state.ffmpegProcess || !librespotProc.stdout) return;
+  let ffmpeg: ChildProcess;
+  try {
+    ffmpeg = spawnFfmpeg();
+  } catch (err) {
+    logger.warn(`Librespot: could not start ffmpeg: ${err}`);
+    return;
+  }
+  state.ffmpegProcess = ffmpeg;
+  detachTranscoder = connectTranscoder(
+    librespotProc.stdout,
+    ffmpeg,
+    (chunk) => {
+      for (const client of streamClients) {
+        try {
+          client.write(chunk);
+        } catch {
+          streamClients.delete(client);
+        }
+      }
+    },
+    (reason) => {
+      // Gone by itself: the next track starts a fresh one.
+      if (state.ffmpegProcess === ffmpeg) {
+        state.ffmpegProcess = null;
+        detachTranscoder = null;
+        logger.warn(`Librespot: the MP3 transcoder stopped (${reason})`);
+        closeStreamClients();
+      }
     },
   );
-
-  state.ffmpegProcess = ffmpeg;
-
-  // Pipe librespot PCM output → ffmpeg stdin
-  librespotProc.stdout?.pipe(ffmpeg.stdin!);
-
-  // Pipe ffmpeg MP3 output → all connected HTTP clients
-  ffmpeg.stdout?.on('data', (chunk: Buffer) => {
-    for (const client of streamClients) {
-      try {
-        client.write(chunk);
-      } catch {
-        streamClients.delete(client);
-      }
-    }
-  });
-
   ffmpeg.stderr?.on('data', (data: Buffer) => {
     const msg = data.toString().trim();
-    if (msg && !msg.startsWith('size=')) {
-      logger.debug(`FFmpeg: ${msg}`);
-    }
+    if (msg && !msg.startsWith('size=')) logger.debug(`FFmpeg: ${msg}`);
   });
-
-  ffmpeg.on('close', () => {
-    state.ffmpegProcess = null;
-  });
-
   logger.info('Librespot: FFmpeg transcoder started (PCM → MP3)');
 }
 
-function stopFfmpegTranscode() {
-  if (state.ffmpegProcess) {
-    state.ffmpegProcess.kill();
-    state.ffmpegProcess = null;
-  }
-  // Close all stream clients
+function closeStreamClients(): void {
   for (const client of streamClients) {
     try {
       client.end();
     } catch {}
   }
   streamClients.clear();
+}
+
+function stopFfmpegTranscode() {
+  // Take it out of the PCM stream BEFORE killing it, so nothing is written
+  // into a process that is going away.
+  detachTranscoder?.();
+  detachTranscoder = null;
+  if (state.ffmpegProcess) {
+    state.ffmpegProcess.kill();
+    state.ffmpegProcess = null;
+  }
+  closeStreamClients();
 }
 
 export function stopLibrespot() {
@@ -311,6 +393,8 @@ export function handleStreamRequest(
   streamClients.add(res);
   logger.info(`Librespot: Stream client connected (${streamClients.size} total)`);
 
+  // A speaker that hangs up mid-write must not take the server with it.
+  res.on('error', () => streamClients.delete(res));
   req.on('close', () => {
     streamClients.delete(res);
     logger.info(`Librespot: Stream client disconnected (${streamClients.size} total)`);

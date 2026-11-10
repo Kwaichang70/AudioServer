@@ -88,6 +88,7 @@ export type SpotifyErrorCode =
   | 'spotify_not_authenticated'
   | 'spotify_rate_limited'
   | 'spotify_forbidden'
+  | 'spotify_restricted_device'
   | 'spotify_not_found'
   | 'spotify_api_error';
 
@@ -119,6 +120,15 @@ function spotifyErrorFor(status: number, body: string, retryAfter?: number): Spo
       'spotify_not_authenticated',
       'Spotify session expired; reconnect Spotify in Settings',
       401,
+    );
+  }
+  if (status === 403 && /restrict/i.test(body)) {
+    // Sonos and some other speakers are "restricted devices": Spotify lists
+    // them but only its own app may steer them.
+    return new SpotifyProviderError(
+      'spotify_restricted_device',
+      'This speaker only takes Spotify commands from the Spotify app itself. Start it there, or let AudioServer play Spotify to the speaker (Settings → Librespot, then choose "AudioServer" once in the Spotify app).',
+      403,
     );
   }
   if (status === 403) {
