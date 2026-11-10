@@ -48,7 +48,23 @@ export async function checkFfmpegAvailable(): Promise<boolean> {
   return checkBinaryAvailable('ffmpeg', ['-version']);
 }
 
+const BINARY_CHECK_TTL_MS = 5 * 60_000;
+const binaryChecks = new Map<string, { at: number; result: Promise<boolean> }>();
+
+/**
+ * Is this program installed? Asked by starting it, so the answer is kept for
+ * five minutes: the status route is polled and is not rate limited, and it
+ * started two processes on every request (S04).
+ */
 function checkBinaryAvailable(cmd: string, args: string[]): Promise<boolean> {
+  const known = binaryChecks.get(cmd);
+  if (known && Date.now() - known.at < BINARY_CHECK_TTL_MS) return known.result;
+  const result = probeBinary(cmd, args);
+  binaryChecks.set(cmd, { at: Date.now(), result });
+  return result;
+}
+
+function probeBinary(cmd: string, args: string[]): Promise<boolean> {
   return new Promise((resolve) => {
     let resolved = false;
     const done = (result: boolean) => {

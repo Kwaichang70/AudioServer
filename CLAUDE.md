@@ -28,7 +28,7 @@ Monorepo with npm workspaces: `shared/`, `server/`, `client/`.
 
 ## Key architectural decisions
 
-- **Provider pattern**: every music source implements `MusicProvider` interface (shared/src/provider.ts). Local, Qobuz, Spotify (browse + Spotify Connect, no audio stream) and Tidal (browse; streaming unverified) are implemented. Spotify in a room from the server: `services/spotify-rooms.ts`.
+- **Provider pattern**: every music source implements `MusicProvider` interface (shared/src/provider.ts). Local, Qobuz, Spotify (browse + Spotify Connect, no audio stream) and Tidal (browse only; full-track streaming is switched off: the route answers 410) are implemented. Spotify in a room from the server: `services/spotify-rooms.ts`.
 - **Device pattern**: every output target implements `DeviceController` interface (shared/src/device.ts): Sonos, DLNA and Volumio are real; the server drives a room's speaker itself (`services/server-player.ts`).
 - **UNC paths**: NAS paths must use forward slashes (`//diskstation/Music`) — `path.join()` breaks UNC paths on Windows. The scanner concatenates with `/` directly.
 - **ESM + music-metadata**: `tsx` CJS mode can't load `file-type` (pure ESM dep of music-metadata). Use `node --import tsx/esm` instead of `tsx` directly.

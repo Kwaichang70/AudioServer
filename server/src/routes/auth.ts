@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { randomBytes } from 'crypto';
 import { z } from 'zod';
 import { v4 as uuid } from 'uuid';
 import { getRawDb } from '../db/index.js';
@@ -162,6 +163,13 @@ authRouter.post(
 
 // ─── Session ────────────────────────────────────────────────────
 
+/** A hash nobody's password matches, made once, for logins with an unknown name. */
+let unknownHash: Promise<string> | null = null;
+function unknownUserHash(): Promise<string> {
+  unknownHash ??= hashPassword(randomBytes(24).toString('hex'));
+  return unknownHash;
+}
+
 authRouter.post(
   '/login',
   loginLimiter,
@@ -172,6 +180,9 @@ authRouter.post(
     const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username) as
       UserRow | undefined;
     if (!user) {
+      // Spend the same time as for a real account: answering at once told a
+      // caller which usernames exist (S12).
+      await verifyPassword(password, await unknownUserHash());
       res.status(401).json({ error: 'Unauthorized', message: 'Invalid credentials' });
       return;
     }
@@ -440,7 +451,19 @@ function handOverPersonalData(userId: string, adminId: string): number {
         .run(adminId, userId).changes;
       db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(userId);
     }
-    for (const table of ['favorites', 'listening_sessions', 'scrobble_config', 'scrobble_queue']) {
+    // `tags` takes its tag_items along (ON DELETE CASCADE). Ratings, tags,
+    // bookmarks and API keys have no foreign key to users, so they stayed
+    // behind as rows nobody owned (S12).
+    for (const table of [
+      'favorites',
+      'listening_sessions',
+      'scrobble_config',
+      'scrobble_queue',
+      'ratings',
+      'tags',
+      'bookmarks',
+      'api_keys',
+    ]) {
       db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(userId);
     }
     return handed;

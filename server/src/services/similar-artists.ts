@@ -5,6 +5,7 @@
 // matched back to the local library so owned artists deep-link.
 
 import { getRawDb } from '../db/index.js';
+import { outboundFetch } from '../utils/outbound-fetch.js';
 
 const LASTFM_API = 'https://ws.audioscrobbler.com/2.0/';
 
@@ -33,7 +34,7 @@ export async function getSimilarArtists(artistName: string): Promise<SimilarArti
     `${LASTFM_API}?method=artist.getsimilar` +
     `&artist=${encodeURIComponent(artistName)}` +
     `&api_key=${key}&format=json&limit=24&autocorrect=1`;
-  const res = await fetch(url);
+  const res = await outboundFetch(url);
   if (!res.ok) return [];
   const data = (await res.json()) as {
     similarartists?: { artist?: Array<{ name: string; match: string }> };

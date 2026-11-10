@@ -52,14 +52,15 @@ function isSignedStreamPath(path: string): boolean {
     (path.startsWith('/api/library/tracks/') &&
       (path.endsWith('/stream') || path.endsWith('/cover'))) ||
     (path.startsWith('/api/library/albums/') && path.endsWith('/cover')) ||
-    (path.startsWith('/api/library/artists/') && path.endsWith('/image'))
+    (path.startsWith('/api/library/artists/') && path.endsWith('/image')) ||
+    // The live Spotify stream a speaker fetches (S07).
+    path === '/api/librespot/stream'
   );
 }
 
 export function isFirstRun(): boolean {
   const row = getRawDb().prepare('SELECT COUNT(*) as count FROM users').get() as
-    | { count: number }
-    | undefined;
+    { count: number } | undefined;
   return !row || row.count === 0;
 }
 

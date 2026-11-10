@@ -26,6 +26,8 @@ import { listenbrainzRouter } from '../../routes/listenbrainz.js';
 import { recommendationsRouter } from '../../routes/recommendations.js';
 import { scrobbleRouter } from '../../routes/scrobble.js';
 import { librespotRouter } from '../../routes/librespot.js';
+import { radioRouter } from '../../routes/radio.js';
+import { devicesRouter } from '../../routes/devices.js';
 import { openApiSpec } from '../../openapi.js';
 import { createSession } from '../../services/sessions.js';
 
@@ -107,6 +109,8 @@ export async function createTestApp(options: TestAppOptions = {}) {
   app.use('/api/recommendations', recommendationsRouter);
   app.use('/api/scrobble', scrobbleRouter);
   app.use('/api/librespot', librespotRouter);
+  app.use('/api/radio', radioRouter);
+  app.use('/api/devices', devicesRouter);
   app.use('/mcp', mcpRouter);
   app.use('/.well-known', noOAuthDiscovery);
   app.use('/api', notFoundHandler);

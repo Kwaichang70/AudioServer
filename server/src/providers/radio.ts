@@ -1,5 +1,6 @@
 import type { RadioStation } from '@audioserver/shared';
 import { logger } from '../logger.js';
+import { outboundFetch } from '../utils/outbound-fetch.js';
 
 // ─── Curated Dutch stations ──────────────────────────────────────
 // Stream URLs verified against the public Icecast feeds of NPO and the
@@ -322,7 +323,7 @@ export function radioCacheSize(): number {
 
 async function fetchJson<T>(url: string): Promise<T> {
   // A directory that does not answer is given up on (B09), not waited for.
-  const res = await fetch(url, {
+  const res = await outboundFetch(url, {
     headers: { 'User-Agent': USER_AGENT },
     signal: AbortSignal.timeout(10_000),
   });
@@ -427,7 +428,7 @@ export const radioProvider = {
       );
       if (stations.length === 0) return null;
       // Fire-and-forget click counter hit
-      fetch(`${RADIO_BROWSER_BASE}/url/${uuid}`, {
+      outboundFetch(`${RADIO_BROWSER_BASE}/url/${uuid}`, {
         headers: { 'User-Agent': USER_AGENT },
       }).catch(() => {});
       return mapStation(stations[0]);

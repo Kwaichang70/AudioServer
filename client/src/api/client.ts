@@ -774,10 +774,7 @@ export const api = {
     fetchApi('/librespot/start', { method: 'POST', body: JSON.stringify({ username, password }) }),
   librespotStop: (): Promise<ApiResponse<{ stopped: true }>> =>
     fetchApi('/librespot/stop', { method: 'POST' }),
-  librespotPlayToDevice: (
-    trackUri: string,
-    deviceId: string,
-  ): Promise<ApiResponse<{ ok: true; streamUrl: string }>> =>
+  librespotPlayToDevice: (trackUri: string, deviceId: string): Promise<ApiResponse<{ ok: true }>> =>
     fetchApi('/librespot/play-to-device', {
       method: 'POST',
       body: JSON.stringify({ trackUri, deviceId }),

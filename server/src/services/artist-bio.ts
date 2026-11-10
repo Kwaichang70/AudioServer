@@ -1,6 +1,7 @@
 import { getRawDb } from '../db/index.js';
 import { logger } from '../logger.js';
 import { MUSICBRAINZ_HEADERS, mbFetch } from './musicbrainz.js';
+import { outboundFetch } from '../utils/outbound-fetch.js';
 
 /**
  * Artist biographies (R04.1).
@@ -50,7 +51,7 @@ export interface BioDeps {
 }
 
 let deps: BioDeps = {
-  fetch: (...args) => fetch(...args),
+  fetch: (...args) => outboundFetch(...args),
   now: () => Math.floor(Date.now() / 1000),
   lastfmKey: () => process.env.LASTFM_API_KEY || undefined,
 };

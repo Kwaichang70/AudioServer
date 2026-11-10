@@ -139,7 +139,7 @@ export function resolveSessionToken(token: unknown): SessionPrincipal | null {
   if (typeof token !== 'string' || token.length === 0) return null;
   let payload: TokenPayload;
   try {
-    const decoded = jwt.verify(token, config.jwtSecret);
+    const decoded = jwt.verify(token, config.jwtSecret, { algorithms: ['HS256'] });
     if (typeof decoded !== 'object' || decoded === null) return null;
     payload = decoded as TokenPayload;
   } catch {

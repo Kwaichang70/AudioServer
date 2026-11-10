@@ -4,6 +4,9 @@ import { getDb } from '../db/index.js';
 import { radioStations } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { validate } from '../utils/validate.js';
+import { logger } from '../logger.js';
+import { z } from 'zod';
 
 export const radioRouter = Router();
 
@@ -27,19 +30,15 @@ radioRouter.get(
       return;
     }
 
-    try {
-      let results;
-      if (tag) {
-        results = await radioProvider.browseByTag(tag, country);
-      } else if (q) {
-        results = await radioProvider.searchStations(q, country);
-      } else {
-        results = await radioProvider.browseByCountry(country);
-      }
-      res.json({ data: results });
-    } catch (err) {
-      res.status(500).json({ error: String(err) });
+    let results;
+    if (tag) {
+      results = await radioProvider.browseByTag(tag, country);
+    } else if (q) {
+      results = await radioProvider.searchStations(q, country);
+    } else {
+      results = await radioProvider.browseByCountry(country);
     }
+    res.json({ data: results });
   }),
 );
 
@@ -82,7 +81,11 @@ radioRouter.get(
       }
       res.json({ data: station });
     } catch (err) {
-      res.status(500).json({ error: String(err) });
+      logger.warn(`Radio: station lookup failed: ${err}`);
+      res.status(502).json({
+        error: 'RadioUnavailable',
+        message: 'The radio directory did not answer.',
+      });
     }
   }),
 );
@@ -114,55 +117,63 @@ radioRouter.get(
       }
       res.json({ data: { url: station.streamUrl, name: station.name, genre: station.genre } });
     } catch (err) {
-      res.status(500).json({ error: String(err) });
+      logger.warn(`Radio: station lookup failed: ${err}`);
+      res.status(502).json({
+        error: 'RadioUnavailable',
+        message: 'The radio directory did not answer.',
+      });
     }
   }),
 );
 
-// ─── Favorite station: upsert cached metadata ────────────────────
+// ─── Favorite station: cache its metadata ────────────────────────
 // Called by the client right before toggling a favorite, so that the
 // Favorites page can render without a round-trip to radio-browser.
+//
+// The client says WHICH station; what is stored is what the server itself
+// finds for that id (the curated list or radio-browser). The cache is read
+// before both when a station plays, for everyone and for the speakers, so a
+// stream URL taken from the request let any signed-in user point "Radio 538"
+// at an address of their choosing for the whole household (S01).
 
-radioRouter.post('/stations/cache', (req, res) => {
-  const { uuid, name, streamUrl, genre, country, language, homepage, faviconUrl, bitrate, codec } =
-    req.body || {};
-  if (!uuid || !name || !streamUrl) {
-    res.status(400).json({ error: 'uuid, name and streamUrl required' });
-    return;
-  }
+const cacheBody = z.object({ uuid: z.string().regex(/^[A-Za-z0-9-]{1,64}$/) });
 
-  const db = getDb();
-  const existing = db.select().from(radioStations).where(eq(radioStations.uuid, uuid)).get();
-  if (existing) {
-    db.update(radioStations)
-      .set({
-        name,
-        streamUrl,
-        genre,
-        country,
-        language,
-        homepage,
-        faviconUrl,
-        bitrate,
-        codec,
-      })
-      .where(eq(radioStations.uuid, uuid))
-      .run();
-  } else {
-    db.insert(radioStations)
-      .values({
-        uuid,
-        name,
-        streamUrl,
-        genre,
-        country,
-        language,
-        homepage,
-        faviconUrl,
-        bitrate,
-        codec,
-      })
-      .run();
-  }
-  res.json({ data: { ok: true } });
-});
+radioRouter.post(
+  '/stations/cache',
+  validate({ body: cacheBody }),
+  asyncHandler(async (req, res) => {
+    const { uuid } = req.body as z.infer<typeof cacheBody>;
+    const db = getDb();
+    const existing = db.select().from(radioStations).where(eq(radioStations.uuid, uuid)).get();
+    const station = await radioProvider.getStation(uuid);
+    if (!station) {
+      // The directory does not answer or no longer lists it: keep what the
+      // server stored earlier, never take the caller's word for it.
+      if (existing) {
+        res.json({ data: { ok: true } });
+        return;
+      }
+      res.status(404).json({ error: 'NotFound', message: 'That station was not found' });
+      return;
+    }
+    const values = {
+      name: station.name,
+      streamUrl: station.streamUrl,
+      genre: station.genre ?? null,
+      country: station.country ?? null,
+      language: station.language ?? null,
+      homepage: station.homepage ?? null,
+      faviconUrl: station.faviconUrl ?? null,
+      bitrate: station.bitrate ?? null,
+      codec: station.codec ?? null,
+    };
+    if (existing) {
+      db.update(radioStations).set(values).where(eq(radioStations.uuid, uuid)).run();
+    } else {
+      db.insert(radioStations)
+        .values({ uuid, ...values })
+        .run();
+    }
+    res.json({ data: { ok: true } });
+  }),
+);

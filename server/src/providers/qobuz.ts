@@ -3,6 +3,7 @@ import type { Artist, Album, Track, SearchResults, Playlist } from '@audioserver
 import { createHash } from 'crypto';
 import { logger } from '../logger.js';
 import { deleteTokens, loadTokens, saveTokens } from '../services/tokenstore.js';
+import { outboundFetch } from '../utils/outbound-fetch.js';
 
 const QOBUZ_API_URL = 'https://www.qobuz.com/api.json/0.2';
 const QOBUZ_DEFAULT_FORMAT_ID = '5';
@@ -328,7 +329,7 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
       );
     }
 
-    const res = await fetch(`${QOBUZ_API_URL}/user/login`, {
+    const res = await outboundFetch(`${QOBUZ_API_URL}/user/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -429,7 +430,7 @@ export class QobuzProvider implements AuthenticatedMusicProvider {
       url.searchParams.set(k, v);
     }
 
-    const res = await fetch(url.toString(), {
+    const res = await outboundFetch(url.toString(), {
       headers: { 'X-User-Auth-Token': this.userAuthToken! },
     });
 

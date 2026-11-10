@@ -4,6 +4,57 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fase 9: beveiliging en streamingdiensten (S01–S12)
+
+- **Radiozenders kunnen niet meer worden omgeleid.** Wie een zender als
+  favoriet opsloeg, stuurde ook het stream-adres mee, en de server bewaarde
+  dat zonder controle. Elke ingelogde gebruiker kon zo "Radio 538" voor het
+  hele huis, ook op de speakers, naar een eigen adres laten wijzen. De server
+  zoekt het adres nu zelf op (eigen lijst of radio-browser) en bewaart alleen
+  dat. Zenders die al waren opgeslagen blijven staan zoals ze zijn; sla een
+  favoriet opnieuw op om hem te verversen.
+- **Wat de app naar een speaker stuurt wordt gecontroleerd:** alleen een
+  http(s)-adres, tekst als titel, volume 0–100. Onzin gaf eerst een
+  serverfout met de ruwe foutmelding.
+- **Scrobble-accounts versleuteld.** De sleutel van Last.fm en het token van
+  ListenBrainz stonden leesbaar in de database (en dus in elke back-up). Ze
+  worden nu versleuteld opgeslagen, net als de tokens van Spotify, Tidal en
+  Qobuz; bestaande rijen worden bij de eerste start omgezet. Je hoeft niets
+  opnieuw te koppelen. Let op: ze hangen aan `JWT_SECRET`; verander je dat,
+  dan koppel je Last.fm en ListenBrainz opnieuw.
+- **Elke vraag aan een dienst buiten de deur heeft een tijdslimiet van 15 s**
+  (Qobuz, Spotify, Tidal, Last.fm, ListenBrainz, songteksten, hoesjes). Een
+  dienst die niet antwoordde, kon een pagina minutenlang laten wachten.
+- **Tidal:** verloopt het token terwijl de app open staat, dan wordt het één
+  keer vernieuwd in plaats van per verzoek. Is de koppeling ingetrokken, dan
+  zegt Settings dat ook, in plaats van "verbonden" terwijl alles mislukt.
+- **Spotify Connect-opdrachten** (afspelen, pauze, volume, verplaatsen)
+  worden gecontroleerd voordat ze naar Spotify gaan.
+- **Minder ruimte voor misbruik door een ingelogde gebruiker:** de pagina die
+  controleert of librespot en ffmpeg er zijn, startte bij elk verzoek twee
+  programma's en viel buiten de verzoeklimiet; het antwoord wordt nu vijf
+  minuten bewaard. De limiet slaat alleen nog eigen hoesjes, eigen audio en
+  statusvragen over, niet meer alles met "stream" in het adres. Een tab kan
+  niet onbeperkt speakers laten volgen.
+- **Spotify via librespot naar een speaker** kon niet werken: de speaker
+  kreeg een adres waar hij niet mocht inloggen. Hij krijgt nu het LAN-adres
+  van de server met een tijdelijk token. **Nog te testen op de NAS.**
+- **Accounts:** inloggen met een onbekende naam duurt even lang als met een
+  fout wachtwoord (zo is niet te raden welke namen bestaan). Een verwijderd
+  account laat geen waarderingen, tags, bookmarks of API-sleutels achter.
+- **Offline-pagina:** "Try again" is een gewone link in plaats van een
+  script, zodat de strengere inhoudsregels (CSP) straks aan kunnen.
+- **Tests op Windows:** de eerste testdatabase bleef open als een suite een
+  tweede opende; daardoor faalde één suite af en toe bij het opruimen.
+- **Gecontroleerd:** lint, typecheck, server (99 bestanden, 764 tests, 22
+  nieuw) en client (67 bestanden, 342 tests) groen.
+- **Niet gedaan, bewust:** de API-sleutel in het MCP-adres blijft mogelijk
+  (Grok kan mogelijk geen header meegeven); `docs/mcp.md` zegt nu wat het
+  risico is. De CSP staat nog op "alleen melden": omzetten kan pas na een
+  week zonder meldingen in het log op de NAS. Foutteksten van diensten in
+  Settings blijven zichtbaar, omdat je ze nodig hebt om een koppeling te
+  herstellen.
+
 ## Fase 8: speakers blijven in de pas met de wachtrij (P01–P13)
 
 - **Een speaker die één zoekronde mist, blijft bekend.** Zoekantwoorden van

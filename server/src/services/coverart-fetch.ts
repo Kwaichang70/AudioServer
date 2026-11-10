@@ -5,6 +5,7 @@ import { albums } from '../db/schema.js';
 // eq removed - not currently used
 import { logger } from '../logger.js';
 import { awaitMusicBrainzTurn, mbFetch } from './musicbrainz.js';
+import { outboundFetch } from '../utils/outbound-fetch.js';
 
 const DEFAULT_COVER_DIR = './data/covers';
 const MUSICBRAINZ_API = 'https://musicbrainz.org/ws/2';
@@ -26,7 +27,7 @@ const COVER_FORMATS = [
 async function rateLimitedFetch(url: string): Promise<Response> {
   if (url.startsWith(MUSICBRAINZ_API)) return mbFetch(url.slice(MUSICBRAINZ_API.length));
   await awaitMusicBrainzTurn();
-  return fetch(url, {
+  return outboundFetch(url, {
     headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
   });
 }
@@ -265,7 +266,7 @@ async function coverFromArchive(mbid: string): Promise<Buffer | null> {
     );
     const imageUrl = front?.thumbnails?.large || front?.thumbnails?.small || front?.image;
     if (!imageUrl) return null;
-    const imageRes = await fetch(imageUrl);
+    const imageRes = await outboundFetch(imageUrl);
     if (!imageRes.ok) return null;
     return Buffer.from(await imageRes.arrayBuffer());
   } catch (err) {
@@ -315,7 +316,7 @@ async function fetchFromMusicBrainz(artist: string, title: string): Promise<Buff
           frontImage.thumbnails?.large || frontImage.thumbnails?.small || frontImage.image;
         if (!imageUrl) continue;
 
-        const imgRes = await fetch(imageUrl);
+        const imgRes = await outboundFetch(imageUrl);
         if (!imgRes.ok) continue;
 
         const buffer = Buffer.from(await imgRes.arrayBuffer());
@@ -346,7 +347,7 @@ async function fetchFromSpotify(artist: string, title: string): Promise<Buffer |
     const album = results.albums?.[0];
     if (!album?.coverUrl) return null;
 
-    const imgRes = await fetch(album.coverUrl);
+    const imgRes = await outboundFetch(album.coverUrl);
     if (!imgRes.ok) return null;
 
     const buffer = Buffer.from(await imgRes.arrayBuffer());
@@ -443,22 +444,21 @@ async function fanartImage(artistId: string): Promise<Buffer | null> {
     mbid =
       (
         getRawDb().prepare('SELECT mbid FROM artists WHERE id = ?').get(artistId) as
-          | { mbid: string | null }
-          | undefined
+          { mbid: string | null } | undefined
       )?.mbid ?? null;
   } catch {
     return null;
   }
   if (!mbid) return null;
   try {
-    const res = await fetch(
+    const res = await outboundFetch(
       `https://webservice.fanart.tv/v3/music/${encodeURIComponent(mbid)}?api_key=${key}`,
     );
     if (!res.ok) return null;
     const data = (await res.json()) as { artistthumb?: Array<{ url?: string }> };
     const url = data.artistthumb?.[0]?.url;
     if (!url) return null;
-    const image = await fetch(url);
+    const image = await outboundFetch(url);
     if (!image.ok) return null;
     const buffer = Buffer.from(await image.arrayBuffer());
     return buffer.length > 1000 ? buffer : null;
@@ -492,7 +492,7 @@ async function fetchArtistImage(artistId: string, artistName: string): Promise<b
       ) || results.artists?.[0];
 
     if (match?.imageUrl) {
-      const imgRes = await fetch(match.imageUrl);
+      const imgRes = await outboundFetch(match.imageUrl);
       if (imgRes.ok) {
         const buffer = Buffer.from(await imgRes.arrayBuffer());
         if (buffer.length > 1000) {

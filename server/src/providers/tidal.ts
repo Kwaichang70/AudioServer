@@ -3,6 +3,7 @@ import type { Artist, Album, Track, SearchResults, Playlist } from '@audioserver
 import { randomBytes, createHash } from 'crypto';
 import { logger } from '../logger.js';
 import { saveTokens, loadTokens, deleteTokens } from '../services/tokenstore.js';
+import { outboundFetch } from '../utils/outbound-fetch.js';
 
 const TIDAL_AUTH_URL = 'https://auth.tidal.com/v1/oauth2';
 const TIDAL_API_URL = 'https://openapi.tidal.com/v2';
@@ -271,7 +272,7 @@ export class TidalProvider implements AuthenticatedMusicProvider {
     };
     if (codeVerifier) body.code_verifier = codeVerifier;
 
-    const res = await fetch(`${TIDAL_AUTH_URL}/token`, {
+    const res = await outboundFetch(`${TIDAL_AUTH_URL}/token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -300,10 +301,25 @@ export class TidalProvider implements AuthenticatedMusicProvider {
     logger.info('Tidal: Authenticated successfully');
   }
 
-  private async refreshAccessToken(): Promise<void> {
+  // One refresh at a time (S08), as for Spotify: the app asks for favourites,
+  // albums and playlists together, and each of them found the token expired
+  // and refreshed it on its own. A provider that rotates refresh tokens then
+  // invalidates all but one of them.
+  private refreshInflight: Promise<void> | null = null;
+
+  private refreshAccessToken(): Promise<void> {
+    if (!this.refreshInflight) {
+      this.refreshInflight = this.doRefreshAccessToken().finally(() => {
+        this.refreshInflight = null;
+      });
+    }
+    return this.refreshInflight;
+  }
+
+  private async doRefreshAccessToken(): Promise<void> {
     if (!this.tokens?.refreshToken) throw new Error('No refresh token');
 
-    const res = await fetch(`${TIDAL_AUTH_URL}/token`, {
+    const res = await outboundFetch(`${TIDAL_AUTH_URL}/token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -315,7 +331,20 @@ export class TidalProvider implements AuthenticatedMusicProvider {
       }),
     });
 
-    if (!res.ok) throw new Error('Tidal token refresh failed');
+    if (!res.ok) {
+      // 400/401: the refresh token was withdrawn. Without disconnecting here
+      // Settings kept saying "connected" while every request failed (S08).
+      // Other failures (5xx, network) may pass, so the tokens stay.
+      if (res.status === 400 || res.status === 401) {
+        logger.error(
+          `Tidal refresh token rejected (${res.status}) — disconnecting; re-connect Tidal in Settings`,
+        );
+        this.tokens = null;
+        this.auth.isAuthenticated = false;
+        deleteTokens('tidal');
+      }
+      throw new Error(`Tidal token refresh failed (${res.status})`);
+    }
 
     const data = (await res.json()) as {
       access_token: string;
@@ -338,7 +367,7 @@ export class TidalProvider implements AuthenticatedMusicProvider {
 
     const url = `${TIDAL_API_URL}${path}`;
     logger.debug(`Tidal API request: ${url}`);
-    const res = await fetch(url, {
+    const res = await outboundFetch(url, {
       headers: {
         Authorization: `Bearer ${this.tokens.accessToken}`,
         'Content-Type': 'application/vnd.tidal.v1+json',
@@ -361,7 +390,7 @@ export class TidalProvider implements AuthenticatedMusicProvider {
     }
 
     const separator = path.includes('?') ? '&' : '?';
-    const res = await fetch(`${TIDAL_LEGACY_API}${path}${separator}countryCode=US`, {
+    const res = await outboundFetch(`${TIDAL_LEGACY_API}${path}${separator}countryCode=US`, {
       headers: {
         Authorization: `Bearer ${this.tokens.accessToken}`,
       },

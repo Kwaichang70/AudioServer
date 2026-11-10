@@ -211,6 +211,25 @@ Beslismomenten:
 - **Controle:** lint en typecheck groen; server 98/98 bestanden (742 tests, waarvan 25 nieuw), client 67/67 (342). Elke nieuwe test is ook gedraaid tegen de code van HEAD en faalt daar (op één na, die het ongewijzigde gedrag zonder zone bevestigt).
 - **Open, op hardware (Danny):** de NAS-acceptatie uit fase 2 en hiervan: titel en album zichtbaar op Sonos en Cocktail Audio; twintig overgangen zonder dubbele dispatch met naadloos aan; een speaker die even van het netwerk is, wordt niet als gestopt gemeld.
 
+### Fase 9 — 10 november 2026
+
+- **S01:** `POST /api/radio/stations/cache` neemt alleen nog een `uuid` aan (zod) en bewaart wat `radioProvider.getStation` zelf vindt; onbekend geeft 404, een bestaande rij blijft staan als de gids niet antwoordt. Bestaande rijen zijn niet opgeschoond: niet te zien welke door een client zijn gezet.
+- **S02:** zod op `/api/devices/:id/play`, `/set-next` en `/volume` (http(s)-URL, tekstvelden, 0–100); fouten als 502 `DeviceError` zonder ruwe tekst. **Afwijking:** de host is niet beperkt. De app stuurt hier zelf radio-, Qobuz- en lokale adressen heen, dus een hostlijst zou afspelen breken. De echte oplossing (de server bouwt de URL uit een track-id) is clientwerk voor fase 11.
+- **S03:** alleen documentatie (`docs/mcp.md`): de padvorm blijft, met de waarschuwing over het proxylog en wat een sleutel kan.
+- **S04:** `skipsGlobalLimit` slaat alleen eigen bibliotheekmedia, de librespot-stream, `…/status` en `/assets/` over; de binarycheck van librespot/ffmpeg wordt vijf minuten bewaard.
+- **S05:** `sealSecret`/`openSecret` in `tokenstore.ts` (prefix `enc:v1:`); `scrobbler.start()` versleutelt bestaande rijen één keer; geen schemawijziging.
+- **S06:** `utils/outbound-fetch.ts` (15 s, ook voor de body) op alle 33 fetch-plekken in providers en services.
+- **S07:** gerepareerd, niet verwijderd: de app gebruikt de route nog (`useTrackPlayback`). LAN-adres + systeemtoken, pad toegevoegd aan de signed-stream-check, body gevalideerd, het stream-adres staat niet meer in het antwoord. **Niet gedaan:** `--password` als argument van librespot; **niet getest** met een echte speaker.
+- **S08:** Tidal heeft één gedeelde refresh en koppelt los bij 400/401. `getStreamUrl` staat er nog (de interface vraagt het); CLAUDE.md en AGENTS.md zeggen nu dat Tidal-streaming uit staat.
+- **S09:** één validatie voor alle `POST /spotify/connect/*`; `device_id` wordt ge-encodeerd. Dat `/spotify/token` het huishoudtoken aan elke gebruiker geeft, staat nog niet in `docs/permissions.md`.
+- **S10:** `offline.html` zonder inline script (in de browser bekeken). De CSP zelf is niet omgezet: dat vraagt een rapportcyclus op de NAS.
+- **S11:** `device:subscribe` accepteert alleen een string tot 200 tekens, maximaal 8 per socket; het token uit de querystring wordt niet meer gelezen. Geen eigen test.
+- **S12:** dummy-hash bij onbekende gebruikersnaam; `algorithms: ['HS256']`; ratings, tags, bookmarks en API-sleutels gaan mee bij het verwijderen van een account. **Niet gedaan:** `String(err)` in `scrobble.ts`, `listenbrainz.ts`, `library.ts` en `providers.ts` (die tekst is wat de gebruiker in Settings nodig heeft); aparte `TOKEN_KEY`.
+- **S13:** niet in deze fase; hoort bij T06.
+- **Afwijking:** `initDatabase` sluit een nog open verbinding. Dat was de echte oorzaak van de `EPERM` uit fase 7 (`discovery-mix.test.ts` opent twee databases); de herhaalpogingen daar maskeerden het alleen.
+- **Controle:** lint en typecheck groen; server 99/99 bestanden (764 tests, 22 nieuw), client 67/67 (342). 18 van de 22 nieuwe tests falen op de code van HEAD; de overige vier testen nieuwe hulpfuncties of gedrag dat gelijk moest blijven.
+- **Open (Danny):** librespot naar een speaker testen op de NAS; na een week zonder `CSP report`-regels in het log `reportOnly: false` zetten.
+
 ## 9. Wijzigingsgrens van dit onderzoek
 
 Alleen dit document is toegevoegd. Geen `npm ci`, geen `git checkout` van de CI-workflow, geen rotatie van secrets, geen codewijziging. De onderzoeksbronnen: de vijf auditrapporten (speakerlaag, datalaag, beveiliging/providers, client, tooling) en eigen controles van de hoogste bevindingen; alle regelnummers verwijzen naar commit `a794b14`.

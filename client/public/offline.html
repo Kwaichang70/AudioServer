@@ -36,18 +36,22 @@
         color: #9ca3af;
         margin: 0.5rem 0;
       }
-      button {
+      .retry {
+        display: inline-block;
+        text-decoration: none;
         margin-top: 1.5rem;
         padding: 0.75rem 1.5rem;
         min-height: 44px;
         font-size: 1rem;
+        line-height: 1.75;
+        box-sizing: border-box;
         border: 0;
         border-radius: 0.375rem;
         background: #e94560;
         color: #fff;
         cursor: pointer;
       }
-      button:focus-visible {
+      .retry:focus-visible {
         outline: 3px solid #fff;
         outline-offset: 2px;
       }
@@ -61,7 +65,9 @@
         the NAS; this app does not store music for offline listening.
       </p>
       <p>Check the Wi-Fi or the server, then try again.</p>
-      <button type="button" onclick="window.location.reload()">Try again</button>
+      <!-- A link to this same address, not a script: the page must keep
+           working once the Content-Security-Policy forbids inline scripts. -->
+      <a class="retry" href="">Try again</a>
     </main>
   </body>
 </html>

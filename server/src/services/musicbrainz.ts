@@ -1,4 +1,5 @@
 import { logger } from '../logger.js';
+import { outboundFetch } from '../utils/outbound-fetch.js';
 
 /**
  * One door to MusicBrainz (R03.3).
@@ -23,7 +24,7 @@ export interface MusicBrainzDeps {
 }
 
 let deps: MusicBrainzDeps = {
-  fetch: (...args) => fetch(...args),
+  fetch: (...args) => outboundFetch(...args),
   now: () => Date.now(),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };

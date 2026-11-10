@@ -2,6 +2,7 @@ import { getDb } from '../db/index.js';
 import { tracks } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { logger } from '../logger.js';
+import { outboundFetch } from '../utils/outbound-fetch.js';
 
 // music-metadata parseFile (ESM compat)
 interface ParsedLyricsMetadata {
@@ -72,7 +73,7 @@ export async function getLyrics(trackId: string): Promise<LyricsResult | null> {
     if (track.albumTitle) params.set('album_name', track.albumTitle);
     if (track.duration) params.set('duration', String(Math.round(track.duration)));
 
-    const res = await fetch(`${LRCLIB_API}/get?${params}`, {
+    const res = await outboundFetch(`${LRCLIB_API}/get?${params}`, {
       headers: { 'User-Agent': 'AudioServer/1.0' },
     });
 

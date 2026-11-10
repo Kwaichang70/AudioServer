@@ -14,6 +14,9 @@ interface SocketData {
   clientId: string | null;
 }
 
+/** Speakers one tab may watch at a time; the app watches one. */
+const MAX_DEVICE_SUBSCRIPTIONS = 8;
+
 let io: SocketServer<ClientToServerEvents, ServerToClientEvents, Record<never, never>, SocketData>;
 
 export function isValidSocketToken(token: unknown): boolean {
@@ -37,7 +40,10 @@ export function initSocketIO(httpServer: HttpServer) {
   // is no setup-mode bypass; nothing is pushed to anonymous sockets.
   io.use((socket, next) => {
     try {
-      const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+      // From the handshake's auth payload only. A token in the query string
+      // is part of the URL and ends up in proxy logs (S11); the app never
+      // sent it that way.
+      const token = socket.handshake.auth?.token;
       if (!token) return next(new Error('Authentication required'));
       const principal = getPrincipalFromToken(token);
       if (!principal) return next(new Error('Authentication failed'));
@@ -78,15 +84,21 @@ export function initSocketIO(httpServer: HttpServer) {
     socket.on('playback:sync', sendSnapshots);
 
     // Device monitoring subscriptions
-    socket.on('device:subscribe', (deviceId: string) => {
+    socket.on('device:subscribe', (deviceId: unknown) => {
+      // A tab watches the speaker it has selected. Whatever arrives here
+      // starts a poll, so it has to look like a device id and one socket
+      // cannot start them without end (S11).
+      if (typeof deviceId !== 'string' || deviceId.length === 0 || deviceId.length > 200) return;
       if (deviceSubscriptions.has(deviceId)) return;
+      if (deviceSubscriptions.size >= MAX_DEVICE_SUBSCRIPTIONS) return;
       deviceSubscriptions.add(deviceId);
       logger.debug(`Client ${socket.id} subscribed to device ${deviceId}`);
       deviceMonitor.subscribe(deviceId);
       socket.join(`device:${deviceId}`);
     });
 
-    socket.on('device:unsubscribe', (deviceId: string) => {
+    socket.on('device:unsubscribe', (deviceId: unknown) => {
+      if (typeof deviceId !== 'string') return;
       if (!deviceSubscriptions.delete(deviceId)) return;
       logger.debug(`Client ${socket.id} unsubscribed from device ${deviceId}`);
       deviceMonitor.unsubscribe(deviceId);

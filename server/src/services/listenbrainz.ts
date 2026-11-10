@@ -9,6 +9,8 @@
 import { getRawDb } from '../db/index.js';
 import { logger } from '../logger.js';
 import { matchRecommendation, type LocalMatch } from './recommendations.js';
+import { outboundFetch } from '../utils/outbound-fetch.js';
+import { openSecret } from './tokenstore.js';
 
 const LB_API = 'https://api.listenbrainz.org/1';
 
@@ -27,7 +29,7 @@ function getToken(userId: string): string | null {
     )
     .get(userId) as { listenbrainz_token: string | null; listenbrainz_enabled: number } | undefined;
   if (!row || !row.listenbrainz_enabled || !row.listenbrainz_token) return null;
-  return row.listenbrainz_token;
+  return openSecret(row.listenbrainz_token, 'ListenBrainz token');
 }
 
 export function isConfigured(userId: string): boolean {
@@ -35,7 +37,7 @@ export function isConfigured(userId: string): boolean {
 }
 
 async function lbFetch<T = unknown>(path: string, token: string): Promise<T | null> {
-  const res = await fetch(`${LB_API}${path}`, {
+  const res = await outboundFetch(`${LB_API}${path}`, {
     headers: { Authorization: `Token ${token}`, Accept: 'application/json' },
   });
   if (res.status === 204) return null; // no data yet (e.g. brand-new user)
@@ -77,8 +79,7 @@ export async function getUserName(userId: string): Promise<string | null> {
 function matchArtist(name: string, mbid?: string | null): string | null {
   if (mbid) {
     const byId = getRawDb().prepare('SELECT id FROM artists WHERE mbid = ? LIMIT 1').get(mbid) as
-      | { id: string }
-      | undefined;
+      { id: string } | undefined;
     if (byId) return byId.id;
   }
   const row = getRawDb()

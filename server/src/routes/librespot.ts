@@ -11,7 +11,8 @@ import { deviceManager } from '../devices/manager.js';
 import { logger } from '../logger.js';
 import { config } from '../config.js';
 import { z } from 'zod';
-import { requireAdmin } from '../middleware/auth.js';
+import { requireAdmin, signSystemStreamToken } from '../middleware/auth.js';
+import { getLanAddress } from '../utils/network.js';
 import { validate } from '../utils/validate.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
@@ -78,14 +79,16 @@ librespotRouter.get('/stream', (req, res) => {
  * 3. The stream endpoint serves it as MP3
  * 4. We send the stream URL to the target DLNA/Volumio device
  */
+const playToDeviceSchema = z.object({
+  trackUri: z.string().min(1).max(300),
+  deviceId: z.string().min(1).max(200),
+});
+
 librespotRouter.post(
   '/play-to-device',
+  validate({ body: playToDeviceSchema }),
   asyncHandler(async (req, res) => {
-    const { trackUri, deviceId } = req.body;
-    if (!trackUri || !deviceId) {
-      res.status(400).json({ error: 'trackUri and deviceId required' });
-      return;
-    }
+    const { deviceId } = req.body as z.infer<typeof playToDeviceSchema>;
 
     const state = getLibrespotState();
     if (!state.isRunning) {
@@ -102,8 +105,21 @@ librespotRouter.post(
       // Step 2: Build the stream URL that the target device will connect to.
       // Use the configured port — 3001 was hardcoded, so a custom PORT broke
       // DLNA playback with a connection-refused on the device.
-      const lanAddress = req.headers.host?.split(':')[0] || '127.0.0.1';
-      const streamUrl = `http://${lanAddress}:${config.port}/api/librespot/stream`;
+      // The server's own LAN address, as for every other stream a speaker
+      // fetches: the Host header is the public name behind the reverse proxy
+      // (and whatever a caller puts in it). The speaker cannot log in, so the
+      // URL carries a system stream token; without it the speaker got 401 and
+      // this never played (S07).
+      const lanAddress = getLanAddress();
+      if (!lanAddress) {
+        res.status(503).json({
+          error: 'NoLanAddress',
+          message: 'The server has no LAN address a speaker could reach.',
+        });
+        return;
+      }
+      const token = encodeURIComponent(signSystemStreamToken());
+      const streamUrl = `http://${lanAddress}:${config.port}/api/librespot/stream?t=${token}`;
 
       // Step 3: Send the stream URL to the target DLNA/Volumio device
       await deviceManager.play(deviceId, streamUrl, {
@@ -113,10 +129,13 @@ librespotRouter.post(
       });
 
       logger.info(`Librespot: Routing Spotify stream to device ${deviceId}`);
-      res.json({ data: { ok: true, streamUrl } });
+      res.json({ data: { ok: true } });
     } catch (err) {
       logger.error(`Librespot play-to-device failed: ${err}`);
-      res.status(500).json({ error: String(err) });
+      res.status(502).json({
+        error: 'DeviceError',
+        message: 'The speaker did not accept the Spotify stream.',
+      });
     }
   }),
 );

@@ -516,6 +516,49 @@ providersRouter.get(
   }),
 );
 
+/**
+ * Every Spotify Connect command (S09): the body goes on to Spotify's API, so
+ * it is checked here once for all of them. A device id is an opaque token,
+ * never a place for `&other=parameters`; uris are Spotify uris; a volume is
+ * a percentage.
+ */
+const spotifyUri = z
+  .string()
+  .max(300)
+  .regex(/^spotify:[A-Za-z0-9:_-]+$/);
+const connectBody = z.object({
+  deviceId: z
+    .string()
+    .max(200)
+    .regex(/^[A-Za-z0-9_.:-]+$/)
+    .nullish(),
+  trackUri: spotifyUri.nullish(),
+  contextUri: spotifyUri.nullish(),
+  offset: z.union([z.number().int().min(0), z.object({ uri: spotifyUri })]).nullish(),
+  volume: z.number().finite().min(0).max(100).nullish(),
+});
+
+providersRouter.use('/spotify/connect', (req, res, next) => {
+  if (req.method !== 'POST') {
+    next();
+    return;
+  }
+  const parsed = connectBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({
+      error: 'ValidationError',
+      issues: parsed.error.issues.map((i) => ({
+        where: 'body',
+        path: i.path.join('.'),
+        message: i.message,
+      })),
+    });
+    return;
+  }
+  req.body = parsed.data;
+  next();
+});
+
 // Play a track on a Spotify Connect device
 providersRouter.post(
   '/spotify/connect/play',
@@ -535,7 +578,7 @@ providersRouter.post(
           error: 'No active Spotify device. Open Spotify on your phone or desktop first.',
         });
       } else {
-        res.status(500).json({ error: msg });
+        sendProviderError(res, err);
       }
     }
   }),

@@ -12,7 +12,12 @@ zegt dan gewoon _"zet Purple Rain op in de woonkamer"_.
    - Sleutel als header: `Authorization: Bearer as_…` of `X-API-Key: as_…`.
    - Kan de assistent geen header meegeven, zet de sleutel dan in het adres:
      `https://kwaichangmusic.synology.me/mcp/as_…`. Behandel dat adres als een
-     wachtwoord. AudioServer zet de sleutel niet in zijn log.
+     wachtwoord. AudioServer zet de sleutel niet in zijn log, maar de
+     reverse proxy van de Synology en de assistent zelf bewaren het hele
+     adres wel: kies deze vorm alleen als een header echt niet kan, en maak
+     een nieuwe sleutel (en trek de oude in) als het adres ergens is gedeeld
+     of gelogd. Met een sleutel kun je afspelen bedienen en de bibliotheek
+     lezen, ook de muziekbestanden zelf.
 3. De reverse proxy op de Synology moet `/mcp` doorsturen naar poort 3001.
    Stuurt hij de hele host door (zoals voor de app), dan werkt het al.
 

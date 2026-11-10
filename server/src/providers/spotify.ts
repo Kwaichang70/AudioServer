@@ -2,6 +2,7 @@ import type { AuthenticatedMusicProvider, ProviderAuth } from '@audioserver/shar
 import type { Artist, Album, Track, SearchResults, Playlist } from '@audioserver/shared';
 import { logger } from '../logger.js';
 import { saveTokens, loadTokens, deleteTokens } from '../services/tokenstore.js';
+import { outboundFetch } from '../utils/outbound-fetch.js';
 
 const SPOTIFY_AUTH_URL = 'https://accounts.spotify.com';
 const SPOTIFY_API_URL = 'https://api.spotify.com/v1';
@@ -279,7 +280,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
   }
 
   private async exchangeCode(code: string, redirectUri: string): Promise<void> {
-    const res = await fetch(`${SPOTIFY_AUTH_URL}/api/token`, {
+    const res = await outboundFetch(`${SPOTIFY_AUTH_URL}/api/token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -326,7 +327,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
   private async doRefreshAccessToken(): Promise<void> {
     if (!this.tokens?.refreshToken) throw new Error('No refresh token');
 
-    const res = await fetch(`${SPOTIFY_AUTH_URL}/api/token`, {
+    const res = await outboundFetch(`${SPOTIFY_AUTH_URL}/api/token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -413,7 +414,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     }
     const headers = await this.getHeaders();
     const url = `${SPOTIFY_API_URL}${path}`;
-    const res = await fetch(url, { headers });
+    const res = await outboundFetch(url, { headers });
     if (res.status === 429) {
       this.noteRateLimit(res);
       throw spotifyErrorFor(429, '', Math.ceil((this.rateLimitedUntil - Date.now()) / 1000));
@@ -431,7 +432,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
   // 429 here does START the cooldown so the GET/search paths back off.
   private async apiPut(path: string, body?: unknown): Promise<void> {
     const headers = await this.getHeaders();
-    const res = await fetch(`${SPOTIFY_API_URL}${path}`, {
+    const res = await outboundFetch(`${SPOTIFY_API_URL}${path}`, {
       method: 'PUT',
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
@@ -449,7 +450,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
 
   private async apiPost(path: string, body?: unknown): Promise<void> {
     const headers = await this.getHeaders();
-    const res = await fetch(`${SPOTIFY_API_URL}${path}`, {
+    const res = await outboundFetch(`${SPOTIFY_API_URL}${path}`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
@@ -480,7 +481,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     // (and set it when it's the first to see a 429).
     if (Date.now() < this.rateLimitedUntil) return null;
     const headers = await this.getHeaders();
-    const res = await fetch(`${SPOTIFY_API_URL}/me/player`, { headers });
+    const res = await outboundFetch(`${SPOTIFY_API_URL}/me/player`, { headers });
     if (res.status === 429) {
       this.noteRateLimit(res);
       return null;
@@ -491,7 +492,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
   }
 
   async connectPlay(trackUri: string, deviceId?: string): Promise<void> {
-    const params = deviceId ? `?device_id=${deviceId}` : '';
+    const params = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
     await this.apiPut(`/me/player/play${params}`, {
       uris: [trackUri],
     });
@@ -502,7 +503,7 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
     deviceId?: string,
     offset?: number | { uri: string },
   ): Promise<void> {
-    const params = deviceId ? `?device_id=${deviceId}` : '';
+    const params = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
     await this.apiPut(`/me/player/play${params}`, {
       context_uri: contextUri,
       // Numeric offsets address a position; {uri} addresses a specific track
@@ -513,22 +514,22 @@ export class SpotifyProvider implements AuthenticatedMusicProvider {
   }
 
   async connectPause(deviceId?: string): Promise<void> {
-    const params = deviceId ? `?device_id=${deviceId}` : '';
+    const params = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
     await this.apiPut(`/me/player/pause${params}`);
   }
 
   async connectResume(deviceId?: string): Promise<void> {
-    const params = deviceId ? `?device_id=${deviceId}` : '';
+    const params = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
     await this.apiPut(`/me/player/play${params}`);
   }
 
   async connectNext(deviceId?: string): Promise<void> {
-    const params = deviceId ? `?device_id=${deviceId}` : '';
+    const params = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
     await this.apiPost(`/me/player/next${params}`);
   }
 
   async connectPrevious(deviceId?: string): Promise<void> {
-    const params = deviceId ? `?device_id=${deviceId}` : '';
+    const params = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
     await this.apiPost(`/me/player/previous${params}`);
   }
 

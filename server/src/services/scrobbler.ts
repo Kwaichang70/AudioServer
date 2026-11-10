@@ -1,6 +1,8 @@
 import { createHash } from 'crypto';
 import { getRawDb } from '../db/index.js';
 import { logger } from '../logger.js';
+import { outboundFetch } from '../utils/outbound-fetch.js';
+import { isSealed, openSecret, sealSecret } from './tokenstore.js';
 
 const LASTFM_API_URL = 'https://ws.audioscrobbler.com/2.0/';
 const LASTFM_API_KEY = process.env.LASTFM_API_KEY || '';
@@ -66,16 +68,45 @@ function getConfig(userId: string | null): ScrobbleConfig {
   if (!userId) return { ...EMPTY_CONFIG };
   const db = getRawDb();
   const row = db.prepare('SELECT * FROM scrobble_config WHERE user_id = ?').get(userId) as
-    | ScrobbleConfigRow
-    | undefined;
+    ScrobbleConfigRow | undefined;
   if (!row) return { ...EMPTY_CONFIG };
   return {
     lastfmEnabled: !!row.lastfm_enabled,
-    lastfmSessionKey: row.lastfm_session_key,
+    lastfmSessionKey: openSecret(row.lastfm_session_key, 'Last.fm session'),
     lastfmUsername: row.lastfm_username,
     listenbrainzEnabled: !!row.listenbrainz_enabled,
-    listenbrainzToken: row.listenbrainz_token,
+    listenbrainzToken: openSecret(row.listenbrainz_token, 'ListenBrainz token'),
   };
+}
+
+/**
+ * Seal scrobble credentials that were stored as plain text before S05. Runs
+ * at start-up; rows already sealed are left alone, so it is safe every time.
+ */
+function sealStoredCredentials(): number {
+  const db = getRawDb();
+  const rows = db
+    .prepare('SELECT user_id, lastfm_session_key, listenbrainz_token FROM scrobble_config')
+    .all() as Array<
+    Pick<ScrobbleConfigRow, 'lastfm_session_key' | 'listenbrainz_token'> & {
+      user_id: string;
+    }
+  >;
+  let sealed = 0;
+  for (const row of rows) {
+    const key = row.lastfm_session_key;
+    const token = row.listenbrainz_token;
+    const plainKey = !!key && !isSealed(key);
+    const plainToken = !!token && !isSealed(token);
+    if (!plainKey && !plainToken) continue;
+    db.prepare(
+      'UPDATE scrobble_config SET lastfm_session_key = ?, listenbrainz_token = ? WHERE user_id = ?',
+    ).run(plainKey ? sealSecret(key) : key, plainToken ? sealSecret(token) : token, row.user_id);
+    sealed++;
+  }
+  if (sealed > 0)
+    logger.info(`Scrobbler: encrypted the stored credentials of ${sealed} account(s)`);
+  return sealed;
 }
 
 function saveConfig(userId: string, config: Partial<ScrobbleConfig>): void {
@@ -92,7 +123,7 @@ function saveConfig(userId: string, config: Partial<ScrobbleConfig>): void {
   }
   if (config.lastfmSessionKey !== undefined) {
     sets.push('lastfm_session_key = ?');
-    params.push(config.lastfmSessionKey);
+    params.push(sealSecret(config.lastfmSessionKey));
   }
   if (config.lastfmUsername !== undefined) {
     sets.push('lastfm_username = ?');
@@ -104,7 +135,7 @@ function saveConfig(userId: string, config: Partial<ScrobbleConfig>): void {
   }
   if (config.listenbrainzToken !== undefined) {
     sets.push('listenbrainz_token = ?');
-    params.push(config.listenbrainzToken);
+    params.push(sealSecret(config.listenbrainzToken));
   }
   if (sets.length > 0) {
     params.push(userId);
@@ -134,7 +165,7 @@ async function lastfmGetSession(token: string): Promise<{ key: string; name: str
   params.format = 'json';
 
   const qs = new URLSearchParams(params).toString();
-  const res = await fetch(`${LASTFM_API_URL}?${qs}`);
+  const res = await outboundFetch(`${LASTFM_API_URL}?${qs}`);
   const data = (await res.json()) as LastfmResponse;
   if (data.error || !data.session) throw new Error(data.message || 'Last.fm auth failed');
   return data.session;
@@ -147,7 +178,7 @@ async function lastfmGetToken(): Promise<string> {
   const params: Record<string, string> = { method: 'auth.getToken', api_key: LASTFM_API_KEY };
   params.api_sig = lastfmSign(params);
   params.format = 'json';
-  const res = await fetch(`${LASTFM_API_URL}?${new URLSearchParams(params).toString()}`);
+  const res = await outboundFetch(`${LASTFM_API_URL}?${new URLSearchParams(params).toString()}`);
   const data = (await res.json()) as LastfmResponse;
   if (data.error || !data.token) throw new Error(data.message || 'Last.fm getToken failed');
   return data.token as string;
@@ -173,7 +204,7 @@ async function lastfmScrobble(
   params.api_sig = lastfmSign(params);
   params.format = 'json';
 
-  const res = await fetch(LASTFM_API_URL, {
+  const res = await outboundFetch(LASTFM_API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(params),
@@ -197,7 +228,7 @@ async function lastfmUpdateNowPlaying(track: ScrobbleTrack, sessionKey: string):
   params.api_sig = lastfmSign(params);
   params.format = 'json';
 
-  await fetch(LASTFM_API_URL, {
+  await outboundFetch(LASTFM_API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(params),
@@ -228,7 +259,7 @@ async function listenbrainzSubmit(
     ],
   };
 
-  const res = await fetch(`${LISTENBRAINZ_API_URL}/submit-listens`, {
+  const res = await outboundFetch(`${LISTENBRAINZ_API_URL}/submit-listens`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -253,7 +284,7 @@ async function listenbrainzNowPlaying(track: ScrobbleTrack, token: string): Prom
     ],
   };
 
-  await fetch(`${LISTENBRAINZ_API_URL}/submit-listens`, {
+  await outboundFetch(`${LISTENBRAINZ_API_URL}/submit-listens`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -353,10 +384,16 @@ export const scrobbler = {
   getConfig,
   saveConfig,
   flush: processQueue,
+  sealStoredCredentials,
 
   /** Start periodic queue processing */
   start() {
     if (queueInterval) return;
+    try {
+      sealStoredCredentials();
+    } catch (err) {
+      logger.warn(`Scrobbler: could not encrypt stored credentials: ${err}`);
+    }
     queueInterval = setInterval(() => processQueue().catch(() => {}), 30_000);
     logger.info('Scrobbler: Queue processor started (30s interval)');
   },
@@ -438,7 +475,7 @@ export const scrobbler = {
 
   /** Validate ListenBrainz token */
   async validateListenbrainz(userId: string, token: string): Promise<boolean> {
-    const res = await fetch(`${LISTENBRAINZ_API_URL}/validate-token`, {
+    const res = await outboundFetch(`${LISTENBRAINZ_API_URL}/validate-token`, {
       headers: { Authorization: `Token ${token}` },
     });
     const data = (await res.json()) as { valid?: boolean };

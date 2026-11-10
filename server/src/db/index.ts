@@ -73,6 +73,11 @@ export async function initDatabase(overridePath?: string) {
   const dbPath = overridePath ?? config.databasePath;
   mkdirSync(dirname(dbPath), { recursive: true });
 
+  // One connection at a time. Opening a second database used to replace the
+  // first without closing it: its file stayed open for the life of the
+  // process (on Windows a test suite then could not remove its own folder).
+  if (rawDb?.open) rawDb.close();
+
   const sqlite = new Database(dbPath);
   const found = readUserVersion(sqlite);
   if (found > SCHEMA_VERSION) {

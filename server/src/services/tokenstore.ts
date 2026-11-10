@@ -46,6 +46,42 @@ function decrypt(data: string): string {
   return decipher.update(encrypted) + decipher.final('utf8');
 }
 
+// ─── Single secrets (scrobble accounts) ──────────────────────────
+//
+// A Last.fm session key or a ListenBrainz token is a working credential for
+// somebody's account, like a provider token, and was stored as plain text
+// (S05). Sealed values carry a prefix, so a value without it is recognisably
+// one that was stored before and is sealed the next time it is read.
+
+const SEALED_PREFIX = 'enc:v1:';
+
+export function isSealed(value: string | null | undefined): boolean {
+  return typeof value === 'string' && value.startsWith(SEALED_PREFIX);
+}
+
+/** Encrypt one secret for storage; null stays null. */
+export function sealSecret(value: string | null): string | null {
+  if (value === null || value === '') return value;
+  return SEALED_PREFIX + encrypt(value);
+}
+
+/**
+ * Read a stored secret. A value from before sealing is returned as it is.
+ * A sealed value that cannot be opened (JWT_SECRET changed, damaged row)
+ * gives null: the account then counts as not connected, the row stays as it
+ * is, and connecting again writes a new one.
+ */
+export function openSecret(stored: string | null | undefined, what: string): string | null {
+  if (!stored) return null;
+  if (!isSealed(stored)) return stored;
+  try {
+    return decrypt(stored.slice(SEALED_PREFIX.length));
+  } catch {
+    logger.error(`Cannot decrypt the stored ${what} (JWT_SECRET changed or data corrupt)`);
+    return null;
+  }
+}
+
 export function saveTokens(provider: string, tokens: StoredTokens): void {
   const db = getRawDb();
   const encAccess = encrypt(tokens.accessToken);
@@ -69,8 +105,7 @@ function looksEncrypted(value: unknown): boolean {
 export function loadTokens(provider: string): StoredTokens | null {
   const db = getRawDb();
   const row = db.prepare('SELECT * FROM provider_tokens WHERE provider = ?').get(provider) as
-    | StoredTokenRow
-    | undefined;
+    StoredTokenRow | undefined;
   if (!row) return null;
 
   try {
