@@ -20,10 +20,13 @@ the kind of change, not semver — there are no releases yet.
 - **Volume:** bij een Spotify-nummer op een eigen speaker regelt de schuif
   het volume van de speaker zelf. Eerst ging elke beweging als mislukte
   opdracht naar Spotify.
-- **Niet opgelost, nog onbekend:** waarom de server om 15:11:43 opnieuw
-  startte tijdens het afspelen. Het vermoeden (een schrijffout naar de
-  gestopte omzetter) is nagebootst onder Linux en klopte niet. Daarvoor zijn
-  de regels rond "Uncaught exception" uit het log van de NAS nodig.
+- **De server stopte bij het tweede Spotify-nummer** (twee keer op de NAS,
+  15:08 en 15:11: `Uncaught exception: write EPIPE`). Bij een nieuw nummer
+  werd de oude omzetter gestopt terwijl de audio er nog in liep. Dat is
+  hetzelfde gebrek als hierboven en dus met dezelfde wijziging opgelost.
+  Daardoor kwam de app ook nooit toe aan het sturen van de speaker naar de
+  stream. Nagebootst onder Linux: met doorlopende audio stopt het proces, met
+  de nieuwe koppeling niet.
 - **Gecontroleerd:** lint, typecheck, server (100 bestanden, 766 tests) en
   client (67 bestanden, 342 tests) groen. Niet getest op de NAS.
 

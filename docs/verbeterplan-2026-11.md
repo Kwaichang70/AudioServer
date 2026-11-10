@@ -236,7 +236,8 @@ Beslismomenten:
 - `spotify_restricted_device` als eigen foutcode met een bruikbare melding.
 - Librespot: `connectTranscoder` + `ensureTranscoder` (één ffmpeg per sessie, uit de pipe gehaald vóór hij stopt, foutafhandeling op elke stream), `--cache <datamap>/librespot` en `--disable-audio-cache`.
 - Client: volume van een Spotify-nummer gaat alleen nog via Spotify als het doel een `spotify-connect:`-apparaat is.
-- **Weerlegd:** de herstart van de server om 15:11:43 komt niet door een onafgehandelde schrijffout naar de gestopte ffmpeg (nagebootst in `node:22-slim`: het proces blijft leven). Oorzaak open; crashregels van de NAS nodig. Ook open: waarom de app de Sonos niet naar `/api/librespot/stream` stuurde (geen `Stream client connected` in het log).
+- **Bevestigd met het NAS-log:** de server stopte om 15:08:41 en 15:11:37 met `Uncaught exception: write EPIPE`, telkens ~170 ms nadat een tweede nummer werd geladen: de oude ffmpeg werd gestopt terwijl librespot er nog in schreef. Een eerste proef (schrijven ná het stoppen) gaf geen crash en leek het te weerleggen; met doorlopende audio in `node:22-slim` stopt het proces wel. `connectTranscoder` (uit de pipe vóór het stoppen, foutafhandeling) en één ffmpeg per sessie nemen de oorzaak weg. De crash verklaart ook waarom de Sonos de stream nooit ophaalde: de server was weg vóór `play-to-device`.
+- **Open:** bij de eerste poging na een herstart (15:10:43) stopte librespot na zes seconden met `400 Bad Request` van Spotify; oorzaak onbekend, opnieuw bekijken na de deploy van `e994787`.
 - Controle: server 100/100 bestanden (766 tests), client 67/67 (342).
 
 ## 9. Wijzigingsgrens van dit onderzoek
