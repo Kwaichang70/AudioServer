@@ -120,6 +120,10 @@ function emptyStatus(): ScanStatus {
 
 let scanStatus: ScanStatus = emptyStatus();
 let forceRescan = false;
+/** Configured roots that are not usable in this scan (unreadable or empty), normalised (D10). */
+let deadRoots: string[] = [];
+/** Albums whose folder cover was already looked at in this scan (D05). */
+const coverChecked = new Set<string>();
 
 export function getScanStatus(): ScanStatus {
   return { ...scanStatus };
@@ -154,6 +158,11 @@ export async function scanLibrary(
   forceRescan = Boolean(options.force);
   artistCache.clear();
   albumCache.clear();
+  coverChecked.clear();
+  deadRoots = [];
+  for (const libPath of libraryPaths) {
+    if (!(await rootHasEntries(libPath))) deadRoots.push(normalizeScanPath(libPath));
+  }
   openScanRun(scanStatus.runId!, libraryPaths, options.trigger ?? 'manual', forceRescan, startedAt);
 
   const seenFilePaths = new Set<string>();
@@ -172,7 +181,25 @@ export async function scanLibrary(
 
     for (const libPath of libraryPaths) {
       logger.info(`Scanning: ${libPath}${forceRescan ? ' (forced)' : ''}`);
-      const result = await scanDirectory(libPath, seenFilePaths);
+      const seenBefore = seenFilePaths.size;
+      let result = await scanDirectory(libPath, seenFilePaths);
+      if (result.ok && seenFilePaths.size === seenBefore) {
+        // Readable, but not one music file in it. When the library knows
+        // tracks under this root, that is a share that did not mount (an
+        // empty mount point in the container), not a deleted collection:
+        // treating it as scanned marked every track under it missing (D03).
+        // A handful of tracks is the ordinary case of somebody removing the
+        // last files from a folder; those are marked missing as always.
+        const known = availableTracksUnder(libPath);
+        if (known >= EMPTY_ROOT_GUARD_MIN_TRACKS) {
+          result = {
+            ok: false,
+            error: `no music files found, while the library has ${known} track(s) here; is the share mounted?`,
+            failedDirs: [libPath],
+          };
+          scanStatus.errors++;
+        }
+      }
       if (result.ok) {
         scanStatus.successfulRoots.push(libPath);
       } else {
@@ -406,6 +433,32 @@ function findEquivalentPath(filePath: string) {
   return getDb().select().from(tracks).where(eq(tracks.id, row.id)).get();
 }
 
+/**
+ * From this many known tracks on, a root without a single music file is
+ * taken for a share that is not mounted rather than a deleted collection.
+ */
+export const EMPTY_ROOT_GUARD_MIN_TRACKS = 10;
+
+/** Can this root be listed, and is there anything in it at all? */
+async function rootHasEntries(root: string): Promise<boolean> {
+  try {
+    return (await readdir(root)).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Tracks the library holds as available under a root. Only asked for a root that came up empty. */
+function availableTracksUnder(root: string): number {
+  const normalizedRoot = normalizeScanPath(root);
+  const rows = getRawDb()
+    .prepare(
+      "SELECT file_path FROM tracks WHERE COALESCE(source, 'local') = 'local' AND availability = 'available' AND file_path IS NOT NULL",
+    )
+    .all() as Array<{ file_path: string }>;
+  return rows.filter((r) => isPathUnderRoot(r.file_path, normalizedRoot)).length;
+}
+
 function isPathUnderRoot(filePath: string, normalizedRoot: string): boolean {
   const normalizedFile = normalizeScanPath(filePath);
   return normalizedFile === normalizedRoot || normalizedFile.startsWith(`${normalizedRoot}/`);
@@ -530,39 +583,42 @@ async function countSupportedFiles(dir: string): Promise<number> {
 // empty albums are removed.
 function pruneEmptyAlbums(): void {
   const db = getRawDb();
-  // Only local albums: a Qobuz album in the library (R07.1) is not the
-  // scanner's to remove.
-  const albumsList = db.prepare("SELECT id FROM albums WHERE source = 'local'").all() as {
-    id: string;
-  }[];
   let removed = 0;
-  for (const a of albumsList) {
-    const count =
-      (db.prepare('SELECT COUNT(*) as c FROM tracks WHERE album_id = ?').get(a.id) as { c: number })
-        ?.c ?? 0;
-    if (count === 0) {
-      // A whole album folder that moved gets a new album row (the folder is
-      // part of the edition key). Its favorite follows to the album with the
-      // same artist and title when there is exactly one, instead of vanishing.
-      const heir = db
-        .prepare(
-          `SELECT b.id FROM albums a JOIN albums b
-              ON b.id != a.id AND b.artist_id = a.artist_id AND b.title = a.title COLLATE NOCASE
-           WHERE a.id = ? AND EXISTS (SELECT 1 FROM tracks t WHERE t.album_id = b.id)`,
-        )
-        .all(a.id) as Array<{ id: string }>;
-      if (heir.length === 1) {
-        moveMarks('album', a.id, heir[0].id);
-      } else {
-        // No single heir: the marks would point at nothing.
-        dropMarks('album', a.id);
-      }
-      db.prepare('DELETE FROM albums WHERE id = ?').run(a.id);
+  // One transaction and two statements instead of a COUNT and an UPDATE per
+  // album, each committed on its own: with 20 000 albums that was 40 000
+  // statements after every scan, watcher scans included (D04).
+  db.transaction(() => {
+    // Only local albums: a Qobuz album in the library (R07.1) is not the
+    // scanner's to remove.
+    const empty = db
+      .prepare(
+        `SELECT id FROM albums a WHERE a.source = 'local'
+           AND NOT EXISTS (SELECT 1 FROM tracks t WHERE t.album_id = a.id)`,
+      )
+      .all() as Array<{ id: string }>;
+    // A whole album folder that moved gets a new album row (the folder is
+    // part of the edition key). Its favorite follows to the album with the
+    // same artist and title when there is exactly one, instead of vanishing.
+    const heirs = db.prepare(
+      `SELECT b.id FROM albums a JOIN albums b
+          ON b.id != a.id AND b.artist_id = a.artist_id AND b.title = a.title COLLATE NOCASE
+       WHERE a.id = ? AND EXISTS (SELECT 1 FROM tracks t WHERE t.album_id = b.id)`,
+    );
+    const remove = db.prepare('DELETE FROM albums WHERE id = ?');
+    for (const album of empty) {
+      const heir = heirs.all(album.id) as Array<{ id: string }>;
+      if (heir.length === 1) moveMarks('album', album.id, heir[0].id);
+      // No single heir: the marks would point at nothing.
+      else dropMarks('album', album.id);
+      remove.run(album.id);
       removed++;
-    } else {
-      db.prepare('UPDATE albums SET track_count = ? WHERE id = ?').run(count, a.id);
     }
-  }
+    db.prepare(
+      `UPDATE albums SET track_count = (SELECT COUNT(*) FROM tracks t WHERE t.album_id = albums.id)
+        WHERE source = 'local'
+          AND COALESCE(track_count, -1) != (SELECT COUNT(*) FROM tracks t WHERE t.album_id = albums.id)`,
+    ).run();
+  })();
   if (removed > 0) logger.info(`Pruned ${removed} empty albums`);
 }
 
@@ -809,15 +865,14 @@ export function purgeMissingTracks(ids?: string[]): number {
 
   const deletePlaylistRefs = db.prepare('DELETE FROM playlist_tracks WHERE track_id = ?');
   const deleteHistory = db.prepare('DELETE FROM play_history WHERE track_id = ?');
-  const deleteTrackFavorite = db.prepare(
-    "DELETE FROM favorites WHERE item_type = 'track' AND item_id = ?",
-  );
   const deleteTrack = db.prepare('DELETE FROM tracks WHERE id = ?');
   db.transaction(() => {
     for (const row of rows) {
       deletePlaylistRefs.run(row.id);
       deleteHistory.run(row.id);
-      deleteTrackFavorite.run(row.id);
+      // Favourites, ratings and tags: left behind, they kept counting in the
+      // rating and tag filters for a track that no longer exists (D06).
+      dropMarks('track', row.id);
       deleteTrack.run(row.id);
     }
     db.prepare(
@@ -834,7 +889,7 @@ export function purgeMissingTracks(ids?: string[]): number {
           { c: number } | undefined
       )?.c ?? 0;
     if (count === 0) {
-      db.prepare("DELETE FROM favorites WHERE item_type = 'album' AND item_id = ?").run(albumId);
+      dropMarks('album', albumId);
       db.prepare('DELETE FROM albums WHERE id = ?').run(albumId);
     } else {
       db.prepare('UPDATE albums SET track_count = ? WHERE id = ?').run(count, albumId);
@@ -895,7 +950,17 @@ function findMoveCandidate(
       "SELECT id, file_path, album_id FROM tracks WHERE fingerprint = ? AND source = 'local' AND file_path != ?",
     )
     .all(fingerprint, newPath) as Array<{ id: string; file_path: string | null; album_id: string }>;
-  const gone = rows.filter((r) => !r.file_path || !existsSync(r.file_path));
+  // Gone means: its root is up and the file is not there. A track whose root
+  // is offline or came up empty is not gone, it cannot be seen. Taking it for
+  // moved handed its favourites and history to a copy on another root, and
+  // made the original a new track when its root came back (D10). It also
+  // spares a blocking look at a share that does not answer.
+  const gone = rows.filter((r) => {
+    if (!r.file_path) return true;
+    const path = r.file_path;
+    if (deadRoots.some((root) => isPathUnderRoot(path, root))) return false;
+    return !existsSync(path);
+  });
   if (gone.length === 1) return { id: gone[0].id, albumId: gone[0].album_id };
   if (gone.length > 1) return 'doubtful';
   return null;
@@ -992,6 +1057,42 @@ async function processFile(
   knownTrackId: string | null,
 ): Promise<'new' | 'updated' | 'relinked' | 'doubtful'> {
   const metadata = await parseFile(filePath);
+  // Everything this file writes — its track, credits, genres, album — is one
+  // transaction (D01). Written one statement at a time, a stop in between
+  // left a track that looked up to date (size, time and scan version were
+  // already stored) but had no credits or genres, and no later scan read it
+  // again. It is also far fewer commits.
+  try {
+    return getRawDb().transaction(() => indexFile(filePath, fileStat, knownTrackId, metadata))();
+  } catch (err) {
+    // Rolled back: the caches may name an artist or album that was not kept.
+    artistCache.clear();
+    albumCache.clear();
+    throw err;
+  }
+}
+
+/** A numbered disc folder inside an album folder: "CD1", "Disc 2", "disk_03". */
+const DISC_FOLDER = /^(cd|disc|disk)[\s._-]*\d{1,2}$/i;
+
+/**
+ * The folder that stands for the album. "Album/CD1" and "Album/CD2" are one
+ * album, so for a numbered disc folder it is the folder above (D07): with
+ * the disc folder in the key, every disc became an album of its own with the
+ * same title.
+ */
+export function albumFolderOf(filePath: string): string {
+  const dir = dirname(filePath);
+  const parent = dirname(dir);
+  return DISC_FOLDER.test(basename(dir)) && parent !== dir ? parent : dir;
+}
+
+function indexFile(
+  filePath: string,
+  fileStat: Stats | null,
+  knownTrackId: string | null,
+  metadata: Awaited<ReturnType<typeof parseFile>>,
+): 'new' | 'updated' | 'relinked' | 'doubtful' {
   const { common, format } = metadata;
 
   const trackArtistNames = normalizePeople(common.artists ?? common.artist);
@@ -1036,12 +1137,29 @@ async function processFile(
   // multiple qualities (each in its own folder) becomes separate album entries
   // instead of one album with every track duplicated. The quality (format /
   // sample rate / bit depth) is stored so the UI can tell those editions apart.
-  const albumDir = dirname(filePath);
+  const albumDir = albumFolderOf(filePath);
   const fileFormat = extname(filePath).slice(1).toLowerCase();
   // Edition = folder + quality. So the same album at multiple qualities — even
   // FLAC and MP3 sitting side by side in ONE folder — becomes separate album
   // entries, instead of one album with every track listed twice.
-  const editionKey = `${albumDir.toLowerCase()}|${fileFormat}|${format.sampleRate ?? ''}|${format.bitsPerSample ?? ''}`;
+  const quality = `${fileFormat}|${format.sampleRate ?? ''}|${format.bitsPerSample ?? ''}`;
+  let editionKey = `${albumDir.toLowerCase()}|${quality}`;
+  // A library scanned before D07 holds each disc folder as an album of its
+  // own. Until a full rescan merges them, a file in such a folder stays with
+  // the album it is on: moving one re-tagged track to a new, merged album
+  // would split the disc it came from.
+  const trackDir = dirname(filePath);
+  if (trackDir !== albumDir && !forceRescan) {
+    const perDiscKey = `${trackDir.toLowerCase()}|${quality}`;
+    const has = (key: string): boolean =>
+      albumCache.has(`${artistId}:${albumTitle.toLowerCase()}:${key}`) ||
+      getRawDb()
+        .prepare(
+          'SELECT 1 FROM albums WHERE artist_id = ? AND title = ? COLLATE NOCASE AND edition_key = ?',
+        )
+        .get(artistId, albumTitle, key) !== undefined;
+    if (!has(editionKey) && has(perDiscKey)) editionKey = perDiscKey;
+  }
   const albumKey = `${artistId}:${albumTitle.toLowerCase()}:${editionKey}`;
   let albumId = albumCache.get(albumKey);
   if (!albumId) {
@@ -1201,13 +1319,20 @@ async function processFile(
 
   // A cover file next to the music is usually the full-size scan, so it wins
   // over the embedded thumbnail (R03.2).
-  const fromFolder = folderCover(albumDir);
-  if (fromFolder) {
-    cacheEmbeddedCover(albumId, fromFolder.data, fromFolder.mime);
-  } else {
-    const cover = selectCover(common.picture);
-    if (cover) {
-      cacheEmbeddedCover(albumId, Buffer.from(cover.data), cover.format || 'image/jpeg');
+  // Once per album per scan (D05): this read the folder's cover file from
+  // the NAS again for every track of the album, to throw it away each time
+  // because the album already had its cover.
+  if (!coverChecked.has(albumId)) {
+    coverChecked.add(albumId);
+    // The disc folder first, then the album folder above it (D07).
+    const fromFolder = folderCover(dirname(filePath)) ?? folderCover(albumDir);
+    if (fromFolder) {
+      cacheEmbeddedCover(albumId, fromFolder.data, fromFolder.mime);
+    } else {
+      const cover = selectCover(common.picture);
+      if (cover) {
+        cacheEmbeddedCover(albumId, Buffer.from(cover.data), cover.format || 'image/jpeg');
+      }
     }
   }
 

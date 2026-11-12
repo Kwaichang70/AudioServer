@@ -240,6 +240,23 @@ Beslismomenten:
 - **Open:** bij de eerste poging na een herstart (15:10:43) stopte librespot na zes seconden met `400 Bad Request` van Spotify; oorzaak onbekend, opnieuw bekijken na de deploy van `e994787`.
 - Controle: server 100/100 bestanden (766 tests), client 67/67 (342).
 
+### Fase 10 — 12 november 2026
+
+- **D01:** `processFile` leest de tags en schrijft daarna alles in één `db.transaction` (`indexFile`); bij een fout worden de artiest- en albumcache geleegd.
+- **D02:** `atomically()` om de vier DROP/RENAME-rebuilds (`playback_state`, `playlist_tracks`, `favorites`, `scrobble_config`). Getest op de helper (DDL rolt terug); de vier rebuilds zelf zijn gedekt door de bestaande migratietests, niet door een crash-injectie.
+- **D03:** een root die geen enkel muziekbestand oplevert terwijl de bibliotheek daar `EMPTY_ROOT_GUARD_MIN_TRACKS` (10) of meer beschikbare nummers kent, telt als mislukt. **Afwijking:** de eerste versie (elke lege root met ≥ 1 nummer) brak drie bestaande tests die terecht eisen dat het laatste bestand uit een map als missing wordt gemarkeerd; vandaar de drempel.
+- **D04:** `pruneEmptyAlbums` is één transactie met één `UPDATE` voor de aantallen; alleen lege albums worden nog per stuk behandeld (erfgenaam voor favorieten).
+- **D05:** hoes uit de map één keer per album per scan (`coverChecked`); eerst de schijfmap, dan de albummap.
+- **D06:** `purgeMissingTracks` gebruikt `dropMarks` voor nummer en album.
+- **D07:** `albumFolderOf`: een map die op `cd|disc|disk` + nummer lijkt, telt als onderdeel van de map erboven. Bestaande per-schijf-albums blijven bij een gewone scan zoals ze zijn (anders zou één hertagd nummer zijn schijf splitsen); een volledige herscan voegt samen en `pruneEmptyAlbums` verhuist de markeringen. `SCAN_VERSION` is niet opgehoogd.
+- **D08:** gekozen voor "migraties leven in `initDatabase`": de scripts `db:generate`/`db:migrate` zijn verwijderd en `docs/architecture.md` zegt waarom. `drizzle.config.ts` en de dependency staan er nog (T04).
+- **D09:** niet gedaan; wacht op `bench:search`/`bench:scan` met 200k op de NAS.
+- **D10:** roots die bij de start van de scan onleesbaar of leeg zijn (`deadRoots`) leveren geen relink-kandidaten; daar wordt ook geen `existsSync` meer op gedaan.
+- **Back-up:** stond al in `docs/backup-restore.md`; tijdstip en containernaam gecorrigeerd. Het inplannen zelf is aan Danny.
+- **Meting:** `bench:scan tracks=5000` op Windows, één run per versie: 35,5 s / 2,7 s (nieuw) tegen 31,5 s / 3,1 s (HEAD). Binnen de ruis; de verwachte winst van minder commits is niet aangetoond.
+- **Controle:** lint en typecheck groen; server 101/101 bestanden (775 tests, 9 nieuw, 7 daarvan falen op de scanner van HEAD). Client niet gewijzigd en niet opnieuw gedraaid.
+- **Open (Danny):** volledige herscan op de NAS om dubbel-cd's samen te voegen; back-uptaak overdag inplannen.
+
 ## 9. Wijzigingsgrens van dit onderzoek
 
 Alleen dit document is toegevoegd. Geen `npm ci`, geen `git checkout` van de CI-workflow, geen rotatie van secrets, geen codewijziging. De onderzoeksbronnen: de vijf auditrapporten (speakerlaag, datalaag, beveiliging/providers, client, tooling) en eigen controles van de hoogste bevindingen; alle regelnummers verwijzen naar commit `a794b14`.

@@ -4,6 +4,51 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fase 10: de bibliotheek blijft heel als er iets misgaat (D01–D10)
+
+- **Een share die niet is aangekoppeld, maakt je bibliotheek niet "missing".**
+  Gaat de NAS-map leeg open (de share is niet gemount) terwijl de bibliotheek
+  daar tien of meer nummers kent, dan telt die map als mislukt: er wordt niets
+  als ontbrekend gemarkeerd en de scan zegt "is the share mounted?". Eerst
+  stond na zo'n scan je hele bibliotheek op missing, en had "Clean up
+  missing" alles verwijderd. Haal je de laatste paar bestanden uit een map
+  weg, dan worden die gewoon als missing gemarkeerd, zoals altijd.
+- **Een scan die halverwege een bestand stopt, laat niets half achter.** Alles
+  wat bij één bestand hoort (nummer, medewerkers, genres, album) wordt in één
+  keer weggeschreven of helemaal niet. Eerst kon een nummer blijven staan
+  zonder medewerkers en genres, en geen latere scan las het opnieuw.
+- **Een update van de database stopt niet halverwege.** Het ombouwen van een
+  tabel bij het opstarten gebeurt in één stap. Eerst kon een stroomuitval op
+  het verkeerde moment een tabel (favorieten, playlists, afspeelstatus) doen
+  verdwijnen.
+- **Dubbel-cd's zijn één album.** Mappen als `CD1`, `Disc 2` of `disk_03` in
+  een albummap horen bij dat album. Voor muziek die al is ingelezen:
+  Settings → Library → volledige herscan; favorieten, waarderingen en tags van
+  de losse schijven gaan mee naar het samengevoegde album. Tot die herscan
+  blijft je bibliotheek zoals hij is.
+- **Een kopie op een andere map terwijl de eerste even weg is**, wordt een
+  nieuw nummer in plaats van dat het de favorieten en geschiedenis van het
+  origineel overneemt.
+- **"Clean up missing" ruimt ook waarderingen en tags op** van de verwijderde
+  nummers en albums; die bleven meetellen in de filters.
+- **Minder werk per scan:** het bijwerken van het aantal nummers per album
+  gebeurt in één opdracht in plaats van per album, en het hoesbestand in een
+  map wordt één keer per album gelezen in plaats van bij elk nummer.
+- **Back-up op de NAS:** het voorbeeld in `docs/backup-restore.md` stond op
+  04:00, wanneer je NAS uit staat, en gebruikte de verkeerde containernaam.
+  Plan de taak overdag.
+- **Ontwikkeling:** `npm run db:generate` en `db:migrate` zijn weg. Ze zouden
+  een migratie maken die op elke bestaande database faalt; wijzigingen aan
+  het schema staan in `initDatabase`.
+- **Gemeten** (`bench:scan`, 5.000 nummers, deze pc, één meting per versie):
+  eerste scan 35,5 s tegen 31,5 s, herscan 2,7 s tegen 3,1 s. Geen verschil
+  dat boven de meetruis uitkomt; de winst zit in de veiligheid, niet in de
+  snelheid.
+- **Gecontroleerd:** lint, typecheck en server (101 bestanden, 775 tests, 9
+  nieuw) groen. De app zelf is in deze fase niet gewijzigd.
+- **Niet gedaan:** de volgorde van de nummerlijst sneller maken en zoeken met
+  een index (D09). Dat vraagt eerst een meting met 200.000 nummers op de NAS.
+
 ## Na de deploy van fase 7–9: Spotify op een Sonos (10 november)
 
 - **Uit de praktijk:** de Sonos in de Studeerkamer speelt muziek uit de eigen

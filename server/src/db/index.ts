@@ -59,6 +59,17 @@ export function getRawDb(): InstanceType<typeof Database> {
   return rawDb;
 }
 
+/**
+ * Run a schema change as one transaction (D02). SQLite rolls back DDL too,
+ * so a rebuild — new table, copy, DROP the old, RENAME the new — either
+ * happens completely or not at all. Run as loose statements, a stop between
+ * DROP and RENAME left the database without the table, and the next start
+ * no longer recognised that anything was to be rebuilt.
+ */
+export function atomically(sqlite: InstanceType<typeof Database>, change: () => void): void {
+  sqlite.transaction(change)();
+}
+
 export function closeDatabase(): void {
   if (rawDb?.open) rawDb.close();
   rawDb = undefined;
@@ -145,7 +156,7 @@ export async function initDatabase(overridePath?: string) {
     'CREATE INDEX IF NOT EXISTS idx_albums_artist_name ON albums (artist_name COLLATE NOCASE)',
   );
   // V09.1: personal ownership. ALTER backfills so every database shape gets
-  // the columns; migration 0006 assigns the existing rows to one owner.
+  // the columns; assignPersonalOwnership() below gives the existing rows one owner.
   runMigration(sqlite, 'playlists', 'user_id', 'TEXT');
   runMigration(sqlite, 'playlists', 'shared', 'INTEGER NOT NULL DEFAULT 0');
   runMigration(sqlite, 'smart_playlists', 'user_id', 'TEXT');
@@ -482,7 +493,8 @@ function createZones(sqlite: InstanceType<typeof Database>): void {
   }
 
   if (singleton) {
-    sqlite.exec(`
+    atomically(sqlite, () => {
+      sqlite.exec(`
       DROP TABLE IF EXISTS playback_state_v10;
       CREATE TABLE playback_state_v10 (
         zone_id TEXT PRIMARY KEY,
@@ -500,20 +512,21 @@ function createZones(sqlite: InstanceType<typeof Database>): void {
         updated_at INTEGER DEFAULT (unixepoch())
       );
     `);
-    sqlite
-      .prepare(
-        `INSERT INTO playback_state_v10
+      sqlite
+        .prepare(
+          `INSERT INTO playback_state_v10
            (zone_id, device_id, track_id, queue_item_id, revision, state, position, volume,
             shuffle, repeat, owner_user_id, server_managed, updated_at)
          SELECT ?, device_id, track_id, queue_item_id, revision, state, position, volume,
                 shuffle, repeat, owner_user_id, server_managed, updated_at
          FROM playback_state WHERE id = 1`,
-      )
-      .run(restoredZoneId);
-    sqlite.exec(`
+        )
+        .run(restoredZoneId);
+      sqlite.exec(`
       DROP TABLE playback_state;
       ALTER TABLE playback_state_v10 RENAME TO playback_state;
     `);
+    });
     logger.info(`Migration: playback state is per zone now, kept as "${restoredZoneId}" (V10)`);
   }
 
@@ -558,7 +571,8 @@ function migratePlaylistItems(sqlite: InstanceType<typeof Database>): void {
 
   const boundToLocalTracks = /REFERENCES\s+["`']?tracks["`']?/i.test(createSql);
   if (boundToLocalTracks) {
-    sqlite.exec(`
+    atomically(sqlite, () =>
+      sqlite.exec(`
       DROP TABLE IF EXISTS playlist_tracks_v12;
       CREATE TABLE playlist_tracks_v12 (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -581,7 +595,8 @@ function migratePlaylistItems(sqlite: InstanceType<typeof Database>): void {
       ALTER TABLE playlist_tracks_v12 RENAME TO playlist_tracks;
       CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist
         ON playlist_tracks (playlist_id, position);
-    `);
+    `),
+    );
     logger.info('Migration: playlist items can hold any source now (V12)');
   }
 
@@ -847,7 +862,8 @@ function rebuildHouseholdSingletons(sqlite: InstanceType<typeof Database>): void
     )?.sql ?? '';
 
   if (/UNIQUE\s*\(\s*item_type/i.test(createSqlOf('favorites'))) {
-    sqlite.exec(`
+    atomically(sqlite, () =>
+      sqlite.exec(`
       DROP TABLE IF EXISTS favorites_v09;
       CREATE TABLE favorites_v09 (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -861,12 +877,14 @@ function rebuildHouseholdSingletons(sqlite: InstanceType<typeof Database>): void
       DROP TABLE favorites;
       ALTER TABLE favorites_v09 RENAME TO favorites;
       CREATE INDEX IF NOT EXISTS idx_favorites_type ON favorites (item_type, item_id);
-    `);
+    `),
+    );
     logger.info('Migration: favorites rebuilt, a favourite is now per user (V09)');
   }
 
   if (/id\s+INTEGER\s+PRIMARY\s+KEY\s+DEFAULT\s+1/i.test(createSqlOf('scrobble_config'))) {
-    sqlite.exec(`
+    atomically(sqlite, () =>
+      sqlite.exec(`
       DROP TABLE IF EXISTS scrobble_config_v09;
       CREATE TABLE scrobble_config_v09 (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -884,7 +902,8 @@ function rebuildHouseholdSingletons(sqlite: InstanceType<typeof Database>): void
                listenbrainz_enabled, listenbrainz_token FROM scrobble_config;
       DROP TABLE scrobble_config;
       ALTER TABLE scrobble_config_v09 RENAME TO scrobble_config;
-    `);
+    `),
+    );
     logger.info('Migration: scrobble_config rebuilt, one account per user (V09)');
   }
 }

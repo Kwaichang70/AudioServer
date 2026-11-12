@@ -475,7 +475,13 @@ composer by work, with untagged pieces listed rather than hidden.
 
 **SQLite + WAL.** Single-process app; better-sqlite3 in WAL mode is fast
 enough for 10k+ tracks without a separate DB process. Drizzle ORM for typed
-queries; raw SQL where pagination / aggregates need it.
+queries; raw SQL where pagination / aggregates need it. Schema changes live
+in `initDatabase` (`server/src/db/index.ts`): the six drizzle migration files
+create the first tables, everything after is a hand-written, repeatable step
+there, up to `SCHEMA_VERSION`. There is no `drizzle-kit generate` step any
+more: `schema.ts` describes tables no migration file creates, so a generated
+migration would fail on every existing database. Rebuilds of a table run
+through `atomically()`, one transaction each.
 
 **ESM end-to-end.** All workspaces `"type": "module"`. Server runs via
 `node --import tsx/esm server/src/index.ts` — TS on-the-fly, no separate

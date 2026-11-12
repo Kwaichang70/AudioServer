@@ -62,16 +62,20 @@ are accepted (and upgraded) by every build.
 
 ## Scheduled backups
 
-Synology Task Scheduler (root, daily, e.g. 04:00):
+Synology Task Scheduler (root, daily). Pick an hour at which the NAS is on:
+a NAS that powers off at night never runs a 04:00 task, so use e.g. 12:00.
+The container is called `audioserver_audioserver_1` on the Synology
+(docker-compose v1) and `audioserver-audioserver-1` with Compose v2; use the
+name `docker ps` shows.
 
 ```bash
 #!/bin/sh
 set -e
 STAMP=$(date +%Y%m%d-%H%M)
-docker exec audioserver-audioserver-1 npm run db:backup --workspace=server -- /data/backups/audioserver-$STAMP.db
-docker exec audioserver-audioserver-1 npm run db:verify --workspace=server -- /data/backups/audioserver-$STAMP.db
+docker exec audioserver_audioserver_1 npm run db:backup --workspace=server -- /data/backups/audioserver-$STAMP.db
+docker exec audioserver_audioserver_1 npm run db:verify --workspace=server -- /data/backups/audioserver-$STAMP.db
 # keep 14 days
-docker exec audioserver-audioserver-1 find /data/backups -name 'audioserver-*.db' -mtime +14 -delete
+docker exec audioserver_audioserver_1 find /data/backups -name 'audioserver-*.db' -mtime +14 -delete
 ```
 
 Copy `/volume1/docker/AudioServer/.env` to the same backup location whenever
