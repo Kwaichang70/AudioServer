@@ -15,7 +15,7 @@ graph TB
     SW["Service Worker<br/>(cover cache)"]
   end
 
-  subgraph Server["Server (Express + tsx/esm)"]
+  subgraph Server["Server (Express, Node ESM)"]
     MW["Middleware chain<br/>helmet → cors(/api) → json → ratelimit → requestLogger → attachUser → requireAuth"]
     R[/Routes/]
     SVC["Services<br/>scanner / playback / scrobbler / coverart / librespot"]
@@ -483,9 +483,12 @@ more: `schema.ts` describes tables no migration file creates, so a generated
 migration would fail on every existing database. Rebuilds of a table run
 through `atomically()`, one transaction each.
 
-**ESM end-to-end.** All workspaces `"type": "module"`. Server runs via
-`node --import tsx/esm server/src/index.ts` — TS on-the-fly, no separate
-build step in production.
+**ESM end-to-end.** All workspaces `"type": "module"`. In development the
+server runs via `node --import tsx/esm server/src/index.ts`, TypeScript on the
+fly. The production image runs the compiled `server/dist/index.js` (T01): no
+loader, no source and no tests in it. `npm run db:backup` and the other
+maintenance scripts go through `server/run-script.mjs`, which uses the
+compiled script when there is one and the TypeScript source otherwise.
 
 **Web Audio for ReplayGain.** Opt-in: only active when the user picks a
 non-`off` mode in Settings. The chain bypasses `<audio>.volume` and routes

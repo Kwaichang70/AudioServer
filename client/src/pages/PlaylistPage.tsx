@@ -172,14 +172,12 @@ export default function PlaylistPage() {
             <span className="w-8"></span>
           </div>
           <SortableList
-            items={tracks.map(
-              (t, i): SortablePlaylistTrack => ({
-                ...t,
-                id: `pl-${i}-${t.id}`,
-                _trackId: t.id,
-                _index: i,
-              }),
-            )}
+            items={tracks.map((t, i): SortablePlaylistTrack => ({
+              ...t,
+              id: `pl-${i}-${t.id}`,
+              _trackId: t.id,
+              _index: i,
+            }))}
             onReorder={handleReorder}
             renderItem={(item) => {
               const track = tracks[item._index];

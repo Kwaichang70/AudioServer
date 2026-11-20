@@ -22,8 +22,7 @@ let generatedCode: string | null = null;
 
 export function isSetupRequired(): boolean {
   const row = getRawDb().prepare('SELECT COUNT(*) AS count FROM users').get() as
-    | { count: number }
-    | undefined;
+    { count: number } | undefined;
   return !row || row.count === 0;
 }
 

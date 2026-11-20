@@ -40,6 +40,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Format
+        # Line endings are fixed by .gitattributes (LF), so this is the same
+        # answer on Windows, Linux and here.
+        run: npm run format:check
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -105,6 +110,16 @@ jobs:
           curl -fsS http://localhost:3001/api/health/ready
           # The SPA must be served from the image (client/dist copied in).
           curl -fsS -o /dev/null -w 'index: %{http_code}\n' http://localhost:3001/
+
+      - name: Maintenance scripts run in the image
+        # The backup and restore runbook depends on these. The image carries
+        # compiled JavaScript only (T01), so prove the runner finds it, and
+        # that neither the source nor the TypeScript loader came along.
+        run: |
+          set -euo pipefail
+          docker exec audioserver-ci npm run -s db:backup --workspace=server -- /data/ci-backup.db
+          docker exec audioserver-ci npm run -s db:verify --workspace=server -- /data/ci-backup.db
+          docker exec audioserver-ci sh -c 'test ! -e /app/server/src && test ! -e /app/node_modules/tsx'
 
       - name: Docker HEALTHCHECK reports healthy
         run: |

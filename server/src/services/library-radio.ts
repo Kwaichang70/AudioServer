@@ -88,8 +88,7 @@ const PLAYABLE = "COALESCE(t.availability, 'available') NOT IN ('missing', 'unav
 
 export function getRadioState(zoneId: string): RadioState {
   const row = db().prepare('SELECT enabled, seed FROM zone_radio WHERE zone_id = ?').get(zoneId) as
-    | { enabled: number; seed: string | null }
-    | undefined;
+    { enabled: number; seed: string | null } | undefined;
   const picks = db()
     .prepare('SELECT track_id, why FROM radio_picks WHERE zone_id = ? ORDER BY id DESC LIMIT 200')
     .all(zoneId) as Array<{ track_id: string; why: string }>;
@@ -124,8 +123,7 @@ function radioOwner(zoneId: string): string | null {
   return (
     (
       db().prepare('SELECT user_id FROM zone_radio WHERE zone_id = ?').get(zoneId) as
-        | { user_id: string | null }
-        | undefined
+        { user_id: string | null } | undefined
     )?.user_id ?? null
   );
 }

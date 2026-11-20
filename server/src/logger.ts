@@ -32,7 +32,10 @@ const recent: RecentLogEntry[] = [];
 const LEVEL = Symbol.for('level');
 
 class RecentTransport extends Transport {
-  log(info: { level: string; message: unknown; [LEVEL]?: string }, next: () => void): void {
+  override log(
+    info: { level: string; message: unknown; [LEVEL]?: string },
+    next: () => void,
+  ): void {
     // The text format colorizes info.level; the symbol keeps the raw name.
     const level = info[LEVEL] ?? info.level;
     if (level === 'warn' || level === 'error') {

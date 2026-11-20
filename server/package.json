@@ -4,15 +4,16 @@
   "type": "module",
   "scripts": {
     "dev": "node --import tsx/esm --watch src/index.ts",
-    "build": "tsc",
-    "db:backup": "node --import tsx/esm src/scripts/db-backup.ts",
-    "bench:search": "node --import tsx/esm src/scripts/search-bench.ts",
-    "bench:scan": "node --import tsx/esm src/scripts/scan-bench.ts",
-    "db:verify": "node --import tsx/esm src/scripts/db-verify.ts",
-    "db:restore": "node --import tsx/esm src/scripts/db-restore.ts",
-    "user:password": "node --import tsx/esm src/scripts/user-password.ts",
+    "build": "tsc -p tsconfig.build.json && node -e \"require('fs').cpSync('src/db/migrations','dist/db/migrations',{recursive:true})\"",
+    "db:backup": "node run-script.mjs db-backup",
+    "bench:search": "node run-script.mjs search-bench",
+    "bench:scan": "node run-script.mjs scan-bench",
+    "db:verify": "node run-script.mjs db-verify",
+    "db:restore": "node run-script.mjs db-restore",
+    "user:password": "node run-script.mjs user-password",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "start": "node dist/index.js"
   },
   "dependencies": {
@@ -31,7 +32,6 @@
     "music-metadata": "^11.16.1",
     "node-ssdp": "^4.0.1",
     "socket.io": "^4.8.1",
-    "tsx": "^4.23.13",
     "uuid": "^11.1.0",
     "winston": "^3.17.0",
     "xml2js": "^0.6.2",
@@ -48,8 +48,10 @@
     "@types/supertest": "^7.2.0",
     "@types/uuid": "^10.0.0",
     "@types/xml2js": "^0.4.14",
+    "@vitest/coverage-v8": "^4.1.12",
     "drizzle-kit": "^0.31.10",
     "supertest": "^7.2.2",
+    "tsx": "^4.23.13",
     "vitest": "^4.1.12"
   }
 }

@@ -34,14 +34,7 @@ export type FocusScalarKey = (typeof FOCUS_SCALAR_KEYS)[number];
 export type FocusKey = FocusListKey | FocusScalarKey;
 
 export type SortKey =
-  | 'title'
-  | 'artist'
-  | 'year'
-  | 'added'
-  | 'lastPlayed'
-  | 'plays'
-  | 'duration'
-  | 'rating';
+  'title' | 'artist' | 'year' | 'added' | 'lastPlayed' | 'plays' | 'duration' | 'rating';
 
 export const SORT_LABELS: Record<SortKey, string> = {
   title: 'Title',

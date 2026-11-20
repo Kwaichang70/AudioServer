@@ -98,8 +98,7 @@ function toRow(row: Row): SleepTimer {
 function read(zoneId: string): SleepTimer | null {
   try {
     const row = getRawDb().prepare('SELECT * FROM sleep_timers WHERE zone_id = ?').get(zoneId) as
-      | Row
-      | undefined;
+      Row | undefined;
     return row ? toRow(row) : null;
   } catch {
     return null;

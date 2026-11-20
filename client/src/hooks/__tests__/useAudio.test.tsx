@@ -51,7 +51,7 @@ describe('useAudio', () => {
 
   it('turns a refused play() promise into a retryable blocked state, never a false "playing"', async () => {
     class BlockedAudio extends FakeAudio {
-      play = vi.fn(() => {
+      override play = vi.fn(() => {
         const err = new Error('play() failed because the user did not interact');
         err.name = 'NotAllowedError';
         return Promise.reject(err);

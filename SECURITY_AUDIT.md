@@ -1,6 +1,6 @@
 # Security Audit - Dependencies
 
-Date: 2026-09-08 (sprint V01.2 of [VERBETERPLAN_SPRINTS.md](VERBETERPLAN_SPRINTS.md))
+Date: 2026-09-08 (sprint V01.2 of [VERBETERPLAN_SPRINTS.md](docs/history/VERBETERPLAN_SPRINTS.md))
 Supersedes: the 2026-05-28 Qobuz-release audit (see git history for that text).
 
 ## Scope

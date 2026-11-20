@@ -52,6 +52,14 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    // See server/vitest.config.ts: fewer workers on a developer machine.
+    maxWorkers: process.env.CI ? undefined : 2,
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/__tests__/**', 'src/test/**'],
+      reporter: ['text-summary', 'json-summary'],
+    },
   },
 });
 

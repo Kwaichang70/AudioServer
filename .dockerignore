@@ -10,3 +10,7 @@ data
 .claude
 .env.*
 *.tar
+**/__tests__
+**/coverage
+*.md
+docs

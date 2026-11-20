@@ -77,8 +77,7 @@ export function continueListening(userId: string, limit = 10): ContinueItem[] {
           WHERE user_id = ? AND album_id = ? AND started_at = ? LIMIT 1`,
       )
       .get(userId, albumId, lastPlayed) as
-      | { track_id: string | null; listened_ms: number; duration: number | null }
-      | undefined;
+      { track_id: string | null; listened_ms: number; duration: number | null } | undefined;
     const index = tracks.findIndex((t) => t.id === last?.track_id);
     let resumeIndex = 0;
     let resumePosition = 0;

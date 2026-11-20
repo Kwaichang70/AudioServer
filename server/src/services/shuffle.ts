@@ -45,8 +45,7 @@ export const RECENT_DAYS = 30;
 function localAvailability(trackId: string): string | null | undefined {
   try {
     const row = getRawDb().prepare('SELECT availability FROM tracks WHERE id = ?').get(trackId) as
-      | { availability: string | null }
-      | undefined;
+      { availability: string | null } | undefined;
     return row ? (row.availability ?? 'available') : undefined;
   } catch {
     return undefined;

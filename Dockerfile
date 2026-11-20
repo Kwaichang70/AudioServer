@@ -40,11 +40,14 @@ RUN find . -name '*.tsbuildinfo' -not -path './node_modules/*' -delete
 ARG VCS_REF=unknown
 ENV VITE_BUILD_ID=${VCS_REF}
 RUN npm run build --workspace=shared
+# The server is compiled too (T01): the runtime runs plain JavaScript, so it
+# does not transpile every file at each start and carries no TypeScript
+# loader, no source and no tests.
+RUN npm run build --workspace=server
 RUN npm run build --workspace=client
 
 # Strip devDependencies after the build so the runtime image carries only
-# what the server actually needs. tsx now lives in server's dependencies
-# (we run with `node --import tsx/esm`), so it survives the prune.
+# what the server actually needs (tsx is a devDependency now).
 RUN npm prune --omit=dev
 
 # ───── runtime ───────────────────────────────────────────────────
@@ -81,8 +84,10 @@ COPY --from=builder /app/package.json /app/package-lock.json /app/tsconfig.base.
 # Pruned production node_modules (workspaces hoisted at the root).
 COPY --from=builder /app/node_modules ./node_modules
 
-# Server runs straight from .ts via tsx/esm, so we need the source.
-COPY --from=builder /app/server ./server
+# Server: the compiled JavaScript (with the SQL migrations next to it), its
+# manifest, and the runner behind `npm run db:backup` and friends.
+COPY --from=builder /app/server/package.json /app/server/run-script.mjs ./server/
+COPY --from=builder /app/server/dist ./server/dist
 
 # Shared workspace: package.json + built dist (server imports from it).
 COPY --from=builder /app/shared/package.json ./shared/package.json
@@ -105,4 +110,4 @@ VOLUME /music
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD curl -fsS http://localhost:3001/api/health/ready || exit 1
 
-CMD ["node", "--import", "tsx/esm", "server/src/index.ts"]
+CMD ["node", "server/dist/index.js"]

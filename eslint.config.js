@@ -46,17 +46,17 @@ export default tseslint.config(
       },
     },
     rules: {
-      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-unused-vars': [
-        'warn',
+        'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
       '@typescript-eslint/no-empty-object-type': 'off',
       // Module-augmentation for Express's Request type uses `declare global { namespace Express { ... } }`
       '@typescript-eslint/no-namespace': ['error', { allowDeclarations: true }],
-      'prefer-const': 'warn', // existing code has a few violations; fix incrementally
+      'prefer-const': 'error',
       '@typescript-eslint/no-unused-expressions': [
-        'warn',
+        'error',
         { allowTernary: true, allowShortCircuit: true },
       ],
       'no-empty': ['error', { allowEmptyCatch: true }],
@@ -84,25 +84,24 @@ export default tseslint.config(
     },
     rules: {
       'react-hooks/rules-of-hooks': 'error',
-      'react-hooks/exhaustive-deps': 'warn',
-      // Accessibility. The recommended set defaults to 'error'; we run it as
-      // 'warn' so CI stays green while the backlog is worked through
-      // incrementally (same policy as no-explicit-any / prefer-const here).
-      // Promote individual rules to 'error' as their violations reach zero.
+      'react-hooks/exhaustive-deps': 'error',
+      // Accessibility, as errors. These ran as warnings while a backlog was
+      // worked off; it reached zero (T07), so a new violation now fails lint
+      // instead of scrolling past.
       ...jsxA11y.flatConfigs.recommended.rules,
-      'jsx-a11y/no-static-element-interactions': 'warn',
-      'jsx-a11y/click-events-have-key-events': 'warn',
-      'jsx-a11y/no-autofocus': 'warn',
+      'jsx-a11y/no-static-element-interactions': 'error',
+      'jsx-a11y/click-events-have-key-events': 'error',
+      'jsx-a11y/no-autofocus': 'error',
       // Image load failures are state/error handling, not user interaction.
       // Keep the rule focused on handlers that actually make an element
       // interactive so <img onError={...}> does not produce false positives.
       'jsx-a11y/no-noninteractive-element-interactions': [
-        'warn',
+        'error',
         {
           handlers: ['onClick', 'onMouseDown', 'onMouseUp', 'onKeyDown', 'onKeyUp', 'onKeyPress'],
         },
       ],
-      'jsx-a11y/label-has-associated-control': 'warn',
+      'jsx-a11y/label-has-associated-control': 'error',
       'jsx-a11y/media-has-caption': 'off', // album art / audio streams have no captions
     },
   },

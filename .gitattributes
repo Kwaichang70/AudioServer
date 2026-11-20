@@ -1,0 +1,11 @@
+# One line ending everywhere (T02). Without this, a Windows checkout with
+# core.autocrlf=true gets CRLF, Prettier (endOfLine: lf) rejects every file,
+# and the pre-commit hook rewrites whatever is touched.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.db binary
+*.flac binary
+*.mp3 binary

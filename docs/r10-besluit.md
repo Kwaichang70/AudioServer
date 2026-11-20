@@ -2,7 +2,7 @@
 
 _Status: **opzet** (15 oktober 2026). De velden met ✏️ vult Danny in na de
 NAS-meting en de luistertest; daarna wordt de keuze onderaan genoteerd en in
-`VERBETERPLAN_ROON.md` (R10.3) afgevinkt._
+`docs/history/VERBETERPLAN_ROON.md` (R10.3) afgevinkt._
 
 ## 1. De vraag
 

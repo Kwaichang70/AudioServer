@@ -16,13 +16,13 @@ interface State {
  * async errors and event handlers must be reported via the API client.
  */
 class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null };
+  override state: State = { error: null };
 
   static getDerivedStateFromError(error: Error): State {
     return { error };
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo): void {
+  override componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error('[ErrorBoundary]', error, info.componentStack);
   }
 
@@ -30,7 +30,7 @@ class ErrorBoundary extends Component<Props, State> {
     this.setState({ error: null });
   };
 
-  render(): ReactNode {
+  override render(): ReactNode {
     if (this.state.error) {
       if (this.props.fallback) return this.props.fallback(this.state.error, this.reset);
       return (

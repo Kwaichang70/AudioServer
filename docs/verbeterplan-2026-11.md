@@ -272,6 +272,18 @@ Beslismomenten:
 - **Controle:** lint, typecheck, client 69/69 bestanden (347 tests, 5 nieuw; de drie kamertests falen op de `AudioContext` van HEAD), productie-build groen. Een eerste run van de suite bleef hangen toen de pc in slaap ging; opnieuw gedraaid.
 - **Visueel:** alleen vastgesteld dat de nieuwe tokens, de viewport en het icoon geladen worden. Geen pagina bekeken met echte gegevens.
 
+### Fase 12 — 20 november 2026
+
+- **T02:** `.gitattributes` (`* text=auto eol=lf`). De index was al volledig LF; alleen de werkkopie (340 bestanden) is omgezet, dus de normalisatie zelf is geen diff. Negen bestanden hadden een echt opmaakverschil en zijn geformatteerd. `format:check` staat in de CI.
+- **T07:** elf ESLint-regels van `warn` naar `error` (0 meldingen). `noImplicitOverride` (5 plekken aangevuld) en `noFallthroughCasesInSwitch` (0) aan. **Niet gedaan:** `noUncheckedIndexedAccess` (194 server, 66 client).
+- **T03:** `maxWorkers: 2` buiten de CI in beide vitest-configs; `@vitest/coverage-v8` en `npm run test:coverage`. Eerste meting: server 73,2% regels / 62,1% vertakkingen, client 66,4% / 54,5%. **De analyse had ongelijk** over `api.test.ts`: device-discovery staat onder `NODE_ENV=test` al uit (`manager.ts`), er gaat niets het netwerk op.
+- **T01:** `server/tsconfig.build.json` (zonder tests), `npm run build` kopieert de SQL-migraties naar `dist`; de Dockerfile bouwt de server en start `node server/dist/index.js`; `tsx` is een devDependency. `server/run-script.mjs` draait een onderhoudsscript gecompileerd als dat er is en anders via tsx, zodat de runbook-opdrachten gelijk blijven. **Niet gedaan:** `USER node`. Op een Synology hangen de rechten van de muziekmap aan DSM-gebruikers en is het bestaande datavolume van root; dat is lokaal niet te testen en breekt bij een fout het afspelen of het starten.
+- **T10:** `.dockerignore` sluit tests, coverage, markdown en `docs` uit.
+- **T08:** zes afgesloten plannen naar `docs/history/` (`git mv`), README en twee verwijzingen bijgewerkt, `Dockerfile.librespot` verwijderd. `DEPLOY_SYNOLOGY.md` en `SECURITY_AUDIT.md` blijven in de root: er wordt vanuit scripts, CI en runbooks naar verwezen. `AGENTS.md` blijft een kopie van `CLAUDE.md`.
+- **T04, T05, T06, T09:** niet gedaan. T04: geen upgrade zonder aanleiding. T05: geen vertrouwde bron voor een kant-en-klare librespot. T06: te groot voor deze fase. T09: de coverage-meting ligt er nu als basis.
+- **Controle:** lint, `format:check`, typecheck, server 101/101 (775 tests), client 69/69 (347), `npm run build`. Image lokaal gebouwd (`docker build`) en gestart: `/api/health/ready` gereed met schema 21, `/` geeft 200, bibliotheek zonder login 401, `db:backup` + `db:verify` + `user:password` in de container, geen `/app/server/src` en geen `tsx`, HEALTHCHECK `healthy`, `docker stop` exitcode 0. De CI herhaalt de scriptcontrole.
+- **Open (Danny):** na het uitrollen op de NAS één keer `db:backup` in de container draaien om te zien dat het runbook daar ook klopt.
+
 ## 9. Wijzigingsgrens van dit onderzoek
 
 Alleen dit document is toegevoegd. Geen `npm ci`, geen `git checkout` van de CI-workflow, geen rotatie van secrets, geen codewijziging. De onderzoeksbronnen: de vijf auditrapporten (speakerlaag, datalaag, beveiliging/providers, client, tooling) en eigen controles van de hoogste bevindingen; alle regelnummers verwijzen naar commit `a794b14`.

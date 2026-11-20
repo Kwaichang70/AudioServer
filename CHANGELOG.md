@@ -4,6 +4,46 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fase 12: bouwen, testen en opruimen (T01–T10)
+
+- **De server start sneller en lichter op de NAS.** De image draait nu
+  gecompileerde code in plaats van de TypeScript-bron bij elke start te
+  vertalen. Bron, tests en de vertaler zitten niet meer in de image.
+  De opdrachten uit het runbook blijven precies hetzelfde:
+  `npm run db:backup`, `db:verify`, `db:restore` en `user:password` werken in
+  de container en op een ontwikkelmachine.
+- **Eén soort regeleinde in de hele repo** (`.gitattributes`). Op Windows
+  faalde de opmaakcontrole op 331 bestanden en herschreef elke commit de
+  regeleinden. De controle slaagt nu overal en draait mee in de CI.
+- **Strengere controles:** de lintregels die als waarschuwing liepen "tot de
+  achterstand weg was" zijn nu fouten (de achterstand was al nul), en twee
+  extra TypeScript-controles staan aan.
+- **Dekking van de tests is voor het eerst gemeten:** server 73% van de
+  regels, app 66%. `npm run test:coverage` herhaalt de meting.
+- **Tests op een pc met weinig geheugen:** lokaal draaien er twee
+  testprocessen tegelijk (vast in de configuratie); de CI houdt de standaard.
+- **De CI controleert ook de onderhoudsscripts** in de gebouwde image, en dat
+  er geen bron of vertaler in zit.
+- **Opgeruimd:** zes afgesloten plannen staan in `docs/history/`; de README
+  wijst naar het huidige plan. Een ongebruikte `Dockerfile.librespot` is weg.
+- **Gecontroleerd:** lint, opmaak, typecheck, server (101 bestanden, 775
+  tests), app (69 bestanden, 347 tests) en build groen. De image is lokaal
+  gebouwd en gestart: gereed, app geserveerd, back-up en verify gedraaid,
+  healthcheck gezond, netjes afgesloten.
+- **Niet gedaan, met reden:**
+  - **De container draait nog als root.** Als gewone gebruiker kan hij op een
+    Synology mogelijk je muziekmap niet lezen (de rechten daar hangen aan
+    DSM-gebruikers), en de bestaande datamap is van root. Dat is alleen op de
+    NAS te testen.
+  - **Eén bron voor API-typen** (server, OpenAPI en app hebben elk hun eigen
+    beschrijving): een grote verbouwing, apart te plannen.
+  - **Grote versie-upgrades** (Express 5, Tailwind 4, Vite 8) en het
+    opschonen van de `overrides`: geen aanleiding, wel risico.
+  - **De strengste TypeScript-controle** (`noUncheckedIndexedAccess`): 260
+    meldingen.
+  - **Librespot als kant-en-klaar bestand** in plaats van uit bron bouwen: er
+    is geen officiële bron voor zo'n bestand die ik kan vertrouwen.
+
 ## Fase 11: de app (C01–C09)
 
 - **Na een kamerwissel zie je de wachtrij van die kamer.** De app hield één
