@@ -257,6 +257,21 @@ Beslismomenten:
 - **Controle:** lint en typecheck groen; server 101/101 bestanden (775 tests, 9 nieuw, 7 daarvan falen op de scanner van HEAD). Client niet gewijzigd en niet opnieuw gedraaid.
 - **Open (Danny):** volledige herscan op de NAS om dubbel-cd's samen te voegen; back-uptaak overdag inplannen.
 
+### Fase 11 — 19 en 20 november 2026
+
+- **C01:** `acceptRevision(zone, revision)` in `AudioContext`: revisies tellen per kamer, events van een andere kamer worden geweigerd, en bij een kamerwissel wordt de sessie van die kamer opnieuw opgehaald. Het effect hangt nu aan `socket.setZoneFilter` in plaats van aan het hele socketobject.
+- **C02:** `mirrorQueue` houdt dezelfde array aan als de item-ids gelijk zijn. **Niet gedaan:** `memo`-rijen op de lijstpagina's.
+- **C03:** grijswaarden 500/600 in beide thema's; `user-scalable=no` weg. **Niet gedaan:** wit op accent (3,83:1). Berekend: een accent dat wit op 4,5:1 brengt, zakt als tekst op `surface` naar 3,6:1. Ontwerpkeuze voor Danny.
+- **C04:** `pageErrorFallback` en een `ErrorBoundary` rond `<Outlet />`, met `key={location.pathname}`.
+- **C05:** niets gewijzigd. **De analyse had ongelijk:** `SearchPage` (`searchSeqRef`) en `HistoryPage` (`requestEpochRef`) zijn al beschermd; `TagsPage` en `HomePage` laden één keer zonder parameter. TanStack Query blijft een open keuze.
+- **C06:** niet gedaan (speler opsplitsen), zoals gepland.
+- **C07:** PNG-iconen 180/192/512 (getekend met een script uit dezelfde vormen als het SVG) in manifest en `apple-touch-icon`; Media Session met `seekto` en `setPositionState` (hooguit elke 2 s).
+- **C08:** Nederlandse teksten vertaald; `playback:state` niet meer in state. **Niet gewijzigd:** `key={i}` in `SmartPlaylistsPage` (de velden zijn controlled, dus de waarde klopt), de twee `console.log`-regels in `useTrackPlayback` (bleken op 10 november nuttig bij het zoeken), en `ArtistPage` (ving de fout al af).
+- **C09:** `DEFAULT_VOLUME`, `DEFAULT_SEARCH_LIMIT`, `StopIcon` en `getActiveZone` verwijderd. De rest van de lijst wordt binnen het eigen bestand gebruikt en is dus niet dood.
+- **C10 en doorgeschoven werk (wachtrij-delta's, server bouwt speaker-URL):** niet gedaan.
+- **Controle:** lint, typecheck, client 69/69 bestanden (347 tests, 5 nieuw; de drie kamertests falen op de `AudioContext` van HEAD), productie-build groen. Een eerste run van de suite bleef hangen toen de pc in slaap ging; opnieuw gedraaid.
+- **Visueel:** alleen vastgesteld dat de nieuwe tokens, de viewport en het icoon geladen worden. Geen pagina bekeken met echte gegevens.
+
 ## 9. Wijzigingsgrens van dit onderzoek
 
 Alleen dit document is toegevoegd. Geen `npm ci`, geen `git checkout` van de CI-workflow, geen rotatie van secrets, geen codewijziging. De onderzoeksbronnen: de vijf auditrapporten (speakerlaag, datalaag, beveiliging/providers, client, tooling) en eigen controles van de hoogste bevindingen; alle regelnummers verwijzen naar commit `a794b14`.

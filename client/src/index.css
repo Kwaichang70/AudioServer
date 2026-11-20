@@ -34,8 +34,11 @@
   --c-gray-200: 229 231 235;
   --c-gray-300: 209 213 219;
   --c-gray-400: 156 163 175;
-  --c-gray-500: 107 114 128;
-  --c-gray-600: 75 85 99;
+  /* Secondary and tertiary text. Both read at 4.5:1 or better on all three
+     surfaces (C03); the Tailwind defaults (107 114 128 and 75 85 99) gave
+     3.5:1 and 2.3:1, for small text at that. */
+  --c-gray-500: 140 147 162;
+  --c-gray-600: 132 139 154;
   --c-gray-700: 55 65 81;
 
   --c-red-200: 254 202 202;
@@ -68,8 +71,9 @@
   --c-gray-200: 31 41 55;
   --c-gray-300: 55 65 81;
   --c-gray-400: 75 85 99;
-  --c-gray-500: 107 114 128;
-  --c-gray-600: 156 163 175;
+  /* On the light surfaces: 5.8:1 and 5.2:1 on white (C03). */
+  --c-gray-500: 95 102 116;
+  --c-gray-600: 100 107 121;
   --c-gray-700: 209 213 219;
 
   --c-red-200: 127 29 29;

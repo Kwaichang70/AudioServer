@@ -179,9 +179,6 @@ let activeZoneId: string | null = null;
 export function setActiveZone(zoneId: string | null): void {
   activeZoneId = zoneId;
 }
-export function getActiveZone(): string | null {
-  return activeZoneId;
-}
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const token = localStorage.getItem(STORAGE_KEYS.authToken);

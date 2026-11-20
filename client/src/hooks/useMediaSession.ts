@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { api } from '../api/client.js';
 import type { TrackInfo } from '../types/playback.js';
+import { getProgressSnapshot, subscribeProgress } from '../context/ProgressStore.js';
 
 interface WakeLockSentinelLike {
   release?: () => Promise<void>;
@@ -24,6 +25,8 @@ interface MediaSessionOptions {
   resume: () => void;
   playPrevious: () => void;
   playNext: () => void;
+  /** Jump inside the current track; gives the lock screen its scrubber (C07). */
+  seek?: (seconds: number) => void;
 }
 
 /**
@@ -41,6 +44,7 @@ export function useMediaSession({
   resume,
   playPrevious,
   playNext,
+  seek,
 }: MediaSessionOptions): void {
   const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const latestRef = useRef({
@@ -157,6 +161,14 @@ export function useMediaSession({
       setHandler('pause', pause);
       setHandler('previoustrack', playPrevious);
       setHandler('nexttrack', playNext);
+      setHandler(
+        'seekto',
+        seek
+          ? (details) => {
+              if (typeof details.seekTime === 'number') seek(details.seekTime);
+            }
+          : null,
+      );
       mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
     } else {
       mediaSession.metadata = null;
@@ -168,6 +180,36 @@ export function useMediaSession({
       setHandler('pause', null);
       setHandler('previoustrack', null);
       setHandler('nexttrack', null);
+      setHandler('seekto', null);
     };
-  }, [currentTrack, isPlaying, pause, resume, playPrevious, playNext]);
+  }, [currentTrack, isPlaying, pause, resume, playPrevious, playNext, seek]);
+
+  // Where the track is, for the lock screen and the notification (C07).
+  // The position ticks four times a second; the system only needs to hear
+  // now and then, it counts on by itself while playing.
+  const hasTrack = currentTrack !== null;
+  useEffect(() => {
+    if (!hasTrack || !('mediaSession' in navigator)) return;
+    const mediaSession = navigator.mediaSession;
+    if (typeof mediaSession.setPositionState !== 'function') return;
+    let lastSent = 0;
+    const report = (force = false) => {
+      const now = Date.now();
+      if (!force && now - lastSent < 2000) return;
+      const { currentTime, duration } = getProgressSnapshot();
+      if (!Number.isFinite(duration) || duration <= 0) return;
+      lastSent = now;
+      try {
+        mediaSession.setPositionState({
+          duration,
+          position: Math.min(Math.max(currentTime, 0), duration),
+          playbackRate: 1,
+        });
+      } catch {
+        // A browser that rejects the values simply shows no scrubber.
+      }
+    };
+    report(true);
+    return subscribeProgress(() => report());
+  }, [hasTrack, isPlaying]);
 }

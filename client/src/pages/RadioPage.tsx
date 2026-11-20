@@ -202,10 +202,10 @@ export default function RadioPage() {
       {/* Tab bar */}
       <div className="flex gap-2 mb-6 border-b border-white/10">
         <TabButton active={tab === 'featured'} onClick={() => setTab('featured')}>
-          Uitgelicht NL
+          Featured NL
         </TabButton>
         <TabButton active={tab === 'search'} onClick={() => setTab('search')}>
-          Zoeken
+          Search
         </TabButton>
         <TabButton active={tab === 'genre'} onClick={() => setTab('genre')}>
           Genres
@@ -227,17 +227,17 @@ export default function RadioPage() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Zoek NL stations…"
+              placeholder="Search NL stations…"
               className="flex-1 bg-surface border border-white/10 rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
             />
             <button
               type="submit"
               className="px-4 py-2 bg-accent text-on-accent rounded text-sm hover:bg-accent/90 transition"
             >
-              Zoek
+              Find
             </button>
           </form>
-          {searchLoading ? <p className="text-gray-400">Laden…</p> : renderGrid(searchResults)}
+          {searchLoading ? <p className="text-gray-400">Loading…</p> : renderGrid(searchResults)}
         </>
       )}
 
@@ -259,7 +259,7 @@ export default function RadioPage() {
             ))}
           </div>
           {tagLoading ? (
-            <p className="text-gray-400">Laden…</p>
+            <p className="text-gray-400">Loading…</p>
           ) : activeTag ? (
             renderGrid(tagResults)
           ) : (

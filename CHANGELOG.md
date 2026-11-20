@@ -4,6 +4,43 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## Fase 11: de app (C01–C09)
+
+- **Na een kamerwissel zie je de wachtrij van die kamer.** De app hield één
+  volgnummer bij voor alle kamers. Stapte je over naar een kamer met een lager
+  volgnummer, dan werd de wachtrij van die kamer weggegooid en bleef je naar
+  de vorige kamer kijken. Het volgnummer telt nu per kamer, en nieuws van een
+  andere kamer wordt genegeerd.
+- **Minder onnodig hertekenen:** een bericht van de server dat niets aan de
+  wachtrij verandert, laat de wachtrij met rust. Eerst tekende elk bericht
+  alle onderdelen die de speler lezen opnieuw.
+- **Een pagina die vastloopt, neemt het menu en de speler niet meer mee.** Je
+  ziet de melding op de plek van de pagina; een andere pagina kiezen werkt
+  gewoon.
+- **Beter leesbare grijze tekst**, in het donkere en het lichte thema: de
+  secundaire tekst haalt nu overal de norm voor contrast (4,5:1). Eerst was
+  dat 3,5:1 en voor de lichtste tekst 2,3:1.
+- **Inzoomen met twee vingers** werkt weer op Android; de pagina blokkeerde
+  dat.
+- **iPhone en iPad:** het icoon op het beginscherm is nu het echte icoon
+  (PNG) in plaats van een schermafbeelding.
+- **Vergrendelscherm:** je ziet waar het nummer is en kunt erin spoelen.
+- **Radio:** de laatste Nederlandse teksten in de Engelse app zijn vertaald
+  ("Featured NL", "Search", "Find", "Loading…").
+- **Opgeruimd:** ongebruikte code, en een socketstatus die bij elke
+  statuswijziging alles liet hertekenen zonder dat iets hem las.
+- **Gecontroleerd:** lint, typecheck, client (69 bestanden, 347 tests, 5
+  nieuw) en de productie-build groen. De server is in deze fase niet
+  gewijzigd. De pagina's zelf zijn niet in de browser bekeken: zonder server
+  komt de app lokaal niet voorbij het laadscherm.
+- **Niet gedaan:**
+  - Witte tekst op de roze knoppen haalt 3,8:1 in plaats van 4,5:1. Donkerder
+    roze maakt roze tekst op de donkere achtergrond juist slechter leesbaar;
+    dat is een ontwerpkeuze die je zelf moet zien.
+  - Kleinere wachtrijberichten en de server die zelf het stream-adres voor
+    een speaker bouwt (doorgeschoven uit fase 8 en 9), de speler opsplitsen,
+    en hoesjes in meerdere formaten.
+
 ## Fase 10: de bibliotheek blijft heel als er iets misgaat (D01–D10)
 
 - **Een share die niet is aangekoppeld, maakt je bibliotheek niet "missing".**

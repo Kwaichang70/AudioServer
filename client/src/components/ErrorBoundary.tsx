@@ -66,5 +66,33 @@ class ErrorBoundary extends Component<Props, State> {
   }
 }
 
+/**
+ * Fallback for one page (C04): shown inside the layout, so the navigation
+ * and the player stay where they are and the music keeps its controls.
+ */
+export function pageErrorFallback(error: Error, reset: () => void): ReactNode {
+  return (
+    <div
+      role="alert"
+      className="mx-auto mt-10 max-w-md rounded-lg border border-white/10 bg-surface p-6"
+    >
+      <h2 className="mb-2 text-lg font-semibold text-accent">This page could not be shown</h2>
+      <p className="mb-4 text-sm text-gray-400">
+        Something went wrong on this page. The player and the rest of the app still work; pick
+        another page from the menu, or try this one again.
+      </p>
+      <pre className="mb-4 max-h-32 overflow-auto rounded bg-surface-dark p-3 text-xs text-gray-400">
+        {error.message}
+      </pre>
+      <button
+        onClick={reset}
+        className="rounded bg-accent px-4 py-2 text-on-accent transition hover:opacity-90"
+      >
+        Try again
+      </button>
+    </div>
+  );
+}
+
 export default ErrorBoundary;
 export { ErrorBoundary };

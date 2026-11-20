@@ -34,7 +34,7 @@ export function resetProgress(): void {
   setProgress(0, 0);
 }
 
-function subscribeProgress(listener: () => void): () => void {
+export function subscribeProgress(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }

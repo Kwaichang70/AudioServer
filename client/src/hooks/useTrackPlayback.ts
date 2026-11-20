@@ -223,8 +223,8 @@ async function playSpotifyTrack(context: PlaybackContext): Promise<void> {
       ? api.spotifyConnectPlayContext(contextUri, targetDeviceId, spotifyTrackUri)
       : api.spotifyConnectPlay(spotifyTrackUri, targetDeviceId);
   const connectToast = contextUri
-    ? 'Album speelt via Spotify Connect (speaker schakelt zelf door)'
-    : 'Speelt via Spotify Connect';
+    ? 'Album plays via Spotify Connect (the speaker moves on by itself)'
+    : 'Playing via Spotify Connect';
 
   try {
     // A speaker room and a whole album: the server starts it on the room's

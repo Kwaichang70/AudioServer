@@ -179,12 +179,12 @@ describe('list page request ordering', () => {
     );
 
     renderPage(<RadioPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Zoeken' }));
-    const input = screen.getByPlaceholderText('Zoek NL stations…');
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    const input = screen.getByPlaceholderText('Search NL stations…');
     fireEvent.change(input, { target: { value: 'old' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Zoek' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Find' }));
     fireEvent.change(input, { target: { value: 'new' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Zoek' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Find' }));
 
     expect(await screen.findByRole('button', { name: 'Play New Station' })).toBeInTheDocument();
     const favorite = screen.getByRole('button', { name: 'Add New Station to favorites' });

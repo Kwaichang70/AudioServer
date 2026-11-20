@@ -16,8 +16,6 @@ export const STORAGE_KEYS = {
 
 export const DEFAULT_LIBRARY_PAGE_SIZE = 60;
 export const DEFAULT_HISTORY_PAGE_SIZE = 50;
-export const DEFAULT_SEARCH_LIMIT = 20;
-export const DEFAULT_VOLUME = 0.7;
 
 export const DEVICE_POLL_INTERVAL = 2000;
 /** How often a browser that plays audio itself confirms it to the server (V05). */

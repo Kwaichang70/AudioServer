@@ -194,6 +194,10 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const [queue, setQueue] = useState<TrackInfo[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
   const revisionRef = useRef(0);
+  /** The room `revisionRef` counts for; a revision of another room says nothing. */
+  const revisionZoneRef = useRef<string | null>(null);
+  /** The room this tab steers (set below, once the rooms are known). */
+  const zoneIdRef = useRef<string | null>(null);
   const clientId = useMemo(() => getClientId(), []);
   const [selectedDeviceId, setSelectedDeviceIdState] = useState(
     () => localStorage.getItem(STORAGE_KEYS.selectedDevice) || 'browser',
@@ -223,10 +227,14 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     () => zoneList.find((z) => z.deviceId === selectedDeviceId)?.id ?? null,
     [zoneList, selectedDeviceId],
   );
+  zoneIdRef.current = zoneId;
+  // Only the stable function, not the whole socket object: that one is new
+  // after every socket event, which re-ran this effect per event.
+  const setZoneFilter = socket.setZoneFilter;
   useEffect(() => {
     setActiveZone(zoneId);
-    socket.setZoneFilter(zoneId);
-  }, [zoneId, socket]);
+    setZoneFilter(zoneId);
+  }, [zoneId, setZoneFilter]);
   const [isLoading, setIsLoading] = useState(false);
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState<'off' | 'all' | 'one'>('off');
@@ -410,31 +418,77 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
   // ─── Server session mirror ─────────────────────────────────────
 
-  const applySnapshot = useCallback((snapshot: PlaybackSnapshot, mirrorTrack = false) => {
-    if (snapshot.revision < revisionRef.current) return; // older than what we have
-    revisionRef.current = snapshot.revision;
-    setQueue(snapshot.queue.map(entryToTrack));
-    setQueueIndex(snapshot.queueIndex);
-    setShuffle(snapshot.shuffle);
-    setRepeat(snapshot.repeat);
-    // A device that plays on its own (DLNA/Sonos/Connect) is worth showing
-    // even if this tab did not start it; the browser output is per tab.
-    if (mirrorTrack && snapshot.state.track && snapshot.state.deviceId !== 'browser') {
-      const entry = snapshot.queue.find((e) => e.itemId === snapshot.currentItemId);
-      const track = entry ? entryToTrack(entry) : (snapshot.state.track as TrackInfo);
-      setCurrentTrack((prev) => (prev?.id === track.id ? prev : track));
-    }
+  /**
+   * May a snapshot or queue event with this revision be applied? Revisions
+   * count per room. One counter for all rooms threw away the snapshot of the
+   * room this tab had just switched to whenever that room's revision was
+   * lower than the last one seen — the tab then kept showing the other
+   * room's queue (C01).
+   */
+  const acceptRevision = useCallback((eventZone: string | undefined, revision: number) => {
+    const wanted = zoneIdRef.current;
+    // Another room's news: not ours, whatever its revision.
+    if (eventZone && wanted && eventZone !== wanted) return false;
+    const zone = eventZone ?? wanted ?? null;
+    if (zone === revisionZoneRef.current && revision < revisionRef.current) return false;
+    revisionZoneRef.current = zone;
+    revisionRef.current = revision;
+    return true;
   }, []);
+
+  /**
+   * The queue as state, kept as the same array when nothing in it changed:
+   * every snapshot and command answer built a new one, and each new array
+   * re-rendered all thirty-odd components that read the player (C02).
+   */
+  const mirrorQueue = useCallback((entries: PlaybackQueueEntry[]) => {
+    setQueue((prev) => {
+      if (
+        prev.length === entries.length &&
+        prev.every(
+          (track, i) => track.itemId === entries[i].itemId && track.id === entries[i].trackId,
+        )
+      ) {
+        return prev;
+      }
+      return entries.map(entryToTrack);
+    });
+  }, []);
+
+  const applySnapshot = useCallback(
+    (snapshot: PlaybackSnapshot, mirrorTrack = false) => {
+      if (!acceptRevision(snapshot.zoneId, snapshot.revision)) return;
+      mirrorQueue(snapshot.queue);
+      setQueueIndex(snapshot.queueIndex);
+      setShuffle(snapshot.shuffle);
+      setRepeat(snapshot.repeat);
+      // A device that plays on its own (DLNA/Sonos/Connect) is worth showing
+      // even if this tab did not start it; the browser output is per tab.
+      if (mirrorTrack && snapshot.state.track && snapshot.state.deviceId !== 'browser') {
+        const entry = snapshot.queue.find((e) => e.itemId === snapshot.currentItemId);
+        const track = entry ? entryToTrack(entry) : (snapshot.state.track as TrackInfo);
+        setCurrentTrack((prev) => (prev?.id === track.id ? prev : track));
+      }
+    },
+    [acceptRevision, mirrorQueue],
+  );
   const applySnapshotRef = useRef(applySnapshot);
   applySnapshotRef.current = applySnapshot;
 
-  // Initial load + every socket (re)connect: full snapshot.
+  // Initial load, and again whenever this tab steers another room: that
+  // room's own snapshot, asked for after the room is set on the requests.
   useEffect(() => {
+    let cancelled = false;
     api
       .getPlaybackSession()
-      .then((res) => applySnapshotRef.current(res.data, true))
+      .then((res) => {
+        if (!cancelled) applySnapshotRef.current(res.data, true);
+      })
       .catch(() => {});
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [zoneId]);
   useEffect(() => {
     if (socket.snapshot) applySnapshotRef.current(socket.snapshot, true);
   }, [socket.snapshot]);
@@ -472,13 +526,12 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   // Queue edits made anywhere (this tab, another tab, the server).
   useEffect(() => {
     const ev = socket.queueEvent;
-    if (!ev || ev.revision < revisionRef.current) return;
-    revisionRef.current = ev.revision;
-    setQueue(ev.queue.map(entryToTrack));
+    if (!ev || !acceptRevision(ev.zoneId, ev.revision)) return;
+    mirrorQueue(ev.queue);
     setQueueIndex(ev.queueIndex);
     setShuffle(ev.shuffle);
     setRepeat(ev.repeat);
-  }, [socket.queueEvent]);
+  }, [socket.queueEvent, acceptRevision, mirrorQueue]);
 
   /**
    * A command failed: on a stale revision the server sent the fresh snapshot,
@@ -1270,19 +1323,6 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     getCurrentTime,
   ]);
 
-  useMediaSession({
-    currentTrack,
-    selectedDeviceId,
-    isPlaying,
-    browserAudioIsPlaying: audio.isPlaying,
-    isBrowserAudioPaused: audio.isPaused,
-    resumeBrowserAudio: audio.resume,
-    pause: devicePause,
-    resume: deviceResume,
-    playPrevious,
-    playNext,
-  });
-
   // R01.1: can the chosen output jump inside a track? The browser can; a
   // speaker is asked (its own action list, via the server), and a Spotify
   // Connect target is steered by Spotify, not by this seek bar.
@@ -1362,6 +1402,20 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     },
     [],
   );
+
+  useMediaSession({
+    currentTrack,
+    selectedDeviceId,
+    isPlaying,
+    browserAudioIsPlaying: audio.isPlaying,
+    isBrowserAudioPaused: audio.isPaused,
+    resumeBrowserAudio: audio.resume,
+    pause: devicePause,
+    resume: deviceResume,
+    playPrevious,
+    playNext,
+    seek,
+  });
 
   const volume = selectedDeviceId === 'browser' ? audio.volume : (deviceVolume ?? audio.volume);
 

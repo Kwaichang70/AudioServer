@@ -79,7 +79,6 @@ interface UseSocketReturn {
   /** Full session state, delivered on every (re)connect and on requestSync(). */
   snapshot: PlaybackSnapshot | null;
   queueEvent: PlaybackQueueEvent | null;
-  stateEvent: PlaybackStateEvent | null;
   trackChanged: PlaybackTrackChangedEvent | null;
   /** Server-side dispatch progress/errors for the active device. */
   dispatch: DispatchStatus | null;
@@ -105,7 +104,6 @@ export function useSocket(): UseSocketReturn {
   const [deviceUpdate, setDeviceUpdate] = useState<DevicePlaybackUpdate | null>(null);
   const [snapshot, setSnapshot] = useState<PlaybackSnapshot | null>(null);
   const [queueEvent, setQueueEvent] = useState<PlaybackQueueEvent | null>(null);
-  const [stateEvent, setStateEvent] = useState<PlaybackStateEvent | null>(null);
   const [trackChanged, setTrackChanged] = useState<PlaybackTrackChangedEvent | null>(null);
   const [dispatch, setDispatch] = useState<DispatchStatus | null>(null);
   const [sleep, setSleep] = useState<{ zoneId: string; sleep: SleepTimer | null } | null>(null);
@@ -173,7 +171,6 @@ export function useSocket(): UseSocketReturn {
     socket.on('device:playback-update', setDeviceUpdate);
     socket.on('playback:snapshot', mine(setSnapshot));
     socket.on('playback:queue', mine(setQueueEvent));
-    socket.on('playback:state', mine(setStateEvent));
     socket.on('playback:track-changed', mine(setTrackChanged));
     socket.on('playback:dispatch', mine(setDispatch));
     socket.on('playback:sleep', mine(setSleep));
@@ -239,7 +236,6 @@ export function useSocket(): UseSocketReturn {
       deviceUpdate,
       snapshot,
       queueEvent,
-      stateEvent,
       trackChanged,
       dispatch,
       sleep,
@@ -256,7 +252,6 @@ export function useSocket(): UseSocketReturn {
       deviceUpdate,
       snapshot,
       queueEvent,
-      stateEvent,
       trackChanged,
       dispatch,
       sleep,

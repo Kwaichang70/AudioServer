@@ -7,6 +7,7 @@ import { KeyboardShortcuts } from './KeyboardShortcuts.js';
 import { useAuth } from '../context/AuthContext.js';
 import AppStatusBanners from './AppStatusBanners.js';
 import SearchBar from './SearchBar.js';
+import { ErrorBoundary, pageErrorFallback } from './ErrorBoundary.js';
 import { Menu, MenuItem, MenuSeparator } from './ui/Menu.js';
 import { bookmarkHref, useBookmarks } from '../hooks/useBookmarks.js';
 import { useTags } from '../hooks/useTags.js';
@@ -203,7 +204,11 @@ export default function Layout() {
             </header>
 
             <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
-              <Outlet />
+              {/* A page that fails must not take the menu and the player with
+                  it; a new address starts with a clean slate (C04). */}
+              <ErrorBoundary key={location.pathname} fallback={pageErrorFallback}>
+                <Outlet />
+              </ErrorBoundary>
             </main>
           </div>
         </div>

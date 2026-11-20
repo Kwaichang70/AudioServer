@@ -45,14 +45,6 @@ export function PauseIcon(props: IconProps) {
   );
 }
 
-export function StopIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <rect x="5" y="5" width="14" height="14" rx="2" />
-    </Icon>
-  );
-}
-
 export function PrevIcon(props: IconProps) {
   return (
     <Icon {...props}>
