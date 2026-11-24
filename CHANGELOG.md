@@ -4,6 +4,22 @@ A running log of the multi-sprint rework that took AudioServer from "runs on
 my desk" to production-ready on the Synology. Sorted newest first. Tags are
 the kind of change, not semver — there are no releases yet.
 
+## MCP via Tailscale (24 november)
+
+- **Grokbot en Jarvis kunnen AudioServer via Tailscale bedienen.** Er hoeft
+  niets extra te draaien: de MCP-server luistert al op het Tailscale-adres
+  van de NAS (`http://diskstation.<tailnet>:3001/mcp`).
+- **Nieuw: `MCP_ACCESS`.** Met `MCP_ACCESS=tailscale` beantwoordt `/mcp`
+  alleen nog apparaten in je tailnet. Via het publieke adres krijg je dan een
+  `403`, ook met een geldige sleutel, dus de MCP-server hoeft niet meer op het
+  open internet te staan. `private` laat ook het thuisnetwerk toe; `any`
+  (standaard) verandert niets. De connector op grok.com werkt alleen met
+  `any`.
+- Stappen, adressen en een voorbeeldconfiguratie: `docs/mcp.md`, "Via
+  Tailscale".
+- **Gecontroleerd:** 25 nieuwe tests (adresbereiken, de drie standen, een
+  vervalste doorstuurheader). Niet getest tegen de NAS zelf: die stond uit.
+
 ## Fase 12: bouwen, testen en opruimen (T01–T10)
 
 - **De server start sneller en lichter op de NAS.** De image draait nu

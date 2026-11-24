@@ -32,6 +32,8 @@ const envSchema = z.object({
   JWT_SECRET: z.string().optional(),
   ALLOWED_ORIGINS: z.string().default('http://localhost:5173,http://127.0.0.1:5173'),
   TRUST_PROXY: z.string().default('loopback'),
+  // Who may reach the MCP endpoint (/mcp), by network. See docs/mcp.md.
+  MCP_ACCESS: z.enum(['any', 'private', 'tailscale']).default('any'),
 
   // Optional provider credentials
   SPOTIFY_CLIENT_ID: z.string().optional(),
@@ -132,6 +134,7 @@ export const config = {
   jwtSecret: getJwtSecret(),
   allowedOrigins: csv(env.ALLOWED_ORIGINS),
   trustProxy: parseTrustProxy(env.TRUST_PROXY),
+  mcpAccess: env.MCP_ACCESS,
   watchLibrary: env.WATCH_LIBRARY ?? false,
   logLevel: env.LOG_LEVEL ?? (env.NODE_ENV === 'production' ? 'info' : 'debug'),
   logFormat: env.LOG_FORMAT ?? (env.NODE_ENV === 'production' ? 'json' : 'text'),
@@ -157,6 +160,7 @@ export function validateConfig(): void {
   console.log(`  DLNA devices: ${env.DLNA_DEVICES || 'auto-discover'}`);
   console.log(`  Volumio devices: ${env.VOLUMIO_DEVICES || 'none'}`);
   console.log(`  Watcher: ${config.watchLibrary ? 'enabled' : 'disabled'}`);
+  console.log(`  MCP access: ${config.mcpAccess}`);
   console.log(
     `  Server playback: unplayable=${env.PLAYBACK_UNPLAYABLE_POLICY}, resume on restart=${env.PLAYBACK_RESUME_ON_RESTART ? 'yes' : 'no'}`,
   );

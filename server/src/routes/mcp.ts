@@ -22,6 +22,8 @@ import { zones } from '../services/zones.js';
 import { listSpotifyPlaylists } from '../services/spotify-rooms.js';
 import type { PlaybackOrigin } from '../types/socket-events.js';
 import { logger } from '../logger.js';
+import { config } from '../config.js';
+import { classifyAddress, type AddressClass } from '../utils/network.js';
 
 /**
  * MCP server for assistants (step 3): Grok (grok.com → Connectors → Custom),
@@ -221,7 +223,46 @@ export function buildMcpServer(caller: Caller): McpServer {
   return server;
 }
 
+export type McpAccess = 'any' | 'private' | 'tailscale';
+
+/**
+ * May a caller from this kind of address use the MCP endpoint?
+ *
+ * - any: everybody with a key (the endpoint may be on the public internet).
+ * - tailscale: only devices in the tailnet. Grokbot and Jarvis reach the NAS
+ *   over Tailscale, so the endpoint no longer has to be reachable from
+ *   outside at all, and a leaked key is useless to anybody else.
+ * - private: the tailnet and the home network.
+ *
+ * This machine itself (loopback) always may: that is `docker exec` and
+ * `tailscale serve`, whose requests arrive with the tailnet address of the
+ * caller in X-Forwarded-For. A request through the public reverse proxy
+ * arrives from loopback too, but carries the outside address there, and with
+ * `TRUST_PROXY=loopback` that outside address is what `req.ip` is.
+ */
+export function mcpAllows(mode: McpAccess, from: AddressClass): boolean {
+  if (mode === 'any' || from === 'loopback') return true;
+  if (from === 'tailscale') return true;
+  return mode === 'private' && from === 'private';
+}
+
 async function handle(req: Request, res: Response): Promise<void> {
+  const from = classifyAddress(req.ip);
+  if (!mcpAllows(config.mcpAccess, from)) {
+    logger.warn(`MCP: refused a ${from} address (MCP_ACCESS=${config.mcpAccess})`);
+    res.status(403).json({
+      jsonrpc: '2.0',
+      error: {
+        code: -32003,
+        message:
+          config.mcpAccess === 'tailscale'
+            ? 'This AudioServer answers MCP over Tailscale only; use its tailnet address.'
+            : 'This AudioServer answers MCP on the home network and over Tailscale only.',
+      },
+      id: null,
+    });
+    return;
+  }
   const caller = callerOf(req);
   if (!caller) {
     res.status(401).json({
